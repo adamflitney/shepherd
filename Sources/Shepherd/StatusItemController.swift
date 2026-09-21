@@ -50,14 +50,14 @@ final class StatusItemController: NSObject {
             keyEquivalent: ""
         ))
         menu.items.last?.target = self
+        let changeHotkeyItem = NSMenuItem(title: "Change Hotkey…", action: #selector(promptForHotkey), keyEquivalent: "")
+        changeHotkeyItem.target = self
+        menu.addItem(changeHotkeyItem)
         menu.addItem(.separator())
         let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         launchAtLoginItem.target = self
         launchAtLoginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(launchAtLoginItem)
-        let changeHotkeyItem = NSMenuItem(title: "Change Hotkey…", action: #selector(promptForHotkey), keyEquivalent: "")
-        changeHotkeyItem.target = self
-        menu.addItem(changeHotkeyItem)
         let notificationsItem = NSMenuItem(title: "Notifications", action: #selector(toggleNotifications), keyEquivalent: "")
         notificationsItem.target = self
         notificationsItem.state = notificationsEnabled?() == true ? .on : .off
