@@ -96,7 +96,7 @@ You can edit this field directly, or change it from the app: right-click the men
 
 `notifications.enabled` toggles whether shepherd posts a notification on blocked/done transitions — also available as a checkbox in the same right-click menu (**Notifications**). Turning it off doesn't revoke the OS-level permission, so re-enabling it later never needs a fresh authorization prompt.
 
-`terminal.appName` is which app shepherd brings to the front (via AppleScript `activate`) after switching to a session — defaults to `"Ghostty"`. Set it to `"iTerm2"` or `"Terminal"` if that's what you run Herdr in. Only works for AppleScript-scriptable terminals; GPU terminals like Alacritty, kitty, and WezTerm aren't supported. Takes effect on next launch.
+`terminal.appName` is which app shepherd brings to the front (via AppleScript `activate`) after switching to a session — defaults to `"Ghostty"`. Set it to `"Terminal"` or `"iTerm"` if that's what you run Herdr in (verified live: both respond to `tell application "<name>" to activate`). Note iTerm2's AppleScript name is `"iTerm"`, not `"iTerm2"` — the app is literally `iTerm.app` under the hood. Only works for AppleScript-scriptable terminals; GPU terminals like Alacritty, kitty, and WezTerm aren't supported. Takes effect on next launch.
 
 ## Dependencies
 
