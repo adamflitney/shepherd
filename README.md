@@ -1,3 +1,5 @@
+<img src="Resources/icon-preview/icon.png" width="96" height="96" alt="shepherd icon">
+
 # shepherd
 
 A native macOS menu-bar app for [Herdr](https://herdr.dev), a terminal workspace manager for AI coding agents. Herdr shows you which of your agent sessions need attention, but only while you're looking at a terminal. shepherd answers "which of my agents need me?" at a glance from the menu bar, and lets you switch to, create, or quickly ask something of a session without ever opening a terminal.
