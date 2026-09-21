@@ -12,23 +12,27 @@ public actor HerdrSessionBackend: SessionBackend {
     private let terminalActivator: any TerminalActivator
     private let hookStateStore: HookStateStore
     private let reconnectDelayNanoseconds: UInt64
+    private let periodicResyncDelayNanoseconds: UInt64
 
     private var projection = SessionProjection()
     private let hub = BackendEventHub()
     private var listenTask: Task<Void, Never>?
+    private var periodicResyncTask: Task<Void, Never>?
 
     public init(
         requestClient: RequestClient,
         eventTransport: any EventStreamTransport,
         terminalActivator: any TerminalActivator = NoOpTerminalActivator(),
         hookStateStore: HookStateStore = HookStateStore(),
-        reconnectDelayNanoseconds: UInt64 = 1_000_000_000
+        reconnectDelayNanoseconds: UInt64 = 1_000_000_000,
+        periodicResyncDelayNanoseconds: UInt64 = 60_000_000_000
     ) {
         self.requestClient = requestClient
         self.eventTransport = eventTransport
         self.terminalActivator = terminalActivator
         self.hookStateStore = hookStateStore
         self.reconnectDelayNanoseconds = reconnectDelayNanoseconds
+        self.periodicResyncDelayNanoseconds = periodicResyncDelayNanoseconds
     }
 
     public nonisolated func events() -> AsyncStream<BackendEvent> {
@@ -53,11 +57,35 @@ public actor HerdrSessionBackend: SessionBackend {
         listenTask = Task { [weak self] in
             await self?.listenLoop()
         }
+        periodicResyncTask = Task { [weak self] in
+            await self?.periodicResyncLoop()
+        }
     }
 
     public func stopListening() {
         listenTask?.cancel()
         listenTask = nil
+        periodicResyncTask?.cancel()
+        periodicResyncTask = nil
+    }
+
+    /// Defense-in-depth against a missed event on the live `pane.updated`
+    /// firehose: the only other correction is a full re-snapshot on
+    /// reconnect, so a single dropped frame (a network hiccup, a Herdr
+    /// server restart that doesn't cleanly close the old socket) would
+    /// otherwise leave a ghost or stale session in the store forever,
+    /// invisible to anything short of an app restart - this is exactly what
+    /// a user hit after several hours of uptime. `SessionsStore.apply` fully
+    /// replaces its session dictionary on every `.snapshot`, so this is a
+    /// self-correcting no-op whenever nothing actually drifted.
+    private func periodicResyncLoop() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: periodicResyncDelayNanoseconds)
+            if Task.isCancelled { break }
+            if let snapshot = try? await snapshot() {
+                hub.broadcast(.snapshot(snapshot))
+            }
+        }
     }
 
     public func focus(_ id: SessionID) async throws {

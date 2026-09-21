@@ -74,6 +74,28 @@ private final class RecordingActivator: TerminalActivator, @unchecked Sendable {
     await backend.stopListening()
 }
 
+@Test func herdrBackendPeriodicallyResyncsAsAFallbackForMissedEvents() async throws {
+    let requestTransport = InMemoryLineTransport(responses: [snapshotFixture, snapshotFixture])
+    let eventTransport = InMemoryEventTransport()
+    let backend = HerdrSessionBackend(
+        requestClient: RequestClient(transport: requestTransport),
+        eventTransport: eventTransport,
+        periodicResyncDelayNanoseconds: 1
+    )
+    var iterator = backend.events().makeAsyncIterator()
+
+    await backend.startListening()
+    _ = await iterator.next() // connecting
+    _ = await iterator.next() // connected
+    _ = await iterator.next() // initial snapshot from the listen loop
+
+    guard case .snapshot = await iterator.next() else {
+        Issue.record("expected a periodic resync snapshot event, even with no live pane events at all")
+        return
+    }
+    await backend.stopListening()
+}
+
 @Test func herdrBackendFocusCallsWorkspaceFocusAndActivatesTheTerminal() async throws {
     let requestTransport = InMemoryLineTransport(responses: [
         snapshotFixture,
