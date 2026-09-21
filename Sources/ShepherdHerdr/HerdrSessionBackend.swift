@@ -9,7 +9,7 @@ import ShepherdCore
 public actor HerdrSessionBackend: SessionBackend {
     private let requestClient: RequestClient
     private let eventTransport: any EventStreamTransport
-    private let terminalActivator: any TerminalActivator
+    private var terminalActivator: any TerminalActivator
     private let hookStateStore: HookStateStore
     private let reconnectDelayNanoseconds: UInt64
     private let periodicResyncDelayNanoseconds: UInt64
@@ -37,6 +37,12 @@ public actor HerdrSessionBackend: SessionBackend {
 
     public nonisolated func events() -> AsyncStream<BackendEvent> {
         hub.makeStream()
+    }
+
+    /// Lets the picked terminal be changed live (the menu bar's "Terminal"
+    /// submenu) without tearing down and rebuilding the whole backend.
+    public func setTerminalActivator(_ activator: any TerminalActivator) {
+        terminalActivator = activator
     }
 
     public func snapshot() async throws -> SessionsSnapshot {

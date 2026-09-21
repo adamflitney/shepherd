@@ -7,6 +7,9 @@ import ShepherdUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let backend: any SessionBackend
+    /// Applies a newly-picked terminal app to the live Herdr backend. `nil`
+    /// under `--fake`, since there's no real terminal to activate.
+    private let onTerminalAppNameChanged: ((String) -> Void)?
     private var store: SessionsStore!
     private var panel: PanelWindow!
     private var statusItemController: StatusItemController!
@@ -15,8 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let signposter = OSSignposter(subsystem: "com.adamflitney.shepherd", category: "panel")
     private let logger = Logger(subsystem: "com.adamflitney.shepherd", category: "hotkey")
 
-    init(backend: any SessionBackend) {
+    init(backend: any SessionBackend, onTerminalAppNameChanged: ((String) -> Void)? = nil) {
         self.backend = backend
+        self.onTerminalAppNameChanged = onTerminalAppNameChanged
         super.init()
     }
 
@@ -56,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notificationManager.setEnabled(!notificationManager.isEnabled)
         }
 
+        statusItemController.currentTerminalAppName = { ShepherdConfig.load().terminal.appName }
+        statusItemController.onSelectTerminal = { [weak self] appName in self?.changeTerminal(to: appName) }
+
         Task { await store.start() }
         observeStoreChanges()
         registerHotkey()
@@ -93,6 +100,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         config.hotkey.switchSession = binding
         try? config.save()
         return true
+    }
+
+    /// Persists the picked terminal and applies it live to the running
+    /// Herdr backend (a no-op under `--fake`), mirroring `changeHotkey`.
+    private func changeTerminal(to appName: String) {
+        var config = ShepherdConfig.load()
+        config.terminal.appName = appName
+        try? config.save()
+        onTerminalAppNameChanged?(appName)
     }
 
     /// Keeps the status item icon and notifications in sync outside of

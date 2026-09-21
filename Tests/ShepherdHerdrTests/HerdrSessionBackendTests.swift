@@ -117,6 +117,27 @@ private final class RecordingActivator: TerminalActivator, @unchecked Sendable {
     #expect(try JSONDecoder().decode(Shape.self, from: sent[1]).method == "workspace.focus")
 }
 
+@Test func herdrBackendFocusUsesANewlySetTerminalActivator() async throws {
+    let requestTransport = InMemoryLineTransport(responses: [
+        snapshotFixture,
+        Data(#"{"id":"req2","result":{"type":"ok"}}"#.utf8),
+    ])
+    let original = RecordingActivator()
+    let replacement = RecordingActivator()
+    let backend = HerdrSessionBackend(
+        requestClient: RequestClient(transport: requestTransport),
+        eventTransport: InMemoryEventTransport(),
+        terminalActivator: original
+    )
+    _ = try await backend.snapshot() // populates the route table
+
+    await backend.setTerminalActivator(replacement)
+    try await backend.focus(SessionID(rawValue: "agent:abc"))
+
+    #expect(original.activateCount == 0)
+    #expect(replacement.activateCount == 1)
+}
+
 @Test func herdrBackendFocusOnAnUnroutedSessionThrowsUnknownSession() async {
     let backend = HerdrSessionBackend(
         requestClient: RequestClient(transport: InMemoryLineTransport()),

@@ -33,6 +33,7 @@ MainActor.assumeIsolated {
     app.setActivationPolicy(.accessory)
 
     let backend: any SessionBackend
+    var onTerminalAppNameChanged: ((String) -> Void)?
     if CommandLine.arguments.contains("--fake") {
         backend = FakeSessionBackend(sessions: DemoSessions.all)
     } else {
@@ -46,9 +47,12 @@ MainActor.assumeIsolated {
         // context to await it in.
         Task { await herdrBackend.startListening() }
         backend = herdrBackend
+        onTerminalAppNameChanged = { appName in
+            Task { await herdrBackend.setTerminalActivator(AppleScriptTerminalActivator(appName: appName)) }
+        }
     }
 
-    let delegate = AppDelegate(backend: backend)
+    let delegate = AppDelegate(backend: backend, onTerminalAppNameChanged: onTerminalAppNameChanged)
     app.delegate = delegate
     app.run()
 }

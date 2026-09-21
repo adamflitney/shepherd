@@ -21,6 +21,20 @@ final class StatusItemController: NSObject {
     var onChangeHotkey: ((String) -> Bool)?
     var notificationsEnabled: (() -> Bool)?
     var onToggleNotifications: (() -> Void)?
+    /// Supplies the currently-configured terminal app name (for the
+    /// checkmark), and applies a picked one.
+    var currentTerminalAppName: (() -> String)?
+    var onSelectTerminal: ((String) -> Void)?
+
+    /// (menu label, actual AppleScript app name) - kept apart because
+    /// iTerm2's real AppleScript name is "iTerm" (it's literally iTerm.app
+    /// under the hood), which a free-text field made easy to get wrong.
+    /// A fixed picker sidesteps that entirely.
+    private let knownTerminals: [(label: String, appName: String)] = [
+        ("Ghostty", "Ghostty"),
+        ("Terminal", "Terminal"),
+        ("iTerm2", "iTerm"),
+    ]
 
     var button: NSStatusBarButton? { statusItem.button }
 
@@ -53,6 +67,7 @@ final class StatusItemController: NSObject {
         let changeHotkeyItem = NSMenuItem(title: "Change Hotkey…", action: #selector(promptForHotkey), keyEquivalent: "")
         changeHotkeyItem.target = self
         menu.addItem(changeHotkeyItem)
+        menu.addItem(terminalMenuItem())
         menu.addItem(.separator())
         let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         launchAtLoginItem.target = self
@@ -108,6 +123,26 @@ final class StatusItemController: NSObject {
 
     @objc private func toggleNotifications() {
         onToggleNotifications?()
+    }
+
+    private func terminalMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Terminal", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        let current = currentTerminalAppName?() ?? "Ghostty"
+        for terminal in knownTerminals {
+            let terminalItem = NSMenuItem(title: terminal.label, action: #selector(selectTerminal(_:)), keyEquivalent: "")
+            terminalItem.target = self
+            terminalItem.representedObject = terminal.appName
+            terminalItem.state = terminal.appName == current ? .on : .off
+            submenu.addItem(terminalItem)
+        }
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func selectTerminal(_ sender: NSMenuItem) {
+        guard let appName = sender.representedObject as? String else { return }
+        onSelectTerminal?(appName)
     }
 
     @objc private func toggleLaunchAtLogin() {

@@ -68,6 +68,7 @@ Right-click the menu bar icon for:
 
 - **Install Hooks…** / **Uninstall Hooks…** — installs Claude Code hooks that let shepherd distinguish *why* a session is blocked (a plain question vs. a permission prompt) and show todo progress while idle, richer than what Herdr's socket alone reports.
 - **Change Hotkey…** — set the quick-switcher's global hotkey (see [Configuration](#configuration)).
+- **Terminal** — a submenu to pick which terminal app shepherd raises after switching to a session (Ghostty, Terminal, or iTerm2), applied immediately.
 - **Launch at Login** — toggle starting shepherd automatically at login.
 - **Notifications** — toggle desktop notifications on/off (see [Configuration](#configuration)).
 - **Quit Shepherd**.
@@ -96,7 +97,7 @@ You can edit this field directly, or change it from the app: right-click the men
 
 `notifications.enabled` toggles whether shepherd posts a notification on blocked/done transitions — also available as a checkbox in the same right-click menu (**Notifications**). Turning it off doesn't revoke the OS-level permission, so re-enabling it later never needs a fresh authorization prompt.
 
-`terminal.appName` is which app shepherd brings to the front (via AppleScript `activate`) after switching to a session — defaults to `"Ghostty"`. Set it to `"Terminal"` or `"iTerm"` if that's what you run Herdr in (verified live: both respond to `tell application "<name>" to activate`). Note iTerm2's AppleScript name is `"iTerm"`, not `"iTerm2"` — the app is literally `iTerm.app` under the hood. Only works for AppleScript-scriptable terminals; GPU terminals like Alacritty, kitty, and WezTerm aren't supported. Takes effect on next launch.
+`terminal.appName` is which app shepherd brings to the front (via AppleScript `activate`) after switching to a session — defaults to `"Ghostty"`. Rather than editing this by hand (iTerm2's actual AppleScript name is `"iTerm"`, not `"iTerm2"` — it's literally `iTerm.app` under the hood, easy to get wrong as free text), pick it from the right-click menu's **Terminal** submenu, which only offers verified-correct names and applies immediately, no restart. Only AppleScript-scriptable terminals are supported (Ghostty, Terminal, iTerm2); GPU terminals like Alacritty, kitty, and WezTerm aren't.
 
 ## Dependencies
 
