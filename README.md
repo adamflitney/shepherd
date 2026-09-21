@@ -30,6 +30,29 @@ The inline quick-answer panel — ask a question without opening a terminal:
 
 *(All session/project names above are sanitized demo data, not real projects.)*
 
+## Icon guide
+
+**Attention badges** — the colored circle on each session row (and the menu bar icon, which shows the worst one across all sessions):
+
+| Icon | Meaning |
+|---|---|
+| 🔴 exclamation | **Blocked** — the agent is waiting on you (a question, a permission prompt) |
+| 🟢 checkmark | **Done** — the agent finished and is waiting for you to look |
+| 🔵 bolt | **Working** — the agent is actively running |
+| ⚪️ moon | **Idle** — nothing pending, not currently doing anything |
+| ⚪️ question mark | **Unknown** — Herdr hasn't reported a status yet |
+
+**Row icons**, on the right of each session:
+
+- **Speech bubble** — send a one-off prompt to that session without switching to it.
+- **Eye** — this is the session currently focused in the terminal.
+
+**Header button** (top-right of the panel, also triggered by Tab) — cycles between the panel's three modes, and its icon shows where Tab will take you next:
+
+- **+** (in session-switcher mode) → jump to the project picker to start a new session.
+- **Speech bubbles** (in the project picker) → jump to the inline quick-answer prompt.
+- **×** (in the quick-answer prompt) → back to the session switcher.
+
 ## Dependencies
 
 - **macOS 14+**
