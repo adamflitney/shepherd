@@ -11,7 +11,7 @@ A native macOS menu-bar app for [Herdr](https://herdr.dev), a terminal workspace
 - **Project picker** — from the same panel, fuzzy-search your projects (frecency-ranked) and start a new session in one, instead of hunting for the right directory.
 - **Inline quick-answer** — type a question directly into the panel and get an answer without switching to a terminal at all. If the question turns out to need real work, shepherd spawns a real session for it automatically and sends your question in.
 - **Peek** — press → on a selected session to see what's currently on its screen before deciding whether to switch to it.
-- **Notifications** — get notified when a session becomes blocked or finishes, so you don't have to keep the panel open to watch for it.
+- **Notifications** — get notified when a session becomes blocked or finishes, so you don't have to keep the panel open to watch for it. Toggle on/off from the menu bar.
 
 ## Screenshots
 
@@ -69,7 +69,8 @@ The inline quick-answer panel — ask a question without opening a terminal:
 ```json
 {
   "projects": { "directories": ["~/dev"], "exclude": [] },
-  "hotkey": { "switchSession": "hyper+w" }
+  "hotkey": { "switchSession": "hyper+w" },
+  "notifications": { "enabled": true }
 }
 ```
 
@@ -81,6 +82,8 @@ The inline quick-answer panel — ask a question without opening a terminal:
 Examples: `"hyper+w"` (the default), `"cmd+shift+k"`, `"ctrl+opt+space"`. An unrecognised token or a missing/duplicate key falls back to Hyper+W, logged to Console.
 
 You can edit this field directly, or change it from the app: right-click the menu bar icon → **Change Hotkey…**. That applies the new binding immediately (no restart) and writes it back to the config file.
+
+`notifications.enabled` toggles whether shepherd posts a notification on blocked/done transitions — also available as a checkbox in the same right-click menu (**Notifications**). Turning it off doesn't revoke the OS-level permission, so re-enabling it later never needs a fresh authorization prompt.
 
 ## Dependencies
 

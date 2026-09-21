@@ -25,27 +25,48 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// Whether shepherd posts desktop notifications on blocked/done transitions.
+/// Gates `NotificationManager` locally - the OS-level authorization request
+/// is untouched by this, so re-enabling never needs a fresh permission prompt.
+public struct NotificationsConfig: Codable, Equatable, Sendable {
+    public var enabled: Bool
+
+    public init(enabled: Bool) {
+        self.enabled = enabled
+    }
+}
+
 public struct ShepherdConfig: Codable, Equatable, Sendable {
     public var projects: ProjectsConfig
     public var hotkey: HotkeyConfig
+    public var notifications: NotificationsConfig
 
-    public init(projects: ProjectsConfig, hotkey: HotkeyConfig = HotkeyConfig(switchSession: "hyper+w")) {
+    public init(
+        projects: ProjectsConfig,
+        hotkey: HotkeyConfig = HotkeyConfig(switchSession: "hyper+w"),
+        notifications: NotificationsConfig = NotificationsConfig(enabled: true)
+    ) {
         self.projects = projects
         self.hotkey = hotkey
+        self.notifications = notifications
     }
 
-    // Custom decode so existing config files written before `hotkey` existed
-    // (no such key on disk) default to Hyper+W instead of failing to load.
+    // Custom decode so existing config files written before `hotkey`/
+    // `notifications` existed (no such keys on disk) default to Hyper+W and
+    // enabled notifications instead of failing to load.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         projects = try container.decode(ProjectsConfig.self, forKey: .projects)
         hotkey = try container.decodeIfPresent(HotkeyConfig.self, forKey: .hotkey)
             ?? HotkeyConfig(switchSession: "hyper+w")
+        notifications = try container.decodeIfPresent(NotificationsConfig.self, forKey: .notifications)
+            ?? NotificationsConfig(enabled: true)
     }
 
     public static let `default` = ShepherdConfig(
         projects: ProjectsConfig(directories: ["~/dev"], exclude: []),
-        hotkey: HotkeyConfig(switchSession: "hyper+w")
+        hotkey: HotkeyConfig(switchSession: "hyper+w"),
+        notifications: NotificationsConfig(enabled: true)
     )
 }
 

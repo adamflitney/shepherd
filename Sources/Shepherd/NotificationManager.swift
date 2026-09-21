@@ -20,6 +20,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     var onNotificationClicked: ((SessionID) -> Void)?
 
     private let isSupported = Bundle.main.bundleIdentifier != nil
+    /// Gates `update(sessions:)` locally, leaving OS-level authorization
+    /// alone - re-enabling never needs a fresh permission prompt.
+    private(set) var isEnabled = ShepherdConfig.load().notifications.enabled
 
     override init() {
         super.init()
@@ -28,8 +31,19 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
+    /// Persists the setting and, when disabling, drops any pending
+    /// "already notified" state so a later re-enable doesn't skip a
+    /// transition that happened while notifications were off.
+    func setEnabled(_ enabled: Bool) {
+        isEnabled = enabled
+        if !enabled { lastNotifiedKind = [:] }
+        var config = ShepherdConfig.load()
+        config.notifications.enabled = enabled
+        try? config.save()
+    }
+
     func update(sessions: [Session]) {
-        guard isSupported else { return }
+        guard isSupported, isEnabled else { return }
         let (toFire, updatedState) = notificationsToFire(for: sessions, lastNotifiedKind: lastNotifiedKind)
         lastNotifiedKind = updatedState
         for pending in toFire {

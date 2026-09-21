@@ -19,6 +19,8 @@ final class StatusItemController: NSObject {
     /// Applies a newly-entered binding; returns false (and the prompt
     /// re-shows an error) if it doesn't parse.
     var onChangeHotkey: ((String) -> Bool)?
+    var notificationsEnabled: (() -> Bool)?
+    var onToggleNotifications: (() -> Void)?
 
     var button: NSStatusBarButton? { statusItem.button }
 
@@ -56,6 +58,10 @@ final class StatusItemController: NSObject {
         let changeHotkeyItem = NSMenuItem(title: "Change Hotkey…", action: #selector(promptForHotkey), keyEquivalent: "")
         changeHotkeyItem.target = self
         menu.addItem(changeHotkeyItem)
+        let notificationsItem = NSMenuItem(title: "Notifications", action: #selector(toggleNotifications), keyEquivalent: "")
+        notificationsItem.target = self
+        notificationsItem.state = notificationsEnabled?() == true ? .on : .off
+        menu.addItem(notificationsItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Shepherd", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -98,6 +104,10 @@ final class StatusItemController: NSObject {
             error.informativeText = "The hotkey wasn't changed."
             error.runModal()
         }
+    }
+
+    @objc private func toggleNotifications() {
+        onToggleNotifications?()
     }
 
     @objc private func toggleLaunchAtLogin() {

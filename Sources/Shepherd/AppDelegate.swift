@@ -50,6 +50,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notificationManager.onNotificationClicked = { [weak self] id in self?.focusSession(id) }
         self.notificationManager = notificationManager
 
+        statusItemController.notificationsEnabled = { [weak notificationManager] in notificationManager?.isEnabled ?? true }
+        statusItemController.onToggleNotifications = { [weak notificationManager] in
+            guard let notificationManager else { return }
+            notificationManager.setEnabled(!notificationManager.isEnabled)
+        }
+
         Task { await store.start() }
         observeStoreChanges()
         registerHotkey()

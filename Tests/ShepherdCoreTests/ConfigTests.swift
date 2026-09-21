@@ -69,3 +69,23 @@ import Foundation
 @Test func parseHotkeyRejectsAStringWithNoKey() {
     #expect(parseHotkey("cmd+shift") == nil)
 }
+
+@Test func defaultConfigHasNotificationsEnabled() {
+    #expect(ShepherdConfig.default.notifications.enabled == true)
+}
+
+@Test func configWithoutANotificationsKeyDecodesToEnabled() throws {
+    let json = """
+    {"projects":{"directories":["~/dev"],"exclude":[]}}
+    """
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: Data(json.utf8))
+    #expect(decoded.notifications.enabled == true)
+}
+
+@Test func notificationsDisabledPersistsThroughARoundTrip() throws {
+    var cfg = ShepherdConfig.default
+    cfg.notifications.enabled = false
+    let data = try JSONEncoder().encode(cfg)
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: data)
+    #expect(decoded.notifications.enabled == false)
+}
