@@ -32,19 +32,21 @@ public struct SessionProjection {
     /// stays a pure function taking already-parsed data.
     public mutating func applySnapshot(
         _ snapshot: SessionSnapshotWire,
-        hookStates: [String: ParsedHookState] = [:]
+        hookStates: [String: ParsedHookState] = [:],
+        now: Date = Date()
     ) -> SessionsSnapshot {
         groupsByWorkspaceID = Dictionary(uniqueKeysWithValues: snapshot.workspaces.map {
             ($0.workspaceID, SessionGroup(id: $0.workspaceID, label: $0.label, ordinal: $0.number))
         })
 
+        let previouslyEmitted = lastEmitted
         lastEmitted = [:]
         routesByID = [:]
         var sessions: [Session] = []
         for pane in snapshot.panes where pane.agent != nil {
             let resolution = identity.resolve(paneID: pane.paneID, agentSession: pane.agentSession)
             let hookState = pane.agentSession.flatMap { hookStates[$0.value] }
-            let session = makeSession(from: pane, id: resolution.id, hookState: hookState)
+            let session = makeSession(from: pane, id: resolution.id, hookState: hookState, previous: previouslyEmitted[resolution.id], now: now)
             sessions.append(session)
             lastEmitted[session.id] = session
             routesByID[session.id] = HerdrRoute(paneID: pane.paneID, workspaceID: pane.workspaceID)
@@ -54,11 +56,11 @@ public struct SessionProjection {
     }
 
     /// Applies one `pane_updated` (or equivalent) observation.
-    public mutating func applyPaneObservation(_ pane: PaneWire, hookState: ParsedHookState? = nil) -> [BackendEvent] {
+    public mutating func applyPaneObservation(_ pane: PaneWire, hookState: ParsedHookState? = nil, now: Date = Date()) -> [BackendEvent] {
         guard pane.agent != nil else { return [] }
 
         let resolution = identity.resolve(paneID: pane.paneID, agentSession: pane.agentSession)
-        let session = makeSession(from: pane, id: resolution.id, hookState: hookState)
+        let session = makeSession(from: pane, id: resolution.id, hookState: hookState, previous: lastEmitted[resolution.id], now: now)
 
         var events: [BackendEvent] = []
         if let previousProvisionalID = resolution.previousProvisionalID {
@@ -83,13 +85,19 @@ public struct SessionProjection {
         return [.sessionRemoved(resolution.id)]
     }
 
-    private func makeSession(from pane: PaneWire, id: SessionID, hookState: ParsedHookState?) -> Session {
-        Session(
+    private func makeSession(from pane: PaneWire, id: SessionID, hookState: ParsedHookState?, previous: Session?, now: Date) -> Session {
+        var attention = reconcileAttention(herdrKind: mapHerdrAgentStatus(pane.agentStatus), hookState: hookState)
+        // `since` tracks when this session most recently *entered* its
+        // current attention kind - carried forward while the kind is
+        // unchanged, reset to `now` on any transition. This is what lets the
+        // UI order same-kind sessions (idle in particular) by recency.
+        attention.since = (previous?.attention.kind == attention.kind) ? previous?.attention.since : now
+        return Session(
             id: id,
             title: pane.terminalTitleStripped ?? pane.title ?? id.rawValue,
             agent: AgentKind(rawValue: pane.agent ?? "unknown"),
             workingDirectory: (pane.foregroundCwd ?? pane.cwd).map { URL(fileURLWithPath: $0) },
-            attention: reconcileAttention(herdrKind: mapHerdrAgentStatus(pane.agentStatus), hookState: hookState),
+            attention: attention,
             isFocused: pane.focused,
             group: groupsByWorkspaceID[pane.workspaceID],
             capabilities: [.focus, .close, .prompt]

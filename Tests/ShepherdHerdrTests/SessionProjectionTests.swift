@@ -92,6 +92,46 @@ private func pane(
     #expect(projection.applyPaneClosed(paneID: "never-seen").isEmpty)
 }
 
+@Test func projectionSetsSinceToNowOnTheFirstObservation() {
+    var projection = SessionProjection()
+    let now = Date(timeIntervalSince1970: 1_000)
+
+    let events = projection.applyPaneObservation(pane(status: "idle"), now: now)
+
+    guard case .sessionChanged(let session) = events[0] else {
+        Issue.record("expected sessionChanged"); return
+    }
+    #expect(session.attention.since == now)
+}
+
+@Test func projectionCarriesSinceForwardWhileTheKindIsUnchanged() {
+    var projection = SessionProjection()
+    let firstSeen = Date(timeIntervalSince1970: 1_000)
+    let laterTitleChange = Date(timeIntervalSince1970: 2_000)
+    _ = projection.applyPaneObservation(pane(status: "idle", title: "first"), now: firstSeen)
+
+    let events = projection.applyPaneObservation(pane(status: "idle", title: "second"), now: laterTitleChange)
+
+    guard case .sessionChanged(let session) = events[0] else {
+        Issue.record("expected sessionChanged"); return
+    }
+    #expect(session.attention.since == firstSeen)
+}
+
+@Test func projectionResetsSinceWhenTheKindChanges() {
+    var projection = SessionProjection()
+    let becameWorking = Date(timeIntervalSince1970: 1_000)
+    let becameIdle = Date(timeIntervalSince1970: 2_000)
+    _ = projection.applyPaneObservation(pane(status: "working"), now: becameWorking)
+
+    let events = projection.applyPaneObservation(pane(status: "idle"), now: becameIdle)
+
+    guard case .sessionChanged(let session) = events[0] else {
+        Issue.record("expected sessionChanged"); return
+    }
+    #expect(session.attention.since == becameIdle)
+}
+
 @Test func projectionSnapshotBuildsSessionsAndGroupsExcludingShellPanes() {
     var projection = SessionProjection()
     let snapshot = SessionSnapshotWire(

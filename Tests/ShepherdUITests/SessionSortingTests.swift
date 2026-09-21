@@ -3,8 +3,8 @@ import Testing
 @testable import ShepherdCore
 @testable import ShepherdUI
 
-private func session(_ id: String, _ kind: AttentionState.Kind, title: String? = nil) -> Session {
-    Session(id: SessionID(rawValue: id), title: title ?? id, agent: .claude, attention: AttentionState(kind: kind))
+private func session(_ id: String, _ kind: AttentionState.Kind, title: String? = nil, since: Date? = nil) -> Session {
+    Session(id: SessionID(rawValue: id), title: title ?? id, agent: .claude, attention: AttentionState(kind: kind, since: since))
 }
 
 @Test func sortSessionsOrdersByUrgencyBlockedFirst() {
@@ -19,6 +19,30 @@ private func session(_ id: String, _ kind: AttentionState.Kind, title: String? =
     let sorted = sortSessions(sessions).map(\.id.rawValue)
 
     #expect(sorted == ["b", "d", "c", "e", "a"])
+}
+
+@Test func sortSessionsOrdersSameKindSessionsMostRecentFirst() {
+    let now = Date()
+    let sessions = [
+        session("old", .idle, since: now.addingTimeInterval(-3600)),
+        session("new", .idle, since: now),
+        session("middle", .idle, since: now.addingTimeInterval(-60)),
+    ]
+
+    let sorted = sortSessions(sessions).map(\.id.rawValue)
+
+    #expect(sorted == ["new", "middle", "old"])
+}
+
+@Test func sortSessionsPutsSessionsWithNoSinceAfterOnesWithOne() {
+    let sessions = [
+        session("unknown-since", .idle, since: nil),
+        session("known-since", .idle, since: Date()),
+    ]
+
+    let sorted = sortSessions(sessions).map(\.id.rawValue)
+
+    #expect(sorted == ["known-since", "unknown-since"])
 }
 
 @Test func sortSessionsTieBreaksByTitleWithinTheSameUrgency() {

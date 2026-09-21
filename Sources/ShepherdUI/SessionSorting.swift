@@ -25,6 +25,16 @@ public func sortSessions(_ sessions: [Session]) -> [Session] {
         let lhsRank = urgencyRank(lhs.attention.kind)
         let rhsRank = urgencyRank(rhs.attention.kind)
         if lhsRank != rhsRank { return lhsRank < rhsRank }
+        // Within the same state, most-recently-entered-that-state first -
+        // idle sessions are usually the majority, so this is what makes the
+        // most recently idle ones easy to find instead of buried
+        // alphabetically among every idle session ever opened.
+        switch (lhs.attention.since, rhs.attention.since) {
+        case let (l?, r?) where l != r: return l > r
+        case (nil, .some): return false
+        case (.some, nil): return true
+        default: break
+        }
         return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
     }
 }
