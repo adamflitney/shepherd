@@ -1,9 +1,8 @@
 import Foundation
 
 /// Trimmed down from mac-sesh's `Config.swift` - shepherd only needs
-/// configurable project-scan directories for the project picker; the
-/// hotkey is a single hardcoded binding (see `Shepherd`'s `HotkeyManager`),
-/// so there's no `HotkeyConfig`/`SessionConfig` to carry over.
+/// configurable project-scan directories for the project picker, plus the
+/// quick-switcher hotkey binding ported from mac-sesh's `HotkeyConfig`.
 public struct ProjectsConfig: Codable, Equatable, Sendable {
     /// Root directories to scan for git projects.
     public var directories: [String]
@@ -16,16 +15,88 @@ public struct ProjectsConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// A human-readable hotkey binding like `"hyper+w"` or `"cmd+shift+k"`,
+/// parsed by `parseHotkey(_:)`.
+public struct HotkeyConfig: Codable, Equatable, Sendable {
+    public var switchSession: String
+
+    public init(switchSession: String) {
+        self.switchSession = switchSession
+    }
+}
+
 public struct ShepherdConfig: Codable, Equatable, Sendable {
     public var projects: ProjectsConfig
+    public var hotkey: HotkeyConfig
 
-    public init(projects: ProjectsConfig) {
+    public init(projects: ProjectsConfig, hotkey: HotkeyConfig = HotkeyConfig(switchSession: "hyper+w")) {
         self.projects = projects
+        self.hotkey = hotkey
+    }
+
+    // Custom decode so existing config files written before `hotkey` existed
+    // (no such key on disk) default to Hyper+W instead of failing to load.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        projects = try container.decode(ProjectsConfig.self, forKey: .projects)
+        hotkey = try container.decodeIfPresent(HotkeyConfig.self, forKey: .hotkey)
+            ?? HotkeyConfig(switchSession: "hyper+w")
     }
 
     public static let `default` = ShepherdConfig(
-        projects: ProjectsConfig(directories: ["~/dev"], exclude: [])
+        projects: ProjectsConfig(directories: ["~/dev"], exclude: []),
+        hotkey: HotkeyConfig(switchSession: "hyper+w")
     )
+}
+
+// MARK: - Hotkey parsing
+
+// Carbon modifier values as raw integers - no Carbon import needed here,
+// keeping ShepherdCore free of AppKit/Carbon dependencies.
+private let modifierMap: [String: Int] = [
+    "cmd": 256, "command": 256,
+    "shift": 512,
+    "opt": 2048, "option": 2048, "alt": 2048,
+    "ctrl": 4096, "control": 4096,
+    // Hyper = Cmd+Ctrl+Option+Shift (Caps Lock remap).
+    "hyper": 256 | 512 | 2048 | 4096,
+]
+
+// Carbon virtual key codes for printable keys and a small set of specials.
+private let keyCodeMap: [String: Int] = [
+    "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5,
+    "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12,
+    "w": 13, "e": 14, "r": 15, "y": 16, "t": 17,
+    "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23,
+    "9": 25, "7": 26, "8": 28, "0": 29,
+    "o": 31, "u": 32, "i": 34, "p": 35, "l": 37,
+    "j": 38, "k": 40, "n": 45, "m": 46,
+    "space": 49, "tab": 48, "return": 36, "escape": 53, "delete": 51,
+    "f1": 122, "f2": 120, "f3": 99, "f4": 118,
+    "f5": 96, "f6": 97, "f7": 98, "f8": 100,
+    "f9": 101, "f10": 109, "f11": 103, "f12": 111,
+]
+
+/// Parses a hotkey string like `"hyper+w"` or `"cmd+shift+k"` into a
+/// `(keyCode, modifiers)` pair suitable for Carbon `RegisterEventHotKey`.
+/// Returns nil if the string is malformed or uses an unrecognised key name.
+public func parseHotkey(_ string: String) -> (keyCode: Int, modifiers: Int)? {
+    let parts = string.lowercased().split(separator: "+").map(String.init)
+    var modifiers = 0
+    var keyName: String?
+
+    for part in parts {
+        if let mod = modifierMap[part] {
+            modifiers |= mod
+        } else if keyCodeMap[part] != nil {
+            keyName = part
+        } else {
+            return nil // unrecognised token
+        }
+    }
+
+    guard let keyName, let keyCode = keyCodeMap[keyName] else { return nil }
+    return (keyCode: keyCode, modifiers: modifiers)
 }
 
 // MARK: - Load / save

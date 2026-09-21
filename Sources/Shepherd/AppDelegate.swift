@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notificationManager: NotificationManager!
 
     private let signposter = OSSignposter(subsystem: "com.adamflitney.shepherd", category: "panel")
+    private let logger = Logger(subsystem: "com.adamflitney.shepherd", category: "hotkey")
 
     init(backend: any SessionBackend) {
         self.backend = backend
@@ -52,12 +53,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotkey()
     }
 
-    /// Hyper+W (Cmd+Ctrl+Opt+Shift+W) - same binding mac-sesh used, chosen
-    /// deliberately since mac-sesh isn't running day-to-day any more.
+    /// Reads `hotkey.switchSession` from config (default Hyper+W, same
+    /// binding mac-sesh used). Falls back to the hardcoded default if the
+    /// configured string is malformed, rather than leaving the app with no
+    /// hotkey registered at all.
     private func registerHotkey() {
-        let hyperModifiers = cmdKey | controlKey | optionKey | shiftKey
-        let wKeyCode = 13
-        registerGlobalHotkey(keyCode: wKeyCode, modifiers: Int(hyperModifiers)) { [weak self] in
+        let configured = ShepherdConfig.load().hotkey.switchSession
+        guard let parsed = parseHotkey(configured) else {
+            logger.error("Invalid hotkey \"\(configured, privacy: .public)\" in config, falling back to hyper+w")
+            registerGlobalHotkey(keyCode: 13, modifiers: Int(cmdKey | controlKey | optionKey | shiftKey)) { [weak self] in
+                self?.toggleQuickSwitcher()
+            }
+            return
+        }
+        registerGlobalHotkey(keyCode: parsed.keyCode, modifiers: parsed.modifiers) { [weak self] in
             self?.toggleQuickSwitcher()
         }
     }

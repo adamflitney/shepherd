@@ -33,3 +33,39 @@ import Foundation
     let home = FileManager.default.homeDirectoryForCurrentUser.path
     #expect(cfg.resolvedDirectories == ["\(home)/dev"])
 }
+
+@Test func defaultConfigUsesHyperWForTheQuickSwitcher() {
+    #expect(ShepherdConfig.default.hotkey.switchSession == "hyper+w")
+}
+
+@Test func configWithoutAHotkeyKeyDecodesToTheDefaultBinding() throws {
+    let json = """
+    {"projects":{"directories":["~/dev"],"exclude":[]}}
+    """
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: Data(json.utf8))
+    #expect(decoded.hotkey.switchSession == "hyper+w")
+}
+
+@Test func parseHotkeyReadsModifiersAndKeyCodeRegardlessOfOrder() {
+    let parsed = parseHotkey("cmd+shift+k")
+    #expect(parsed?.keyCode == 40)
+    #expect(parsed?.modifiers == 256 | 512)
+}
+
+@Test func parseHotkeyExpandsHyperToAllFourModifiers() {
+    let parsed = parseHotkey("hyper+w")
+    #expect(parsed?.keyCode == 13)
+    #expect(parsed?.modifiers == 256 | 512 | 2048 | 4096)
+}
+
+@Test func parseHotkeyIsCaseInsensitive() {
+    #expect(parseHotkey("Hyper+W")?.keyCode == parseHotkey("hyper+w")?.keyCode)
+}
+
+@Test func parseHotkeyRejectsAnUnrecognisedToken() {
+    #expect(parseHotkey("cmd+doesnotexist") == nil)
+}
+
+@Test func parseHotkeyRejectsAStringWithNoKey() {
+    #expect(parseHotkey("cmd+shift") == nil)
+}

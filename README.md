@@ -7,7 +7,7 @@ A native macOS menu-bar app for [Herdr](https://herdr.dev), a terminal workspace
 ## What it does
 
 - **Menu bar dashboard** — the icon shows your worst-case attention state across all sessions (blocked/done/working/idle/unknown) at a glance. Click it to see the full list.
-- **Quick switcher** — press a global hotkey (Hyper+W) from any app to pop up a searchable panel and jump straight to a session, fully keyboard-driven.
+- **Quick switcher** — press a global hotkey (Hyper+W by default, configurable) from any app to pop up a searchable panel and jump straight to a session, fully keyboard-driven.
 - **Project picker** — from the same panel, fuzzy-search your projects (frecency-ranked) and start a new session in one, instead of hunting for the right directory.
 - **Inline quick-answer** — type a question directly into the panel and get an answer without switching to a terminal at all. If the question turns out to need real work, shepherd spawns a real session for it automatically and sends your question in.
 - **Peek** — press → on a selected session to see what's currently on its screen before deciding whether to switch to it.
@@ -61,6 +61,19 @@ The inline quick-answer panel — ask a question without opening a terminal:
 - **+** (in Switch) → Create.
 - **Speech bubbles** (in Create) → Ask.
 - **×** (in Ask) → back to Switch.
+
+## Configuration
+
+`~/.config/shepherd/config.json` (created with defaults on first launch):
+
+```json
+{
+  "projects": { "directories": ["~/dev"], "exclude": [] },
+  "hotkey": { "switchSession": "hyper+w" }
+}
+```
+
+`hotkey.switchSession` accepts `+`-separated modifiers (`cmd`/`shift`/`opt`/`ctrl`, or `hyper` for all four) plus one key (a letter, digit, `space`/`tab`/`return`/`escape`/`delete`, or `f1`-`f12`), e.g. `"cmd+shift+k"`. An invalid binding falls back to Hyper+W. Takes effect on next launch.
 
 ## Dependencies
 
