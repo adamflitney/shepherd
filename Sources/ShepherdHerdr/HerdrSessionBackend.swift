@@ -162,6 +162,16 @@ public actor HerdrSessionBackend: SessionBackend {
         )
     }
 
+    public func peek(_ id: SessionID) async throws -> String {
+        guard let route = projection.route(for: id) else { throw BackendError.unknownSession(id) }
+        let result = try await requestClient.call(
+            method: "pane.read",
+            params: PaneReadParamsWire(paneID: route.paneID, source: "visible"),
+            resultType: PaneReadResultWire.self
+        )
+        return result.text
+    }
+
     // MARK: - Event connection
 
     private func listenLoop() async {
@@ -264,6 +274,16 @@ private struct AgentWaitParamsWire: Encodable {
 private struct AgentSendKeysParamsWire: Encodable {
     let target: String
     let keys: [String]
+}
+
+private struct PaneReadParamsWire: Encodable {
+    let paneID: String
+    let source: String
+    enum CodingKeys: String, CodingKey { case paneID = "pane_id", source }
+}
+
+private struct PaneReadResultWire: Decodable {
+    let text: String
 }
 
 private struct SubscribeParams: Encodable {

@@ -10,6 +10,7 @@ A native macOS menu-bar app for [Herdr](https://herdr.dev), a terminal workspace
 - **Quick switcher** — press a global hotkey (Hyper+W) from any app to pop up a searchable panel and jump straight to a session, fully keyboard-driven.
 - **Project picker** — from the same panel, fuzzy-search your projects (frecency-ranked) and start a new session in one, instead of hunting for the right directory.
 - **Inline quick-answer** — type a question directly into the panel and get an answer without switching to a terminal at all. If the question turns out to need real work, shepherd spawns a real session for it automatically and sends your question in.
+- **Peek** — press → on a selected session to see what's currently on its screen before deciding whether to switch to it.
 - **Notifications** — get notified when a session becomes blocked or finishes, so you don't have to keep the panel open to watch for it.
 
 ## Screenshots
@@ -46,6 +47,8 @@ The inline quick-answer panel — ask a question without opening a terminal:
 
 - **Speech bubble** — send a one-off prompt to that session without switching to it.
 - **Eye** — this is the session currently focused in the terminal.
+
+**Peek** — in the switcher, press → on the selected row to see what's currently on that session's screen without switching to it; ← or Esc goes back to the list.
 
 **Mode tabs** (top of the panel) — the highlighted tab is the panel's current mode; click any tab to jump straight there, or press Tab to cycle through them in order:
 

@@ -32,7 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return .failed("Shepherd is shutting down") }
                 return await self.runInlinePrompt(text, resumeSessionID: resumeSessionID)
             },
-            onPromoteInlineConversation: { [weak self] sessionID in self?.promoteInlineConversation(sessionID: sessionID) }
+            onPromoteInlineConversation: { [weak self] sessionID in self?.promoteInlineConversation(sessionID: sessionID) },
+            onPeekSession: { [weak self] id in
+                guard let self else { throw BackendError.unavailable("Shepherd is shutting down") }
+                return try await self.store.peek(id)
+            }
         )
 
         let statusItemController = StatusItemController()

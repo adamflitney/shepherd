@@ -80,6 +80,22 @@ private func makeSession(id: String, kind: AttentionState.Kind = .idle) -> Sessi
     #expect(snapshot.sessions.map(\.id).contains(newID))
 }
 
+@Test func fakeBackendPeekReturnsTheConfiguredText() async throws {
+    let backend = FakeSessionBackend(sessions: [makeSession(id: "agent:1")])
+    await backend.setPeekText("agent's last message", for: SessionID(rawValue: "agent:1"))
+
+    let text = try await backend.peek(SessionID(rawValue: "agent:1"))
+
+    #expect(text == "agent's last message")
+}
+
+@Test func fakeBackendPeekOnAnUnknownSessionThrows() async {
+    let backend = FakeSessionBackend(sessions: [])
+    await #expect(throws: BackendError.unknownSession(SessionID(rawValue: "missing"))) {
+        try await backend.peek(SessionID(rawValue: "missing"))
+    }
+}
+
 @Test func fakeBackendCloseRemovesSessionAndBroadcastsRemoval() async throws {
     let backend = FakeSessionBackend(sessions: [makeSession(id: "agent:1")])
     var iterator = backend.events().makeAsyncIterator()

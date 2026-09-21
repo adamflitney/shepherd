@@ -16,6 +16,7 @@ public struct SessionsListView: View {
     let onPromptSession: (SessionID, String) -> Void
     let onRunInlinePrompt: (String, String?) async -> InlinePromptOutcome
     let onPromoteInlineConversation: (String) -> Void
+    let onPeekSession: (SessionID) async throws -> String
 
     private enum Mode: Equatable {
         case sessions
@@ -43,6 +44,11 @@ public struct SessionsListView: View {
     @State private var isRunningInlinePrompt = false
     @State private var inlinePromptError: String?
 
+    @State private var peekingSessionID: SessionID?
+    @State private var peekText: String?
+    @State private var peekError: String?
+    @State private var isLoadingPeek = false
+
     public init(
         store: SessionsStore,
         onFocusSession: @escaping (SessionID) -> Void,
@@ -50,7 +56,8 @@ public struct SessionsListView: View {
         onCreateSession: @escaping (CreateSessionRequest) -> Void,
         onPromptSession: @escaping (SessionID, String) -> Void,
         onRunInlinePrompt: @escaping (String, String?) async -> InlinePromptOutcome,
-        onPromoteInlineConversation: @escaping (String) -> Void
+        onPromoteInlineConversation: @escaping (String) -> Void,
+        onPeekSession: @escaping (SessionID) async throws -> String
     ) {
         self.store = store
         self.onFocusSession = onFocusSession
@@ -59,6 +66,7 @@ public struct SessionsListView: View {
         self.onPromptSession = onPromptSession
         self.onRunInlinePrompt = onRunInlinePrompt
         self.onPromoteInlineConversation = onPromoteInlineConversation
+        self.onPeekSession = onPeekSession
     }
 
     /// All sessions, unfiltered, in the store's own urgency-then-group order.
@@ -110,6 +118,7 @@ public struct SessionsListView: View {
             selectedIndex = 0
             mode = .sessions
             resetInlinePromptState()
+            closePeek()
         }
     }
 
@@ -202,6 +211,7 @@ public struct SessionsListView: View {
         if mode == .prompt {
             resetInlinePromptState()
         }
+        closePeek()
         mode = newMode
         if newMode == .createProject {
             loadProjects()
@@ -288,11 +298,55 @@ public struct SessionsListView: View {
     private var content: some View {
         switch mode {
         case .sessions:
-            sessionList
+            if let peekingSessionID {
+                peekView(for: peekingSessionID)
+            } else {
+                sessionList
+            }
         case .createProject:
             projectList
         case .prompt:
             promptConversation
+        }
+    }
+
+    /// A one-shot look at a session's current screen, without switching to
+    /// it - `pane.read`'s raw "visible" text, trimmed of the padding blank
+    /// lines a terminal fills its height with, but otherwise unparsed. See
+    /// `SessionBackend.peek`'s doc comment for why this doesn't try to
+    /// extract a structured "last message."
+    @ViewBuilder
+    private func peekView(for sessionID: SessionID) -> some View {
+        let session = flatSessions.first(where: { $0.id == sessionID })
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Text(session?.group?.label ?? session?.title ?? sessionID.rawValue)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                Spacer()
+                Text("← back")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+            Divider()
+            ScrollView {
+                Group {
+                    if isLoadingPeek {
+                        ProgressView().controlSize(.small)
+                    } else if let peekError {
+                        Text(peekError).foregroundStyle(.red)
+                    } else if let peekText {
+                        Text(peekText)
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding(12)
+            }
         }
     }
 
@@ -399,6 +453,29 @@ public struct SessionsListView: View {
         onDismiss()
     }
 
+    private func startPeek(_ id: SessionID) {
+        peekingSessionID = id
+        peekText = nil
+        peekError = nil
+        isLoadingPeek = true
+        Task {
+            do {
+                let text = try await onPeekSession(id)
+                peekText = trimmedPeekText(text)
+            } catch {
+                peekError = "\(error)"
+            }
+            isLoadingPeek = false
+        }
+    }
+
+    private func closePeek() {
+        peekingSessionID = nil
+        peekText = nil
+        peekError = nil
+        isLoadingPeek = false
+    }
+
     // MARK: - Keyboard navigation
 
     private func installKeyMonitor() {
@@ -415,6 +492,18 @@ public struct SessionsListView: View {
                 return nil
             case 53: handleEscape(); return nil // escape
             case 48: advanceMode(); return nil // tab - cycle sessions/new-project/prompt mode
+            case 124: // right arrow - peek at the selected session's screen
+                if mode == .sessions, peekingSessionID == nil, displayedSessions.indices.contains(selectedIndex) {
+                    startPeek(displayedSessions[selectedIndex].id)
+                    return nil
+                }
+                return event
+            case 123: // left arrow - close the peek, back to the list
+                if peekingSessionID != nil {
+                    closePeek()
+                    return nil
+                }
+                return event
             default: return event
             }
         }
@@ -431,7 +520,9 @@ public struct SessionsListView: View {
     /// dismisses the panel - mirrors how the header button's own cycle
     /// always has a path back.
     private func handleEscape() {
-        if mode != .sessions {
+        if peekingSessionID != nil {
+            closePeek()
+        } else if mode != .sessions {
             mode = .sessions
             query = ""
             selectedIndex = 0

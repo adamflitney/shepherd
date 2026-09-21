@@ -64,13 +64,24 @@ public actor FakeSessionBackend: SessionBackend {
         hub.broadcast(.sessionChanged(session))
     }
 
+    public func peek(_ id: SessionID) async throws -> String {
+        guard let session = sessions[id] else { throw BackendError.unknownSession(id) }
+        return peekTexts[id] ?? "(demo) last screen for \(session.title) - \(session.attention.kind.rawValue)"
+    }
+
     // MARK: - Test/demo control surface
+
+    private var peekTexts: [SessionID: String] = [:]
 
     public func setAttention(_ attention: AttentionState, for id: SessionID) async {
         guard var session = sessions[id] else { return }
         session.attention = attention
         sessions[id] = session
         hub.broadcast(.sessionChanged(session))
+    }
+
+    public func setPeekText(_ text: String, for id: SessionID) async {
+        peekTexts[id] = text
     }
 
     public func simulateDisconnect(reason: String) async {

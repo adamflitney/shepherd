@@ -83,6 +83,10 @@ public final class SessionsStore {
         try await backend.createSession(request)
     }
 
+    public func peek(_ id: SessionID) async throws -> String {
+        try await backend.peek(id)
+    }
+
     public func prompt(_ id: SessionID, text: String) async throws {
         try await backend.prompt(id, text: text)
     }

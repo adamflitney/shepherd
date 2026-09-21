@@ -101,4 +101,11 @@ public protocol SessionBackend: Sendable {
     /// wait-for-completion) - matching the "bare creation only" MVP
     /// minimalism precedent. Interrupt is out of scope for this pass.
     func prompt(_ id: SessionID, text: String) async throws
+
+    /// A one-shot look at what's currently on that session's screen, for the
+    /// switcher's "peek" - deciding whether to switch to a session without
+    /// actually switching. Raw and unstructured (whatever's visible), not a
+    /// parsed "last message" - see `trimmedPeekText` for the only cleanup
+    /// applied before display.
+    func peek(_ id: SessionID) async throws -> String
 }
