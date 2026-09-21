@@ -47,11 +47,17 @@ The inline quick-answer panel — ask a question without opening a terminal:
 - **Speech bubble** — send a one-off prompt to that session without switching to it.
 - **Eye** — this is the session currently focused in the terminal.
 
-**Header button** (top-right of the panel, also triggered by Tab) — cycles between the panel's three modes, and its icon shows where Tab will take you next:
+**Mode tabs** (top of the panel) — the highlighted tab is the panel's current mode; click any tab to jump straight there, or press Tab to cycle through them in order:
 
-- **+** (in session-switcher mode) → jump to the project picker to start a new session.
-- **Speech bubbles** (in the project picker) → jump to the inline quick-answer prompt.
-- **×** (in the quick-answer prompt) → back to the session switcher.
+- **Switch** — jump to an existing session.
+- **Create** — start a new session in a project.
+- **Ask** — get a quick answer inline, without opening a session at all.
+
+**Header button** (top-right of the panel, also triggered by Tab) — a shortcut that cycles to the *next* mode, whose icon previews where it'll take you:
+
+- **+** (in Switch) → Create.
+- **Speech bubbles** (in Create) → Ask.
+- **×** (in Ask) → back to Switch.
 
 ## Dependencies
 

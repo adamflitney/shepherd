@@ -81,6 +81,7 @@ public struct SessionsListView: View {
     public var body: some View {
         VStack(spacing: 0) {
             header
+            modeTabBar
             searchBar
             Divider()
             if store.isStale {
@@ -151,21 +152,59 @@ public struct SessionsListView: View {
         }
     }
 
+    /// Labeled, directly-clickable alternative to the header button's cycle -
+    /// makes which of the three modes is active visually unambiguous, since
+    /// the header icon alone only hints at where Tab goes *next*.
+    private var modeTabBar: some View {
+        HStack(spacing: 4) {
+            modeTab("Switch", mode: .sessions)
+            modeTab("Create", mode: .createProject)
+            modeTab("Ask", mode: .prompt)
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private func modeTab(_ title: String, mode targetMode: Mode) -> some View {
+        let isActive = mode == targetMode
+        return Button {
+            setMode(targetMode)
+        } label: {
+            Text(title)
+                .font(.caption.weight(isActive ? .semibold : .regular))
+                .foregroundStyle(isActive ? Color.primary : Color.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isActive ? Color.accentColor.opacity(0.18) : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
     /// Tab and the header button both cycle sessions -> createProject ->
-    /// prompt -> sessions. Escape (`handleEscape`) is the shortcut back to
-    /// `.sessions` from either sub-mode without completing the cycle.
+    /// prompt -> sessions; `modeTabBar` jumps straight to any of the three.
+    /// Escape (`handleEscape`) is the shortcut back to `.sessions` from
+    /// either sub-mode without completing the cycle.
     private func advanceMode() {
+        switch mode {
+        case .sessions: setMode(.createProject)
+        case .createProject: setMode(.prompt)
+        case .prompt: setMode(.sessions)
+        }
+    }
+
+    private func setMode(_ newMode: Mode) {
+        guard newMode != mode else { return }
         query = ""
         selectedIndex = 0
-        switch mode {
-        case .sessions:
-            mode = .createProject
-            loadProjects()
-        case .createProject:
-            mode = .prompt
-        case .prompt:
-            mode = .sessions
+        if mode == .prompt {
             resetInlinePromptState()
+        }
+        mode = newMode
+        if newMode == .createProject {
+            loadProjects()
         }
         searchFocused = true
     }
