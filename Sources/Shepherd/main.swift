@@ -39,7 +39,7 @@ MainActor.assumeIsolated {
         let herdrBackend = HerdrSessionBackend(
             requestClient: RequestClient(transport: UnixSocketTransport()),
             eventTransport: UnixSocketTransport(),
-            terminalActivator: GhosttyTerminalActivator()
+            terminalActivator: AppleScriptTerminalActivator(appName: ShepherdConfig.load().terminal.appName)
         )
         // startListening() launches its own internal task loop and returns
         // quickly; fire-and-forget is fine since main.swift has no async

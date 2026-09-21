@@ -5,7 +5,7 @@ import ShepherdCore
 /// registers/removes them in `~/.claude/settings.json`. Pure decision logic
 /// (`stripShepherdHooks`/`insertShepherdHooks`) lives in ShepherdCore and is
 /// fully tested there; this is the thin, untested-by-unit-tests I/O edge -
-/// same tier as `UnixSocketTransport` or `GhosttyTerminalActivator`. Backs
+/// same tier as `UnixSocketTransport` or `AppleScriptTerminalActivator`. Backs
 /// up settings.json before every write, since it's a live file Claude Code
 /// itself depends on.
 enum HookInstaller {

@@ -36,24 +36,39 @@ public struct NotificationsConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// The AppleScript-activatable terminal app to raise after
+/// `workspace.focus` retargets Herdr's own internal focus. Defaults to
+/// Ghostty for backward compatibility - shepherd only ever supported
+/// Ghostty until this became configurable.
+public struct TerminalConfig: Codable, Equatable, Sendable {
+    public var appName: String
+
+    public init(appName: String) {
+        self.appName = appName
+    }
+}
+
 public struct ShepherdConfig: Codable, Equatable, Sendable {
     public var projects: ProjectsConfig
     public var hotkey: HotkeyConfig
     public var notifications: NotificationsConfig
+    public var terminal: TerminalConfig
 
     public init(
         projects: ProjectsConfig,
         hotkey: HotkeyConfig = HotkeyConfig(switchSession: "hyper+w"),
-        notifications: NotificationsConfig = NotificationsConfig(enabled: true)
+        notifications: NotificationsConfig = NotificationsConfig(enabled: true),
+        terminal: TerminalConfig = TerminalConfig(appName: "Ghostty")
     ) {
         self.projects = projects
         self.hotkey = hotkey
         self.notifications = notifications
+        self.terminal = terminal
     }
 
     // Custom decode so existing config files written before `hotkey`/
-    // `notifications` existed (no such keys on disk) default to Hyper+W and
-    // enabled notifications instead of failing to load.
+    // `notifications`/`terminal` existed (no such keys on disk) default to
+    // Hyper+W, enabled notifications, and Ghostty instead of failing to load.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         projects = try container.decode(ProjectsConfig.self, forKey: .projects)
@@ -61,12 +76,15 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
             ?? HotkeyConfig(switchSession: "hyper+w")
         notifications = try container.decodeIfPresent(NotificationsConfig.self, forKey: .notifications)
             ?? NotificationsConfig(enabled: true)
+        terminal = try container.decodeIfPresent(TerminalConfig.self, forKey: .terminal)
+            ?? TerminalConfig(appName: "Ghostty")
     }
 
     public static let `default` = ShepherdConfig(
         projects: ProjectsConfig(directories: ["~/dev"], exclude: []),
         hotkey: HotkeyConfig(switchSession: "hyper+w"),
-        notifications: NotificationsConfig(enabled: true)
+        notifications: NotificationsConfig(enabled: true),
+        terminal: TerminalConfig(appName: "Ghostty")
     )
 }
 

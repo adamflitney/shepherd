@@ -4,7 +4,7 @@ import Foundation
 /// the "home session, but inline in the panel" feature. Pure decode/decision
 /// logic lives here so it's fully testable without ever shelling out; the
 /// actual `Process` invocation is a thin I/O edge in the `Shepherd` target,
-/// same tier as `UnixSocketTransport` or `GhosttyTerminalActivator`.
+/// same tier as `UnixSocketTransport` or `AppleScriptTerminalActivator`.
 public struct PromptRunResult: Equatable, Sendable {
     public let rawText: String
     public let sessionID: String

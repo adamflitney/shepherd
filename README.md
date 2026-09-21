@@ -80,7 +80,8 @@ Right-click the menu bar icon for:
 {
   "projects": { "directories": ["~/dev"], "exclude": [] },
   "hotkey": { "switchSession": "hyper+w" },
-  "notifications": { "enabled": true }
+  "notifications": { "enabled": true },
+  "terminal": { "appName": "Ghostty" }
 }
 ```
 
@@ -94,6 +95,8 @@ Examples: `"hyper+w"` (the default), `"cmd+shift+k"`, `"ctrl+opt+space"`. An unr
 You can edit this field directly, or change it from the app: right-click the menu bar icon → **Change Hotkey…**. That applies the new binding immediately (no restart) and writes it back to the config file.
 
 `notifications.enabled` toggles whether shepherd posts a notification on blocked/done transitions — also available as a checkbox in the same right-click menu (**Notifications**). Turning it off doesn't revoke the OS-level permission, so re-enabling it later never needs a fresh authorization prompt.
+
+`terminal.appName` is which app shepherd brings to the front (via AppleScript `activate`) after switching to a session — defaults to `"Ghostty"`. Set it to `"iTerm2"` or `"Terminal"` if that's what you run Herdr in. Only works for AppleScript-scriptable terminals; GPU terminals like Alacritty, kitty, and WezTerm aren't supported. Takes effect on next launch.
 
 ## Dependencies
 

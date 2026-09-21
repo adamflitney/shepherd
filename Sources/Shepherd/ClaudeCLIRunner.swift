@@ -3,7 +3,7 @@ import ShepherdCore
 
 /// Shells out to the real `claude` CLI in `-p` (headless, non-interactive)
 /// mode for the inline quick-answer panel. Thin I/O edge, untested by unit
-/// tests - same tier as `UnixSocketTransport` or `GhosttyTerminalActivator`;
+/// tests - same tier as `UnixSocketTransport` or `AppleScriptTerminalActivator`;
 /// the decode/escalation logic it hands off to is fully tested in
 /// `ShepherdCore`'s `PromptRun.swift`.
 enum ClaudeCLIRunner {

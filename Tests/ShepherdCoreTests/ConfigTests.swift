@@ -89,3 +89,23 @@ import Foundation
     let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: data)
     #expect(decoded.notifications.enabled == false)
 }
+
+@Test func defaultConfigActivatesGhosttyForBackwardCompatibility() {
+    #expect(ShepherdConfig.default.terminal.appName == "Ghostty")
+}
+
+@Test func configWithoutATerminalKeyDecodesToGhostty() throws {
+    let json = """
+    {"projects":{"directories":["~/dev"],"exclude":[]}}
+    """
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: Data(json.utf8))
+    #expect(decoded.terminal.appName == "Ghostty")
+}
+
+@Test func aConfiguredTerminalAppNamePersistsThroughARoundTrip() throws {
+    var cfg = ShepherdConfig.default
+    cfg.terminal.appName = "iTerm2"
+    let data = try JSONEncoder().encode(cfg)
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: data)
+    #expect(decoded.terminal.appName == "iTerm2")
+}

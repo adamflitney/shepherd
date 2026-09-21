@@ -15,18 +15,28 @@ public struct NoOpTerminalActivator: TerminalActivator {
     public func activate() async {}
 }
 
-/// Brings Ghostty to the front via AppleScript, same technique as
-/// mac-sesh's `Ghostty.focusApp()`. Herdr's tab titles can't identify which
-/// Ghostty tab hosts a given client, so app-level activation is all that's
-/// possible - `workspace.focus` above already redirected Herdr's own focus.
-public struct GhosttyTerminalActivator: TerminalActivator {
-    public init() {}
+/// Brings the configured terminal app to the front via AppleScript, same
+/// technique as mac-sesh's `Ghostty.focusApp()` (which this generalizes -
+/// Ghostty was the only terminal shepherd supported until this became
+/// configurable). Herdr's tab titles can't identify which tab of a
+/// multi-window terminal hosts a given client, so app-level activation is
+/// all that's possible - `workspace.focus` above already redirected
+/// Herdr's own internal focus. Only works for terminals with an
+/// AppleScript `activate` verb (Ghostty, iTerm2, Terminal.app); GPU
+/// terminals like Alacritty/kitty/WezTerm have no scripting dictionary and
+/// need a different mechanism entirely (out of scope for now).
+public struct AppleScriptTerminalActivator: TerminalActivator {
+    public let appName: String
+
+    public init(appName: String) {
+        self.appName = appName
+    }
 
     public func activate() async {
         await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", #"tell application "Ghostty" to activate"#]
+            process.arguments = ["-e", "tell application \"\(appName)\" to activate"]
             process.terminationHandler = { _ in continuation.resume() }
             do {
                 try process.run()
