@@ -73,7 +73,14 @@ The inline quick-answer panel — ask a question without opening a terminal:
 }
 ```
 
-`hotkey.switchSession` accepts `+`-separated modifiers (`cmd`/`shift`/`opt`/`ctrl`, or `hyper` for all four) plus one key (a letter, digit, `space`/`tab`/`return`/`escape`/`delete`, or `f1`-`f12`), e.g. `"cmd+shift+k"`. An invalid binding falls back to Hyper+W. Takes effect on next launch.
+**Hotkey naming convention** — `hotkey.switchSession` is a string of `+`-separated tokens, all lowercase, modifiers first then exactly one key:
+
+- **Modifiers** (any combination, in any order): `cmd`, `shift`, `opt`, `ctrl` — or `hyper` as shorthand for all four at once (Cmd+Ctrl+Opt+Shift).
+- **Key** (exactly one, last): a single letter (`a`-`z`) or digit (`0`-`9`), `space`, `tab`, `return`, `escape`, `delete`, or `f1`-`f12`.
+
+Examples: `"hyper+w"` (the default), `"cmd+shift+k"`, `"ctrl+opt+space"`. An unrecognised token or a missing/duplicate key falls back to Hyper+W, logged to Console.
+
+You can edit this field directly, or change it from the app: right-click the menu bar icon → **Change Hotkey…**. That applies the new binding immediately (no restart) and writes it back to the config file.
 
 ## Dependencies
 

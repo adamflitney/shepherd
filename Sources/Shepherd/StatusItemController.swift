@@ -12,6 +12,13 @@ final class StatusItemController: NSObject {
     private let statusItem: NSStatusItem
     private var imageCache: [AttentionState.Kind: NSImage] = [:]
     var onToggle: (() -> Void)?
+    /// Supplies the currently-configured binding to prefill the "Change
+    /// Hotkey…" prompt - read fresh each time rather than cached, since it
+    /// can also change via editing the config file directly.
+    var currentHotkeyBinding: (() -> String)?
+    /// Applies a newly-entered binding; returns false (and the prompt
+    /// re-shows an error) if it doesn't parse.
+    var onChangeHotkey: ((String) -> Bool)?
 
     var button: NSStatusBarButton? { statusItem.button }
 
@@ -46,6 +53,9 @@ final class StatusItemController: NSObject {
         launchAtLoginItem.target = self
         launchAtLoginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(launchAtLoginItem)
+        let changeHotkeyItem = NSMenuItem(title: "Change Hotkey…", action: #selector(promptForHotkey), keyEquivalent: "")
+        changeHotkeyItem.target = self
+        menu.addItem(changeHotkeyItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Shepherd", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -62,6 +72,31 @@ final class StatusItemController: NSObject {
             }
         } catch {
             NSLog("Shepherd hook install/uninstall failed: \(error)")
+        }
+    }
+
+    /// Presents a text-entry alert prefilled with the current binding.
+    /// Re-prompts (with the invalid text still in the field) if the
+    /// entered string doesn't parse, rather than silently discarding it.
+    @objc private func promptForHotkey() {
+        let field = NSTextField(string: currentHotkeyBinding?() ?? "hyper+w")
+        field.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+
+        let alert = NSAlert()
+        alert.messageText = "Change Quick-Switcher Hotkey"
+        alert.informativeText = "Modifiers (cmd/shift/opt/ctrl, or hyper for all four) plus one key, joined with \"+\", e.g. \"cmd+shift+k\"."
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let entered = field.stringValue.trimmingCharacters(in: .whitespaces)
+        if onChangeHotkey?(entered) != true {
+            let error = NSAlert()
+            error.messageText = "Couldn't parse \"\(entered)\""
+            error.informativeText = "The hotkey wasn't changed."
+            error.runModal()
         }
     }
 

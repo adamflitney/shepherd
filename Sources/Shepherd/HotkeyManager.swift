@@ -43,3 +43,14 @@ func registerGlobalHotkey(keyCode: Int, modifiers: Int, handler: @escaping () ->
                         GetApplicationEventTarget(), 0, &ref)
     if let ref { hotkeyRefs[id] = ref }
 }
+
+/// Unregisters every hotkey registered via `registerGlobalHotkey`, so a new
+/// binding can be applied at runtime (e.g. from the menu bar) without
+/// leaving the old one still active alongside it.
+func unregisterAllHotkeys() {
+    for ref in hotkeyRefs.values {
+        UnregisterEventHotKey(ref)
+    }
+    hotkeyRefs.removeAll()
+    hotkeyHandlers.removeAll()
+}

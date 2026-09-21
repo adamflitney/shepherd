@@ -42,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let statusItemController = StatusItemController()
         statusItemController.onToggle = { [weak self] in self?.togglePanel() }
+        statusItemController.currentHotkeyBinding = { ShepherdConfig.load().hotkey.switchSession }
+        statusItemController.onChangeHotkey = { [weak self] binding in self?.changeHotkey(to: binding) ?? false }
         self.statusItemController = statusItemController
 
         let notificationManager = NotificationManager()
@@ -59,16 +61,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// hotkey registered at all.
     private func registerHotkey() {
         let configured = ShepherdConfig.load().hotkey.switchSession
-        guard let parsed = parseHotkey(configured) else {
+        if let parsed = parseHotkey(configured) {
+            registerGlobalHotkey(keyCode: parsed.keyCode, modifiers: parsed.modifiers) { [weak self] in
+                self?.toggleQuickSwitcher()
+            }
+        } else {
             logger.error("Invalid hotkey \"\(configured, privacy: .public)\" in config, falling back to hyper+w")
             registerGlobalHotkey(keyCode: 13, modifiers: Int(cmdKey | controlKey | optionKey | shiftKey)) { [weak self] in
                 self?.toggleQuickSwitcher()
             }
-            return
         }
+    }
+
+    /// Applies a new hotkey binding live (from the menu bar's "Change
+    /// Hotkey…" item) and persists it, so it survives the next launch too.
+    /// Returns false without touching the current binding if the string
+    /// doesn't parse.
+    private func changeHotkey(to binding: String) -> Bool {
+        guard let parsed = parseHotkey(binding) else { return false }
+        unregisterAllHotkeys()
         registerGlobalHotkey(keyCode: parsed.keyCode, modifiers: parsed.modifiers) { [weak self] in
             self?.toggleQuickSwitcher()
         }
+        var config = ShepherdConfig.load()
+        config.hotkey.switchSession = binding
+        try? config.save()
+        return true
     }
 
     /// Keeps the status item icon and notifications in sync outside of
