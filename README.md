@@ -62,6 +62,16 @@ The inline quick-answer panel — ask a question without opening a terminal:
 - **Speech bubbles** (in Create) → Ask.
 - **×** (in Ask) → back to Switch.
 
+## Menu bar options
+
+Right-click the menu bar icon for:
+
+- **Install Hooks…** / **Uninstall Hooks…** — installs Claude Code hooks that let shepherd distinguish *why* a session is blocked (a plain question vs. a permission prompt) and show todo progress while idle, richer than what Herdr's socket alone reports.
+- **Change Hotkey…** — set the quick-switcher's global hotkey (see [Configuration](#configuration)).
+- **Launch at Login** — toggle starting shepherd automatically at login.
+- **Notifications** — toggle desktop notifications on/off (see [Configuration](#configuration)).
+- **Quit Shepherd**.
+
 ## Configuration
 
 `~/.config/shepherd/config.json` (created with defaults on first launch):
