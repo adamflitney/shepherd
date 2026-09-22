@@ -161,7 +161,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func createSession(_ request: CreateSessionRequest) {
         Task {
-            _ = try? await store.createSession(request)
+            if let id = try? await store.createSession(request) {
+                try? await store.focus(id)
+            }
         }
     }
 
