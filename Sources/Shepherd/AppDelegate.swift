@@ -184,7 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let result = try await ClaudeCLIRunner.run(prompt: text, resumeSessionID: resumeSessionID)
             if shouldEscalateToSession(result) {
-                await spawnSession(workingDirectory: homeDirectory, initialPrompt: text, resumeSessionID: nil)
+                await spawnSession(workingDirectory: defaultSessionDirectory, initialPrompt: text, resumeSessionID: nil)
                 return .escalated
             }
             return .answered(text: displayText(for: result), sessionID: result.sessionID)
@@ -199,11 +199,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `--resume`, so nothing already said is lost.
     private func promoteInlineConversation(sessionID: String) {
         Task {
-            await spawnSession(workingDirectory: homeDirectory, initialPrompt: nil, resumeSessionID: sessionID)
+            await spawnSession(workingDirectory: defaultSessionDirectory, initialPrompt: nil, resumeSessionID: sessionID)
         }
     }
 
-    private var homeDirectory: URL { FileManager.default.homeDirectoryForCurrentUser }
+    /// `~/dev`, not `$HOME` - a real project-free home directory gave Claude
+    /// Code an extra/different trust prompt beyond the normal one-time
+    /// "trust this folder" dialog `createSession` knows how to dismiss,
+    /// which left an orphaned, agent-less workspace behind. `~/dev` is also
+    /// already this app's own default project-scan root (`ShepherdConfig`),
+    /// and a better default for context/memory of prior work than bare $HOME.
+    private var defaultSessionDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("dev")
+    }
 
     private func spawnSession(workingDirectory: URL, initialPrompt: String?, resumeSessionID: String?) async {
         let request = CreateSessionRequest(
