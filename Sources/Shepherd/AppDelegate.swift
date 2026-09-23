@@ -18,6 +18,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let signposter = OSSignposter(subsystem: "com.adamflitney.shepherd", category: "panel")
     private let logger = Logger(subsystem: "com.adamflitney.shepherd", category: "hotkey")
 
+    /// Pre-fetched at launch and every `reviewRefreshIntervalNanoseconds`,
+    /// so opening the Review tab shows something instantly instead of
+    /// waiting on a live `gh` round trip every time. Deliberately not
+    /// ignore-filtered here - see `loadReviewPRs()`.
+    private var cachedReviewPRs: [MatchedReviewPR] = []
+    private var cachedReviewPRsError: String?
+    private var isRefreshingReviewPRs = false
+    private var reviewRefreshTask: Task<Void, Never>?
+    private let reviewRefreshIntervalNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
+
     init(backend: any SessionBackend, onTerminalAppNameChanged: ((String) -> Void)? = nil) {
         self.backend = backend
         self.onTerminalAppNameChanged = onTerminalAppNameChanged
@@ -84,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await store.start() }
         observeStoreChanges()
         registerHotkey()
+        startReviewPRRefreshLoop()
     }
 
     /// Reads `hotkey.switchSession` from config (default Hyper+W, same
@@ -241,23 +252,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hide()
     }
 
+    /// Runs immediately (so the cache is already warm by the time anyone
+    /// opens the panel) and every `reviewRefreshIntervalNanoseconds`
+    /// after that.
+    private func startReviewPRRefreshLoop() {
+        reviewRefreshTask = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                await self.refreshReviewPRCache()
+                try? await Task.sleep(nanoseconds: self.reviewRefreshIntervalNanoseconds)
+            }
+        }
+    }
+
     /// Fetches PRs you're a requested reviewer on, matches each to an
     /// already-scanned local clone (a repo with none found this way is
     /// excluded entirely - Phase 1 doesn't clone), and applies the bot/
-    /// ignored/staleness filters. A `gh` search plus one `gh pr view` per
-    /// result, so this is genuinely async, unlike `loadProjects()`'s plain
-    /// disk scan.
-    private func loadReviewPRs() async throws -> [MatchedReviewPR] {
-        let prs = try await GitHubReviewFetcher.fetchReviewPRs()
-        let config = ShepherdConfig.load()
-        let projects = findGitProjects(in: config.resolvedDirectories).filter { !config.isExcluded($0.path) }
-        let localRepos = LocalRepoScanner.scan(projects)
-        let ignored = IgnoredPRStore().load()
-        let options = ReviewFilterOptions(includeBots: config.review.includeBots, hideOlderThanDays: config.review.hideOlderThanDays)
-        let filtered = filterReviewPRs(prs, ignored: ignored, options: options)
-        return filtered.compactMap { pr in
-            matchingLocalRepo(forSlug: pr.repoSlug, in: localRepos).map { MatchedReviewPR(pr: pr, localPath: $0.path) }
+    /// staleness filters (not the ignore filter - see `loadReviewPRs()`).
+    /// `guard`ed against overlap: the periodic loop and an on-demand
+    /// kick from `loadReviewPRs()` could otherwise both be mid-fetch at once.
+    private func refreshReviewPRCache() async {
+        guard !isRefreshingReviewPRs else { return }
+        isRefreshingReviewPRs = true
+        defer { isRefreshingReviewPRs = false }
+
+        do {
+            let prs = try await GitHubReviewFetcher.fetchReviewPRs()
+            let config = ShepherdConfig.load()
+            let projects = findGitProjects(in: config.resolvedDirectories).filter { !config.isExcluded($0.path) }
+            let localRepos = LocalRepoScanner.scan(projects)
+            let options = ReviewFilterOptions(includeBots: config.review.includeBots, hideOlderThanDays: config.review.hideOlderThanDays)
+            let filtered = filterReviewPRs(prs, ignored: [], options: options)
+            cachedReviewPRs = filtered.compactMap { pr in
+                matchingLocalRepo(forSlug: pr.repoSlug, in: localRepos).map { MatchedReviewPR(pr: pr, localPath: $0.path) }
+            }
+            cachedReviewPRsError = nil
+        } catch {
+            cachedReviewPRsError = "\(error)"
         }
+    }
+
+    /// Returns the pre-fetched cache instantly rather than making the
+    /// Review tab wait on a live `gh` round trip on every open, and kicks
+    /// a background refresh for next time. The ignore filter is applied
+    /// here (not baked into the cache), so ignoring a PR takes effect on
+    /// the very next open instead of waiting for the next scheduled
+    /// refresh. If the cache is still empty from a launch-time fetch that
+    /// hasn't completed yet, this can briefly show nothing rather than a
+    /// loading spinner - a one-time, launch-only trade-off for never
+    /// blocking on ordinary tab switches.
+    private func loadReviewPRs() async throws -> [MatchedReviewPR] {
+        Task { await refreshReviewPRCache() }
+        let ignored = IgnoredPRStore().load()
+        let visible = cachedReviewPRs.filter { !ignored.contains($0.pr.id) }
+        if visible.isEmpty, cachedReviewPRs.isEmpty, let cachedReviewPRsError {
+            throw ReviewCacheError(message: cachedReviewPRsError)
+        }
+        return visible
     }
 
     /// Creates (or reuses) an isolated worktree for the PR's branch, then
@@ -286,4 +336,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Give me a summary of the changes and flag anything that looks concerning or worth discussing.
         """
     }
+}
+
+private struct ReviewCacheError: Error, CustomStringConvertible {
+    let message: String
+    var description: String { message }
 }
