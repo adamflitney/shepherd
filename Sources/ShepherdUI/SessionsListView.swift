@@ -208,15 +208,24 @@ public struct SessionsListView: View {
         guard newMode != mode else { return }
         query = ""
         selectedIndex = 0
-        if mode == .prompt {
-            resetInlinePromptState()
-        }
+        // Deliberately NOT resetting inline-prompt state here - switching
+        // tabs to check something else and coming back to Ask should find
+        // the conversation still there; `startNewInlinePrompt()` is the
+        // explicit way to clear it.
         closePeek()
         mode = newMode
         if newMode == .createProject {
             loadProjects()
         }
         searchFocused = true
+    }
+
+    /// The explicit "wipe it and start over" action for the Ask tab -
+    /// switching tabs and back no longer clears the conversation on its
+    /// own, so this is how a genuinely new one gets started.
+    private func startNewInlinePrompt() {
+        resetInlinePromptState()
+        query = ""
     }
 
     /// Project discovery + frecency scoring is a disk scan and a UserDefaults
@@ -252,9 +261,21 @@ public struct SessionsListView: View {
             if mode == .prompt && isRunningInlinePrompt {
                 ProgressView().controlSize(.small)
             }
+            if mode == .prompt && hasInlineConversation && !isRunningInlinePrompt {
+                Button(action: startNewInlinePrompt) {
+                    Image(systemName: "plus.bubble")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Start a new conversation")
+            }
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+
+    private var hasInlineConversation: Bool {
+        !exchanges.isEmpty || promptConversationID != nil || inlinePromptError != nil
     }
 
     private func promptForm(for sessionID: SessionID) -> some View {
