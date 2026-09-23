@@ -203,14 +203,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// `~/dev`, not `$HOME` - a real project-free home directory gave Claude
-    /// Code an extra/different trust prompt beyond the normal one-time
-    /// "trust this folder" dialog `createSession` knows how to dismiss,
-    /// which left an orphaned, agent-less workspace behind. `~/dev` is also
-    /// already this app's own default project-scan root (`ShepherdConfig`),
-    /// and a better default for context/memory of prior work than bare $HOME.
+    /// `sessions.defaultDirectory` from config (default `~`) - a generic,
+    /// always-valid default, but overridable (e.g. to `~/dev`) for
+    /// better context/memory of prior work if that fits how you use shepherd.
     private var defaultSessionDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("dev")
+        URL(fileURLWithPath: ShepherdConfig.load().resolvedDefaultSessionDirectory)
     }
 
     private func spawnSession(workingDirectory: URL, initialPrompt: String?, resumeSessionID: String?) async {

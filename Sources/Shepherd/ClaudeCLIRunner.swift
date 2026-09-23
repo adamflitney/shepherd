@@ -46,12 +46,11 @@ enum ClaudeCLIRunner {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: claudePath)
             process.arguments = arguments(prompt: prompt, resumeSessionID: resumeSessionID)
-            // ~/dev, not $HOME - matches AppDelegate.defaultSessionDirectory,
-            // so an escalated/promoted session (a real interactive `claude`,
-            // started via Herdr) runs in the same place this headless one
-            // did, and gets better context/memory of prior work than a
-            // project-free home directory.
-            process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("dev")
+            // Matches AppDelegate.defaultSessionDirectory (sessions.defaultDirectory,
+            // default ~), so an escalated/promoted session (a real
+            // interactive `claude`, started via Herdr) runs in the same
+            // place this headless one did.
+            process.currentDirectoryURL = URL(fileURLWithPath: ShepherdConfig.load().resolvedDefaultSessionDirectory)
 
             let stdout = Pipe()
             process.standardOutput = stdout

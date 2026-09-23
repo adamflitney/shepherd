@@ -82,7 +82,8 @@ Right-click the menu bar icon for:
   "projects": { "directories": ["~/dev"], "exclude": [] },
   "hotkey": { "switchSession": "hyper+w" },
   "notifications": { "enabled": true },
-  "terminal": { "appName": "Ghostty" }
+  "terminal": { "appName": "Ghostty" },
+  "sessions": { "defaultDirectory": "~" }
 }
 ```
 
@@ -98,6 +99,8 @@ You can edit this field directly, or change it from the app: right-click the men
 `notifications.enabled` toggles whether shepherd posts a notification on blocked/done transitions — also available as a checkbox in the same right-click menu (**Notifications**). Turning it off doesn't revoke the OS-level permission, so re-enabling it later never needs a fresh authorization prompt.
 
 `terminal.appName` is which app shepherd brings to the front (via AppleScript `activate`) after switching to a session — defaults to `"Ghostty"`. Rather than editing this by hand (iTerm2's actual AppleScript name is `"iTerm"`, not `"iTerm2"` — it's literally `iTerm.app` under the hood, easy to get wrong as free text), pick it from the right-click menu's **Terminal** submenu, which only offers verified-correct names and applies immediately, no restart. Only AppleScript-scriptable terminals are supported (Ghostty, Terminal, iTerm2); GPU terminals like Alacritty, kitty, and WezTerm aren't.
+
+`sessions.defaultDirectory` is where the inline quick-answer panel's escalated/promoted sessions get created — defaults to `"~"`. Set it to `"~/dev"` (or wherever your projects live) for better context/memory of prior work. Takes effect on next launch.
 
 ## Dependencies
 

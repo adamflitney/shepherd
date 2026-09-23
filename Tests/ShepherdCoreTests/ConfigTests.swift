@@ -109,3 +109,30 @@ import Foundation
     let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: data)
     #expect(decoded.terminal.appName == "iTerm2")
 }
+
+@Test func defaultConfigCreatesNewSessionsInHome() {
+    #expect(ShepherdConfig.default.sessions.defaultDirectory == "~")
+}
+
+@Test func configWithoutASessionsKeyDecodesToHome() throws {
+    let json = """
+    {"projects":{"directories":["~/dev"],"exclude":[]}}
+    """
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: Data(json.utf8))
+    #expect(decoded.sessions.defaultDirectory == "~")
+}
+
+@Test func aConfiguredDefaultSessionDirectoryPersistsThroughARoundTrip() throws {
+    var cfg = ShepherdConfig.default
+    cfg.sessions.defaultDirectory = "~/dev"
+    let data = try JSONEncoder().encode(cfg)
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: data)
+    #expect(decoded.sessions.defaultDirectory == "~/dev")
+}
+
+@Test func resolvedDefaultSessionDirectoryExpandsTilde() {
+    var cfg = ShepherdConfig.default
+    cfg.sessions.defaultDirectory = "~/dev"
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    #expect(cfg.resolvedDefaultSessionDirectory == "\(home)/dev")
+}

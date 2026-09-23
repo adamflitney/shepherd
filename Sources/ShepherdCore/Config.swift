@@ -48,27 +48,43 @@ public struct TerminalConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// Where the inline quick-answer's escalated/promoted sessions get
+/// created. Defaults to `~` - a generic, always-valid choice; `~/dev`
+/// (or any other directory) is available with better context/memory of
+/// prior work if that fits how you use shepherd.
+public struct SessionsConfig: Codable, Equatable, Sendable {
+    public var defaultDirectory: String
+
+    public init(defaultDirectory: String) {
+        self.defaultDirectory = defaultDirectory
+    }
+}
+
 public struct ShepherdConfig: Codable, Equatable, Sendable {
     public var projects: ProjectsConfig
     public var hotkey: HotkeyConfig
     public var notifications: NotificationsConfig
     public var terminal: TerminalConfig
+    public var sessions: SessionsConfig
 
     public init(
         projects: ProjectsConfig,
         hotkey: HotkeyConfig = HotkeyConfig(switchSession: "hyper+w"),
         notifications: NotificationsConfig = NotificationsConfig(enabled: true),
-        terminal: TerminalConfig = TerminalConfig(appName: "Ghostty")
+        terminal: TerminalConfig = TerminalConfig(appName: "Ghostty"),
+        sessions: SessionsConfig = SessionsConfig(defaultDirectory: "~")
     ) {
         self.projects = projects
         self.hotkey = hotkey
         self.notifications = notifications
         self.terminal = terminal
+        self.sessions = sessions
     }
 
     // Custom decode so existing config files written before `hotkey`/
-    // `notifications`/`terminal` existed (no such keys on disk) default to
-    // Hyper+W, enabled notifications, and Ghostty instead of failing to load.
+    // `notifications`/`terminal`/`sessions` existed (no such keys on disk)
+    // default to Hyper+W, enabled notifications, Ghostty, and $HOME
+    // instead of failing to load.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         projects = try container.decode(ProjectsConfig.self, forKey: .projects)
@@ -78,13 +94,16 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
             ?? NotificationsConfig(enabled: true)
         terminal = try container.decodeIfPresent(TerminalConfig.self, forKey: .terminal)
             ?? TerminalConfig(appName: "Ghostty")
+        sessions = try container.decodeIfPresent(SessionsConfig.self, forKey: .sessions)
+            ?? SessionsConfig(defaultDirectory: "~")
     }
 
     public static let `default` = ShepherdConfig(
         projects: ProjectsConfig(directories: ["~/dev"], exclude: []),
         hotkey: HotkeyConfig(switchSession: "hyper+w"),
         notifications: NotificationsConfig(enabled: true),
-        terminal: TerminalConfig(appName: "Ghostty")
+        terminal: TerminalConfig(appName: "Ghostty"),
+        sessions: SessionsConfig(defaultDirectory: "~")
     )
 }
 
@@ -181,6 +200,11 @@ public extension ShepherdConfig {
         projects.exclude
             .map(expandTilde)
             .contains { path.hasPrefix($0) }
+    }
+
+    /// `sessions.defaultDirectory` with tilde expanded.
+    var resolvedDefaultSessionDirectory: String {
+        expandTilde(sessions.defaultDirectory)
     }
 }
 
