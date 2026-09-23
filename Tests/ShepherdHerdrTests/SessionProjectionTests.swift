@@ -132,6 +132,68 @@ private func pane(
     #expect(session.attention.since == becameIdle)
 }
 
+@Test func projectionSnapshotUsesSeedSinceWhenTheSeedsKindStillMatches() {
+    var projection = SessionProjection()
+    let persistedSince = Date(timeIntervalSince1970: 1_000)
+    let launchTime = Date(timeIntervalSince1970: 5_000)
+    let snapshot = SessionSnapshotWire(workspaces: [], panes: [pane(status: "idle")], focusedPaneID: nil)
+
+    let result = projection.applySnapshot(
+        snapshot,
+        seedAttention: [SessionID(rawValue: "agent:abc"): PersistedSessionAttention(kind: "idle", since: persistedSince)],
+        now: launchTime
+    )
+
+    #expect(result.sessions.first?.attention.since == persistedSince)
+}
+
+@Test func projectionSnapshotIgnoresSeedSinceWhenTheKindNoLongerMatches() {
+    var projection = SessionProjection()
+    let persistedSince = Date(timeIntervalSince1970: 1_000)
+    let launchTime = Date(timeIntervalSince1970: 5_000)
+    let snapshot = SessionSnapshotWire(workspaces: [], panes: [pane(status: "working")], focusedPaneID: nil)
+
+    let result = projection.applySnapshot(
+        snapshot,
+        seedAttention: [SessionID(rawValue: "agent:abc"): PersistedSessionAttention(kind: "idle", since: persistedSince)],
+        now: launchTime
+    )
+
+    #expect(result.sessions.first?.attention.since == launchTime)
+}
+
+@Test func projectionSnapshotSeedIsOnlyConsultedWhenThereIsNoInProcessHistoryYet() {
+    var projection = SessionProjection()
+    let inProcessSince = Date(timeIntervalSince1970: 1_000)
+    let secondSnapshotTime = Date(timeIntervalSince1970: 2_000)
+    let staleSeed = Date(timeIntervalSince1970: 500)
+    _ = projection.applySnapshot(
+        SessionSnapshotWire(workspaces: [], panes: [pane(status: "idle")], focusedPaneID: nil),
+        now: inProcessSince
+    )
+
+    let result = projection.applySnapshot(
+        SessionSnapshotWire(workspaces: [], panes: [pane(status: "idle")], focusedPaneID: nil),
+        seedAttention: [SessionID(rawValue: "agent:abc"): PersistedSessionAttention(kind: "idle", since: staleSeed)],
+        now: secondSnapshotTime
+    )
+
+    #expect(result.sessions.first?.attention.since == inProcessSince)
+}
+
+@Test func currentPersistedAttentionReflectsTheLatestSnapshot() {
+    var projection = SessionProjection()
+    let since = Date(timeIntervalSince1970: 1_000)
+    _ = projection.applySnapshot(
+        SessionSnapshotWire(workspaces: [], panes: [pane(status: "idle")], focusedPaneID: nil),
+        now: since
+    )
+
+    let persisted = projection.currentPersistedAttention()
+
+    #expect(persisted[SessionID(rawValue: "agent:abc")] == PersistedSessionAttention(kind: "idle", since: since))
+}
+
 @Test func projectionSnapshotBuildsSessionsAndGroupsExcludingShellPanes() {
     var projection = SessionProjection()
     let snapshot = SessionSnapshotWire(

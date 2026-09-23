@@ -11,6 +11,7 @@ public actor HerdrSessionBackend: SessionBackend {
     private let eventTransport: any EventStreamTransport
     private var terminalActivator: any TerminalActivator
     private let hookStateStore: HookStateStore
+    private let attentionSinceStore: AttentionSinceStore
     private let reconnectDelayNanoseconds: UInt64
     private let periodicResyncDelayNanoseconds: UInt64
 
@@ -18,12 +19,17 @@ public actor HerdrSessionBackend: SessionBackend {
     private let hub = BackendEventHub()
     private var listenTask: Task<Void, Never>?
     private var periodicResyncTask: Task<Void, Never>?
+    /// Loaded once and consumed by the first `applySnapshot` call only -
+    /// every call after that has real `previous` values from this same
+    /// process, so the persisted seed is no longer relevant.
+    private var pendingSeedAttention: [SessionID: PersistedSessionAttention]?
 
     public init(
         requestClient: RequestClient,
         eventTransport: any EventStreamTransport,
         terminalActivator: any TerminalActivator = NoOpTerminalActivator(),
         hookStateStore: HookStateStore = HookStateStore(),
+        attentionSinceStore: AttentionSinceStore = AttentionSinceStore(),
         reconnectDelayNanoseconds: UInt64 = 1_000_000_000,
         periodicResyncDelayNanoseconds: UInt64 = 60_000_000_000
     ) {
@@ -31,8 +37,10 @@ public actor HerdrSessionBackend: SessionBackend {
         self.eventTransport = eventTransport
         self.terminalActivator = terminalActivator
         self.hookStateStore = hookStateStore
+        self.attentionSinceStore = attentionSinceStore
         self.reconnectDelayNanoseconds = reconnectDelayNanoseconds
         self.periodicResyncDelayNanoseconds = periodicResyncDelayNanoseconds
+        self.pendingSeedAttention = attentionSinceStore.load()
     }
 
     public nonisolated func events() -> AsyncStream<BackendEvent> {
@@ -49,7 +57,11 @@ public actor HerdrSessionBackend: SessionBackend {
         let result = try await requestClient.call(
             method: "session.snapshot", params: EmptyParams(), resultType: SessionSnapshotResultWire.self
         )
-        return projection.applySnapshot(result.snapshot, hookStates: hookStateStore.allStates())
+        let seed = pendingSeedAttention ?? [:]
+        pendingSeedAttention = nil
+        let snapshot = projection.applySnapshot(result.snapshot, hookStates: hookStateStore.allStates(), seedAttention: seed)
+        attentionSinceStore.save(projection.currentPersistedAttention())
+        return snapshot
     }
 
     /// Starts the persistent event connection. Subscribes to the
@@ -255,14 +267,18 @@ public actor HerdrSessionBackend: SessionBackend {
         case "pane_updated":
             guard let payload = try? HerdrWire.decodeEventData(PaneUpdatedEventDataWire.self, from: frame) else { return }
             let hookState = payload.pane.agentSession.flatMap { hookStateStore.state(forSessionUUID: $0.value) }
-            for event in projection.applyPaneObservation(payload.pane, hookState: hookState) {
+            let events = projection.applyPaneObservation(payload.pane, hookState: hookState)
+            for event in events {
                 hub.broadcast(event)
             }
+            if !events.isEmpty { attentionSinceStore.save(projection.currentPersistedAttention()) }
         case "pane_closed":
             guard let payload = try? HerdrWire.decodeEventData(PaneClosedEventDataWire.self, from: frame) else { return }
-            for event in projection.applyPaneClosed(paneID: payload.paneID) {
+            let events = projection.applyPaneClosed(paneID: payload.paneID)
+            for event in events {
                 hub.broadcast(event)
             }
+            if !events.isEmpty { attentionSinceStore.save(projection.currentPersistedAttention()) }
         default:
             break
         }

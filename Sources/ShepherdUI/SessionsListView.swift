@@ -392,23 +392,30 @@ public struct SessionsListView: View {
         if sessions.isEmpty {
             emptyState(query.isEmpty ? "No sessions" : "No matches for \"\(query)\"")
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
-                        SessionRowView(
-                            session: session,
-                            isSelected: index == selectedIndex,
-                            onPrompt: { promptingSessionID = session.id }
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture { onFocusSession(session.id) }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
+                            SessionRowView(
+                                session: session,
+                                isSelected: index == selectedIndex,
+                                onPrompt: { promptingSessionID = session.id }
+                            )
+                            .id(index)
+                            .contentShape(Rectangle())
+                            .onTapGesture { onFocusSession(session.id) }
 
-                        if promptingSessionID == session.id {
-                            promptForm(for: session.id)
+                            if promptingSessionID == session.id {
+                                promptForm(for: session.id)
+                            }
                         }
                     }
+                    .padding(.vertical, 8)
                 }
-                .padding(.vertical, 8)
+                // Arrow-key navigation moves `selectedIndex` but a plain
+                // ScrollView never follows it on its own - without this the
+                // selection can scroll out of view entirely.
+                .onChange(of: selectedIndex) { proxy.scrollTo(selectedIndex) }
             }
         }
     }
@@ -419,15 +426,19 @@ public struct SessionsListView: View {
         if projects.isEmpty {
             emptyState(query.isEmpty ? "No projects found in ~/dev" : "No matches for \"\(query)\"")
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
-                        ProjectRow(project: project, isSelected: index == selectedIndex)
-                            .contentShape(Rectangle())
-                            .onTapGesture { submitCreateProject(project) }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
+                            ProjectRow(project: project, isSelected: index == selectedIndex)
+                                .id(index)
+                                .contentShape(Rectangle())
+                                .onTapGesture { submitCreateProject(project) }
+                        }
                     }
+                    .padding(.vertical, 8)
                 }
-                .padding(.vertical, 8)
+                .onChange(of: selectedIndex) { proxy.scrollTo(selectedIndex) }
             }
         }
     }

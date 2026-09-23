@@ -33,6 +33,7 @@ public struct SessionProjection {
     public mutating func applySnapshot(
         _ snapshot: SessionSnapshotWire,
         hookStates: [String: ParsedHookState] = [:],
+        seedAttention: [SessionID: PersistedSessionAttention] = [:],
         now: Date = Date()
     ) -> SessionsSnapshot {
         groupsByWorkspaceID = Dictionary(uniqueKeysWithValues: snapshot.workspaces.map {
@@ -46,7 +47,14 @@ public struct SessionProjection {
         for pane in snapshot.panes where pane.agent != nil {
             let resolution = identity.resolve(paneID: pane.paneID, agentSession: pane.agentSession)
             let hookState = pane.agentSession.flatMap { hookStates[$0.value] }
-            let session = makeSession(from: pane, id: resolution.id, hookState: hookState, previous: previouslyEmitted[resolution.id], now: now)
+            let session = makeSession(
+                from: pane,
+                id: resolution.id,
+                hookState: hookState,
+                previous: previouslyEmitted[resolution.id],
+                seed: seedAttention[resolution.id],
+                now: now
+            )
             sessions.append(session)
             lastEmitted[session.id] = session
             routesByID[session.id] = HerdrRoute(paneID: pane.paneID, workspaceID: pane.workspaceID)
@@ -55,12 +63,21 @@ public struct SessionProjection {
         return SessionsSnapshot(sessions: sessions, groups: Array(groupsByWorkspaceID.values))
     }
 
+    /// The current `since` per session, keyed for `AttentionSinceStore` to
+    /// persist - so the next app launch can seed `applySnapshot` above and
+    /// avoid every session's recency collapsing to the restart time.
+    public func currentPersistedAttention() -> [SessionID: PersistedSessionAttention] {
+        Dictionary(uniqueKeysWithValues: lastEmitted.compactMap { id, session in
+            session.attention.since.map { (id, PersistedSessionAttention(kind: session.attention.kind.rawValue, since: $0)) }
+        })
+    }
+
     /// Applies one `pane_updated` (or equivalent) observation.
     public mutating func applyPaneObservation(_ pane: PaneWire, hookState: ParsedHookState? = nil, now: Date = Date()) -> [BackendEvent] {
         guard pane.agent != nil else { return [] }
 
         let resolution = identity.resolve(paneID: pane.paneID, agentSession: pane.agentSession)
-        let session = makeSession(from: pane, id: resolution.id, hookState: hookState, previous: lastEmitted[resolution.id], now: now)
+        let session = makeSession(from: pane, id: resolution.id, hookState: hookState, previous: lastEmitted[resolution.id], seed: nil, now: now)
 
         var events: [BackendEvent] = []
         if let previousProvisionalID = resolution.previousProvisionalID {
@@ -85,13 +102,25 @@ public struct SessionProjection {
         return [.sessionRemoved(resolution.id)]
     }
 
-    private func makeSession(from pane: PaneWire, id: SessionID, hookState: ParsedHookState?, previous: Session?, now: Date) -> Session {
+    private func makeSession(from pane: PaneWire, id: SessionID, hookState: ParsedHookState?, previous: Session?, seed: PersistedSessionAttention?, now: Date) -> Session {
         var attention = reconcileAttention(herdrKind: mapHerdrAgentStatus(pane.agentStatus), hookState: hookState)
         // `since` tracks when this session most recently *entered* its
         // current attention kind - carried forward while the kind is
         // unchanged, reset to `now` on any transition. This is what lets the
         // UI order same-kind sessions (idle in particular) by recency.
-        attention.since = (previous?.attention.kind == attention.kind) ? previous?.attention.since : now
+        //
+        // `previous` only exists once this process has already observed the
+        // session at least once - on a fresh app launch it's always nil, so
+        // `seed` (loaded from `AttentionSinceStore`) fills that gap for the
+        // very first observation, as long as the persisted kind still
+        // matches (a stale kind's timestamp isn't a real transition time).
+        if let previous {
+            attention.since = previous.attention.kind == attention.kind ? previous.attention.since : now
+        } else if let seed, seed.kind == attention.kind.rawValue {
+            attention.since = seed.since
+        } else {
+            attention.since = now
+        }
         return Session(
             id: id,
             title: pane.terminalTitleStripped ?? pane.title ?? id.rawValue,
