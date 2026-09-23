@@ -267,7 +267,7 @@ public struct SessionsListView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Start a new conversation")
+                .help("Start a new conversation (Hyper+N)")
             }
         }
         .padding(.horizontal, 12)
@@ -533,6 +533,12 @@ public struct SessionsListView: View {
             case 123: // left arrow - close the peek, back to the list
                 if peekingSessionID != nil {
                     closePeek()
+                    return nil
+                }
+                return event
+            case 45: // n - hyper+n starts a fresh inline conversation
+                if mode == .prompt, event.modifierFlags.contains([.command, .control, .option, .shift]) {
+                    startNewInlinePrompt()
                     return nil
                 }
                 return event
