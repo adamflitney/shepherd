@@ -26,7 +26,7 @@ private let ignoredOKFixture = Data(#"{"id":"reqN","result":{"type":"ok"}}"#.utf
 private struct AgentStartShape: Decodable {
     let method: String
     let params: Params
-    struct Params: Decodable { let args: [String] }
+    struct Params: Decodable { let name: String; let args: [String] }
 }
 
 private struct AgentWaitShape: Decodable {
@@ -66,6 +66,41 @@ private struct AgentPromptShape: Decodable {
     let waited = try JSONDecoder().decode(AgentWaitShape.self, from: sent[2])
     #expect(waited.method == "agent.wait")
     #expect(waited.params.target == "w9:p1")
+}
+
+/// Regression test: Herdr's `agent.start` requires a unique `name` -
+/// reusing the bare agent kind ("claude") for every call collided with
+/// any other Claude agent already running anywhere in Herdr
+/// (`agent_name_taken`), throwing after `workspace.create` had already
+/// succeeded and leaving an empty, agent-less workspace behind. Confirmed
+/// live against a real Herdr instance before this fix.
+@Test func createSessionSendsAUniqueAgentNameNotJustTheBareKind() async throws {
+    let requestTransport = InMemoryLineTransport(responses: [
+        workspaceCreatedFixture, agentStartedFixture, agentWaitFixture(status: "working", sessionValue: "new-session"),
+    ])
+    let backend = HerdrSessionBackend(
+        requestClient: RequestClient(transport: requestTransport),
+        eventTransport: InMemoryEventTransport()
+    )
+
+    _ = try await backend.createSession(CreateSessionRequest(workingDirectory: URL(fileURLWithPath: "/tmp"), agent: .claude))
+
+    let sent = await requestTransport.sentLines
+    let started = try JSONDecoder().decode(AgentStartShape.self, from: sent[1])
+    #expect(started.params.name != "claude")
+    #expect(started.params.name.hasPrefix("claude-"))
+}
+
+@Test func uniqueAgentNameIsValidPerHerdrsRulesAndDiffersOnEachCall() {
+    let first = uniqueAgentName(kind: "claude")
+    let second = uniqueAgentName(kind: "claude")
+
+    #expect(first != second)
+    for name in [first, second] {
+        #expect(name.count <= 32)
+        #expect(name.allSatisfy { $0.isLowercase || $0.isNumber || $0 == "-" || $0 == "_" })
+        #expect(name.first?.isLowercase == true)
+    }
 }
 
 @Test func createSessionWithResumeSessionIDPassesResumeArgsAndSendsNoPrompt() async throws {

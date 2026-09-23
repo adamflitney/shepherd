@@ -130,7 +130,7 @@ public actor HerdrSessionBackend: SessionBackend {
         let args = request.resumeSessionID.map { ["--resume", $0] } ?? []
         _ = try await requestClient.call(
             method: "agent.start",
-            params: AgentStartParamsWire(name: request.agent.rawValue, kind: request.agent.rawValue, paneID: paneID, args: args),
+            params: AgentStartParamsWire(name: uniqueAgentName(kind: request.agent.rawValue), kind: request.agent.rawValue, paneID: paneID, args: args),
             resultType: AgentStartedResultWire.self
         )
 
@@ -283,6 +283,19 @@ public actor HerdrSessionBackend: SessionBackend {
             break
         }
     }
+}
+
+/// Herdr's `agent.start` requires a globally-unique `name` - confirmed
+/// live: reusing an agent's *kind* as its name (e.g. always `"claude"`)
+/// collided with any other Claude agent already running anywhere in
+/// Herdr, throwing `agent_name_taken` after `workspace.create` had
+/// already succeeded - leaving exactly the empty, agent-less workspace a
+/// user hit. Also confirmed live: the name must start with a lowercase
+/// letter and contain only lowercase letters/digits/`-`/`_`, 1-32 chars
+/// (`invalid_agent_name` otherwise).
+func uniqueAgentName(kind: String) -> String {
+    let suffix = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(8)
+    return "\(kind.lowercased())-\(suffix)"
 }
 
 private struct WorkspaceTargetParams: Encodable {
