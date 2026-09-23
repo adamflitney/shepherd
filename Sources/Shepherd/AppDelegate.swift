@@ -63,6 +63,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController.currentTerminalAppName = { ShepherdConfig.load().terminal.appName }
         statusItemController.onSelectTerminal = { [weak self] appName in self?.changeTerminal(to: appName) }
 
+        statusItemController.currentDefaultSessionDirectory = { ShepherdConfig.load().sessions.defaultDirectory }
+        statusItemController.onChangeDefaultSessionDirectory = { directory in
+            var config = ShepherdConfig.load()
+            config.sessions.defaultDirectory = directory
+            try? config.save()
+        }
+
         Task { await store.start() }
         observeStoreChanges()
         registerHotkey()

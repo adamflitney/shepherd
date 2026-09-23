@@ -69,6 +69,7 @@ Right-click the menu bar icon for:
 - **Install Hooks…** / **Uninstall Hooks…** — installs Claude Code hooks that let shepherd distinguish *why* a session is blocked (a plain question vs. a permission prompt) and show todo progress while idle, richer than what Herdr's socket alone reports.
 - **Change Hotkey…** — set the quick-switcher's global hotkey (see [Configuration](#configuration)).
 - **Terminal** — a submenu to pick which terminal app shepherd raises after switching to a session (Ghostty, Terminal, or iTerm2), applied immediately.
+- **Change Default Directory…** — pick where the Ask tab's escalated/promoted sessions get created (see [Configuration](#configuration)).
 - **Launch at Login** — toggle starting shepherd automatically at login.
 - **Notifications** — toggle desktop notifications on/off (see [Configuration](#configuration)).
 - **Quit Shepherd**.
@@ -100,7 +101,7 @@ You can edit this field directly, or change it from the app: right-click the men
 
 `terminal.appName` is which app shepherd brings to the front (via AppleScript `activate`) after switching to a session — defaults to `"Ghostty"`. Rather than editing this by hand (iTerm2's actual AppleScript name is `"iTerm"`, not `"iTerm2"` — it's literally `iTerm.app` under the hood, easy to get wrong as free text), pick it from the right-click menu's **Terminal** submenu, which only offers verified-correct names and applies immediately, no restart. Only AppleScript-scriptable terminals are supported (Ghostty, Terminal, iTerm2); GPU terminals like Alacritty, kitty, and WezTerm aren't.
 
-`sessions.defaultDirectory` is where the inline quick-answer panel's escalated/promoted sessions get created — defaults to `"~"`. Set it to `"~/dev"` (or wherever your projects live) for better context/memory of prior work. Takes effect on next launch.
+`sessions.defaultDirectory` is where the inline quick-answer panel's escalated/promoted sessions get created — defaults to `"~"`. Set it to `"~/dev"` (or wherever your projects live) for better context/memory of prior work, either by editing the field directly or via the right-click menu's **Change Default Directory…** (a native folder picker), which applies immediately, no restart.
 
 ## Dependencies
 

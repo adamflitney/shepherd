@@ -25,6 +25,10 @@ final class StatusItemController: NSObject {
     /// checkmark), and applies a picked one.
     var currentTerminalAppName: (() -> String)?
     var onSelectTerminal: ((String) -> Void)?
+    /// Supplies `sessions.defaultDirectory` (for the directory picker's
+    /// starting point) and applies a newly-picked one.
+    var currentDefaultSessionDirectory: (() -> String)?
+    var onChangeDefaultSessionDirectory: ((String) -> Void)?
 
     /// (menu label, actual AppleScript app name) - kept apart because
     /// iTerm2's real AppleScript name is "iTerm" (it's literally iTerm.app
@@ -68,6 +72,11 @@ final class StatusItemController: NSObject {
         changeHotkeyItem.target = self
         menu.addItem(changeHotkeyItem)
         menu.addItem(terminalMenuItem())
+        let changeDefaultDirectoryItem = NSMenuItem(
+            title: "Change Default Directory…", action: #selector(promptForDefaultSessionDirectory), keyEquivalent: ""
+        )
+        changeDefaultDirectoryItem.target = self
+        menu.addItem(changeDefaultDirectoryItem)
         menu.addItem(.separator())
         let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         launchAtLoginItem.target = self
@@ -143,6 +152,33 @@ final class StatusItemController: NSObject {
     @objc private func selectTerminal(_ sender: NSMenuItem) {
         guard let appName = sender.representedObject as? String else { return }
         onSelectTerminal?(appName)
+    }
+
+    /// Native directory picker, rather than a free-text field, for where
+    /// the Ask tab's escalated/promoted sessions get created.
+    @objc private func promptForDefaultSessionDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Where should new sessions from the Ask tab be created?"
+        if let current = currentDefaultSessionDirectory?() {
+            panel.directoryURL = URL(fileURLWithPath: (current as NSString).expandingTildeInPath)
+        }
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        onChangeDefaultSessionDirectory?(displayPath(for: url))
+    }
+
+    /// Mirrors the `~/...`-style paths already used elsewhere in the config
+    /// file (e.g. `projects.directories`), rather than writing out a full
+    /// absolute path under the user's home directory.
+    private func displayPath(for url: URL) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if url.path == home { return "~" }
+        if url.path.hasPrefix(home + "/") { return "~" + url.path.dropFirst(home.count) }
+        return url.path
     }
 
     @objc private func toggleLaunchAtLogin() {
