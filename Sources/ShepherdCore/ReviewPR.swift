@@ -15,8 +15,17 @@ public struct ReviewPR: Identifiable, Equatable, Sendable {
     public var headRefName: String
     public var isBot: Bool
     public var updatedAt: Date
+    /// GitHub's raw `reviewDecision` - `""`/`"REVIEW_REQUIRED"`/`"APPROVED"`/
+    /// `"CHANGES_REQUESTED"` (confirmed live). Kept as the raw string rather
+    /// than a strict enum so an unrecognised future value degrades via
+    /// `reviewStatusLabel` instead of failing to decode.
+    public var reviewDecision: String
+    public var checkSummary: CheckSummary?
 
-    public init(repoSlug: String, number: Int, title: String, url: String, headRefName: String, isBot: Bool, updatedAt: Date) {
+    public init(
+        repoSlug: String, number: Int, title: String, url: String, headRefName: String,
+        isBot: Bool, updatedAt: Date, reviewDecision: String = "", checkSummary: CheckSummary? = nil
+    ) {
         self.repoSlug = repoSlug
         self.number = number
         self.title = title
@@ -24,6 +33,63 @@ public struct ReviewPR: Identifiable, Equatable, Sendable {
         self.headRefName = headRefName
         self.isBot = isBot
         self.updatedAt = updatedAt
+        self.reviewDecision = reviewDecision
+        self.checkSummary = checkSummary
+    }
+}
+
+/// A compact rollup of a PR's status checks - `passing`/`total` mirrors
+/// what GitHub's own PR list shows (e.g. "11/11"); `hasFailure` decides
+/// whether that count reads as a failure rather than still-pending.
+public struct CheckSummary: Equatable, Sendable {
+    public var passing: Int
+    public var total: Int
+    public var hasFailure: Bool
+
+    public init(passing: Int, total: Int, hasFailure: Bool) {
+        self.passing = passing
+        self.total = total
+        self.hasFailure = hasFailure
+    }
+}
+
+/// One check-rollup entry, tolerant of GitHub's two shapes (a modern
+/// `CheckRun`'s `status`/`conclusion`, or a legacy `StatusContext`'s
+/// `state`) - see `summarizeChecks`.
+public struct CheckRollupEntry: Equatable, Sendable {
+    public var status: String?
+    public var conclusion: String?
+    public var state: String?
+
+    public init(status: String?, conclusion: String?, state: String?) {
+        self.status = status
+        self.conclusion = conclusion
+        self.state = state
+    }
+}
+
+/// `nil` for a PR with no checks at all (nothing to summarize), rather
+/// than a zero/zero summary that would misleadingly read as "all passing."
+/// `SKIPPED`/`NEUTRAL` count as passing, matching GitHub's own denominator
+/// in its PR list (confirmed live: a PR with 8 `SUCCESS` + 3 `SKIPPED`
+/// checks shows "11/11" there, not "8/11") - both are non-blocking
+/// outcomes, not failures or still-pending work.
+public func summarizeChecks(_ entries: [CheckRollupEntry]) -> CheckSummary? {
+    guard !entries.isEmpty else { return nil }
+    let outcomes = entries.map { ($0.conclusion ?? $0.state ?? "").uppercased() }
+    let passingOutcomes: Set<String> = ["SUCCESS", "NEUTRAL", "SKIPPED"]
+    let failingOutcomes: Set<String> = ["FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"]
+    let passing = outcomes.filter { passingOutcomes.contains($0) }.count
+    let hasFailure = outcomes.contains { failingOutcomes.contains($0) }
+    return CheckSummary(passing: passing, total: entries.count, hasFailure: hasFailure)
+}
+
+/// A short label matching GitHub's own PR-list wording for `reviewDecision`.
+public func reviewStatusLabel(_ reviewDecision: String) -> String {
+    switch reviewDecision {
+    case "APPROVED": "Approved"
+    case "CHANGES_REQUESTED": "Changes requested"
+    default: "Awaiting approval" // REVIEW_REQUIRED, "", or anything unrecognised
     }
 }
 
@@ -148,21 +214,36 @@ public func decodeReviewSearchResults(from json: Data) throws -> [(repoSlug: Str
 private struct GHPRDetailWire: Decodable {
     let headRefName: String
     let author: Author
+    let reviewDecision: String?
+    let statusCheckRollup: [CheckRollupEntryWire]?
     struct Author: Decodable {
         let isBot: Bool
         enum CodingKeys: String, CodingKey { case isBot = "is_bot" }
     }
+    struct CheckRollupEntryWire: Decodable {
+        let status: String?
+        let conclusion: String?
+        let state: String?
+    }
 }
 
-/// Decodes `gh pr view <number> --repo <slug> --json headRefName,author`.
+/// Decodes `gh pr view <number> --repo <slug> --json headRefName,author,reviewDecision,statusCheckRollup`.
 /// `author.is_bot` is snake_case in `gh`'s own output here, unlike the
 /// search endpoint's camelCase - confirmed live, not a typo.
-public func decodeReviewPRDetail(from json: Data) throws -> (headRefName: String, isBot: Bool) {
+public func decodeReviewPRDetail(from json: Data) throws -> (headRefName: String, isBot: Bool, reviewDecision: String, checkSummary: CheckSummary?) {
     let wire: GHPRDetailWire
     do {
         wire = try JSONDecoder().decode(GHPRDetailWire.self, from: json)
     } catch {
         throw ReviewDecodeError.malformed
     }
-    return (headRefName: wire.headRefName, isBot: wire.author.isBot)
+    let entries = (wire.statusCheckRollup ?? []).map {
+        CheckRollupEntry(status: $0.status, conclusion: $0.conclusion, state: $0.state)
+    }
+    return (
+        headRefName: wire.headRefName,
+        isBot: wire.author.isBot,
+        reviewDecision: wire.reviewDecision ?? "",
+        checkSummary: summarizeChecks(entries)
+    )
 }

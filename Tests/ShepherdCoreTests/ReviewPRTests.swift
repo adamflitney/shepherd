@@ -105,17 +105,75 @@ private func pr(
 
 @Test func decodeReviewPRDetailReadsHeadRefAndBotFlag() throws {
     let json = Data(#"""
-    {"author":{"is_bot":true,"login":"app/github-actions"},"baseRefName":"main","headRefName":"chore/refresh","isDraft":false,"number":96}
+    {"author":{"is_bot":true,"login":"app/github-actions"},"baseRefName":"main","headRefName":"chore/refresh","isDraft":false,"number":96,"reviewDecision":"","statusCheckRollup":[]}
     """#.utf8)
 
     let detail = try decodeReviewPRDetail(from: json)
 
     #expect(detail.headRefName == "chore/refresh")
     #expect(detail.isBot == true)
+    #expect(detail.reviewDecision == "")
+    #expect(detail.checkSummary == nil)
+}
+
+@Test func decodeReviewPRDetailReadsReviewDecisionAndCheckSummary() throws {
+    let json = Data(#"""
+    {"author":{"is_bot":false,"login":"someone"},"headRefName":"feature","reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]}
+    """#.utf8)
+
+    let detail = try decodeReviewPRDetail(from: json)
+
+    #expect(detail.reviewDecision == "REVIEW_REQUIRED")
+    #expect(detail.checkSummary == CheckSummary(passing: 2, total: 2, hasFailure: false))
 }
 
 @Test func decodeReviewPRDetailThrowsOnMalformedJSON() {
     #expect(throws: Error.self) {
         try decodeReviewPRDetail(from: Data("not json".utf8))
     }
+}
+
+// MARK: - summarizeChecks
+
+@Test func summarizeChecksReturnsNilForNoChecksAtAll() {
+    #expect(summarizeChecks([]) == nil)
+}
+
+@Test func summarizeChecksCountsPassingByConclusion() {
+    let entries = [
+        CheckRollupEntry(status: "COMPLETED", conclusion: "SUCCESS", state: nil),
+        CheckRollupEntry(status: "COMPLETED", conclusion: "FAILURE", state: nil),
+    ]
+    let summary = summarizeChecks(entries)
+    #expect(summary == CheckSummary(passing: 1, total: 2, hasFailure: true))
+}
+
+@Test func summarizeChecksFallsBackToStateForLegacyStatusContexts() {
+    let entries = [CheckRollupEntry(status: nil, conclusion: nil, state: "SUCCESS")]
+    #expect(summarizeChecks(entries) == CheckSummary(passing: 1, total: 1, hasFailure: false))
+}
+
+@Test func summarizeChecksCountsSkippedAndNeutralAsPassing() {
+    // Confirmed live: GitHub's own PR list shows "11/11" for 8 SUCCESS +
+    // 3 SKIPPED checks, not "8/11" - skipped/neutral are non-blocking.
+    let entries = [
+        CheckRollupEntry(status: "COMPLETED", conclusion: "SUCCESS", state: nil),
+        CheckRollupEntry(status: "COMPLETED", conclusion: "SKIPPED", state: nil),
+        CheckRollupEntry(status: "COMPLETED", conclusion: "NEUTRAL", state: nil),
+    ]
+    #expect(summarizeChecks(entries) == CheckSummary(passing: 3, total: 3, hasFailure: false))
+}
+
+@Test func summarizeChecksTreatsStillRunningAsNeitherPassingNorFailing() {
+    let entries = [CheckRollupEntry(status: "IN_PROGRESS", conclusion: nil, state: nil)]
+    #expect(summarizeChecks(entries) == CheckSummary(passing: 0, total: 1, hasFailure: false))
+}
+
+// MARK: - reviewStatusLabel
+
+@Test func reviewStatusLabelMapsKnownDecisions() {
+    #expect(reviewStatusLabel("APPROVED") == "Approved")
+    #expect(reviewStatusLabel("CHANGES_REQUESTED") == "Changes requested")
+    #expect(reviewStatusLabel("REVIEW_REQUIRED") == "Awaiting approval")
+    #expect(reviewStatusLabel("") == "Awaiting approval")
 }

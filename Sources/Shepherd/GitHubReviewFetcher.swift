@@ -21,8 +21,11 @@ enum GitHubReviewFetcher {
             throw FetchError(message: "Couldn't find the gh CLI on PATH.")
         }
 
+        // `gh search prs` defaults to a 30-result limit - confirmed live
+        // that a real review queue can exceed that, silently truncating
+        // the list with no error. 100 comfortably covers a normal queue.
         let searchOutput = try await run(ghPath, [
-            "search", "prs", "--review-requested=@me", "--state", "open",
+            "search", "prs", "--review-requested=@me", "--state", "open", "-L", "100",
             "--json", "number,title,repository,url,updatedAt",
         ])
         let results = try decodeReviewSearchResults(from: searchOutput)
@@ -32,7 +35,7 @@ enum GitHubReviewFetcher {
                 group.addTask {
                     let detailOutput = try await run(ghPath, [
                         "pr", "view", "\(result.number)", "--repo", result.repoSlug,
-                        "--json", "headRefName,author",
+                        "--json", "headRefName,author,reviewDecision,statusCheckRollup",
                     ])
                     let detail = try decodeReviewPRDetail(from: detailOutput)
                     return ReviewPR(
@@ -42,7 +45,9 @@ enum GitHubReviewFetcher {
                         url: result.url,
                         headRefName: detail.headRefName,
                         isBot: detail.isBot,
-                        updatedAt: result.updatedAt
+                        updatedAt: result.updatedAt,
+                        reviewDecision: detail.reviewDecision,
+                        checkSummary: detail.checkSummary
                     )
                 }
             }

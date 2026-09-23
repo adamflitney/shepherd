@@ -799,6 +799,14 @@ private struct ReviewPRRow: View {
     let isStarting: Bool
     let onIgnore: () -> Void
 
+    private var statusColor: Color {
+        switch match.pr.reviewDecision {
+        case "APPROVED": .green
+        case "CHANGES_REQUESTED": .red
+        default: .orange
+        }
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
@@ -809,6 +817,19 @@ private struct ReviewPRRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(reviewStatusLabel(match.pr.reviewDecision))
+                        .foregroundStyle(statusColor)
+                    if let checks = match.pr.checkSummary {
+                        Text("•")
+                            .foregroundStyle(.secondary)
+                        Image(systemName: checks.hasFailure ? "xmark.circle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(checks.hasFailure ? .red : .green)
+                        Text("\(checks.passing)/\(checks.total)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.caption2)
             }
             Spacer()
             if isStarting {
