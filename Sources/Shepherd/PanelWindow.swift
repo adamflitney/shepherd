@@ -26,7 +26,10 @@ final class PanelWindow: NSPanel {
         onPromptSession: @escaping (SessionID, String) -> Void,
         onRunInlinePrompt: @escaping (String, String?) async -> InlinePromptOutcome,
         onPromoteInlineConversation: @escaping (String) -> Void,
-        onPeekSession: @escaping (SessionID) async throws -> String
+        onPeekSession: @escaping (SessionID) async throws -> String,
+        onLoadReviewPRs: @escaping () async throws -> [MatchedReviewPR],
+        onStartReviewSession: @escaping (MatchedReviewPR) async throws -> Void,
+        onIgnoreReviewPR: @escaping (MatchedReviewPR) -> Void
     ) {
         let box = ClosureBox()
         dismissBox = box
@@ -39,7 +42,10 @@ final class PanelWindow: NSPanel {
             onPromptSession: onPromptSession,
             onRunInlinePrompt: onRunInlinePrompt,
             onPromoteInlineConversation: onPromoteInlineConversation,
-            onPeekSession: onPeekSession
+            onPeekSession: onPeekSession,
+            onLoadReviewPRs: onLoadReviewPRs,
+            onStartReviewSession: onStartReviewSession,
+            onIgnoreReviewPR: onIgnoreReviewPR
         )
         hostingController = NSHostingController(rootView: view)
 

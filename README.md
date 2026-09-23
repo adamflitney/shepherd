@@ -11,6 +11,7 @@ A native macOS menu-bar app for [Herdr](https://herdr.dev), a terminal workspace
 - **Project picker** — from the same panel, fuzzy-search your projects (frecency-ranked) and start a new session in one, instead of hunting for the right directory.
 - **Inline quick-answer** — type a question directly into the panel and get an answer without switching to a terminal at all. If the question turns out to need real work, shepherd spawns a real session for it automatically and sends your question in. The conversation stays put if you switch to another tab and back; click the bubble icon in the search bar, or press Hyper+N, to start a fresh one.
 - **Peek** — press → on a selected session to see what's currently on its screen before deciding whether to switch to it.
+- **Review** — a fourth tab lists PRs you're a requested reviewer on (via `gh`) that match a repo you already have cloned locally. Picking one creates an isolated git worktree for that PR's branch and starts a session in it, so an agent can review it or answer questions about it without touching whatever's already checked out in your normal clone. Bot-authored PRs (Dependabot/Renovate, etc.) are excluded by default; not reviewing one yourself? Press Delete or click the eye-slash icon to dismiss it for good.
 - **Notifications** — get notified when a session becomes blocked or finishes, so you don't have to keep the panel open to watch for it. Toggle on/off from the menu bar.
 
 ## Screenshots
@@ -55,12 +56,14 @@ The inline quick-answer panel — ask a question without opening a terminal:
 - **Switch** — jump to an existing session.
 - **Create** — start a new session in a project.
 - **Ask** — get a quick answer inline, without opening a session at all.
+- **Review** — start a session reviewing a PR you've been asked to review.
 
 **Header button** (top-right of the panel, also triggered by Tab) — a shortcut that cycles to the *next* mode, whose icon previews where it'll take you:
 
 - **+** (in Switch) → Create.
 - **Speech bubbles** (in Create) → Ask.
-- **×** (in Ask) → back to Switch.
+- **Checklist** (in Ask) → Review.
+- **×** (in Review) → back to Switch.
 
 ## Menu bar options
 
@@ -84,7 +87,8 @@ Right-click the menu bar icon for:
   "hotkey": { "switchSession": "hyper+w" },
   "notifications": { "enabled": true },
   "terminal": { "appName": "Ghostty" },
-  "sessions": { "defaultDirectory": "~" }
+  "sessions": { "defaultDirectory": "~" },
+  "review": { "includeBots": false, "hideOlderThanDays": null }
 }
 ```
 
@@ -103,11 +107,14 @@ You can edit this field directly, or change it from the app: right-click the men
 
 `sessions.defaultDirectory` is where the inline quick-answer panel's escalated/promoted sessions get created — defaults to `"~"`. Set it to `"~/dev"` (or wherever your projects live) for better context/memory of prior work, either by editing the field directly or via the right-click menu's **Change Default Directory…** (a native folder picker), which applies immediately, no restart.
 
+`review.includeBots` shows bot-authored PRs (Dependabot, Renovate, etc.) in the Review tab instead of hiding them — off by default. `review.hideOlderThanDays` hides PRs whose last update is older than N days — off (`null`) by default, since silently hiding a real long-open PR without being asked could surprise. Explicitly-ignored PRs (pressing Delete on a row, or the eye-slash icon) are tracked separately in `~/.config/shepherd/ignored-prs.json`; delete entries from that file to bring a PR back.
+
 ## Dependencies
 
 - **macOS 14+**
 - **[Herdr](https://herdr.dev)** — shepherd talks to Herdr's local socket API; it has no functionality without a running Herdr instance.
 - **[Claude Code CLI](https://claude.com/claude-code)** (`claude`) on your `PATH` — used both for the sessions Herdr manages and for shepherd's own inline quick-answer feature.
+- **[GitHub CLI](https://cli.github.com)** (`gh`), authenticated, on your `PATH` — used by the Review tab. Optional otherwise.
 - **Swift 6 toolchain** (Xcode 16+) to build from source. No third-party Swift package dependencies.
 
 ## Getting started

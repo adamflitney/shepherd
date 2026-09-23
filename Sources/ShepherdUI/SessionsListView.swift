@@ -17,11 +17,15 @@ public struct SessionsListView: View {
     let onRunInlinePrompt: (String, String?) async -> InlinePromptOutcome
     let onPromoteInlineConversation: (String) -> Void
     let onPeekSession: (SessionID) async throws -> String
+    let onLoadReviewPRs: () async throws -> [MatchedReviewPR]
+    let onStartReviewSession: (MatchedReviewPR) async throws -> Void
+    let onIgnoreReviewPR: (MatchedReviewPR) -> Void
 
     private enum Mode: Equatable {
         case sessions
         case createProject
         case prompt
+        case review
     }
 
     private struct Exchange: Identifiable, Equatable {
@@ -49,6 +53,12 @@ public struct SessionsListView: View {
     @State private var peekError: String?
     @State private var isLoadingPeek = false
 
+    @State private var reviewPRs: [MatchedReviewPR] = []
+    @State private var isLoadingReviewPRs = false
+    @State private var reviewLoadError: String?
+    @State private var startingReviewSessionID: String?
+    @State private var reviewSessionError: String?
+
     public init(
         store: SessionsStore,
         onFocusSession: @escaping (SessionID) -> Void,
@@ -57,7 +67,10 @@ public struct SessionsListView: View {
         onPromptSession: @escaping (SessionID, String) -> Void,
         onRunInlinePrompt: @escaping (String, String?) async -> InlinePromptOutcome,
         onPromoteInlineConversation: @escaping (String) -> Void,
-        onPeekSession: @escaping (SessionID) async throws -> String
+        onPeekSession: @escaping (SessionID) async throws -> String,
+        onLoadReviewPRs: @escaping () async throws -> [MatchedReviewPR],
+        onStartReviewSession: @escaping (MatchedReviewPR) async throws -> Void,
+        onIgnoreReviewPR: @escaping (MatchedReviewPR) -> Void
     ) {
         self.store = store
         self.onFocusSession = onFocusSession
@@ -67,6 +80,9 @@ public struct SessionsListView: View {
         self.onRunInlinePrompt = onRunInlinePrompt
         self.onPromoteInlineConversation = onPromoteInlineConversation
         self.onPeekSession = onPeekSession
+        self.onLoadReviewPRs = onLoadReviewPRs
+        self.onStartReviewSession = onStartReviewSession
+        self.onIgnoreReviewPR = onIgnoreReviewPR
     }
 
     /// All sessions, unfiltered, in the store's own urgency-then-group order.
@@ -84,6 +100,12 @@ public struct SessionsListView: View {
     /// by `query` the same way mac-sesh's project switcher works.
     private var displayedProjects: [Project] {
         filterProjects(projects, query: query)
+    }
+
+    /// Loaded (already filtered - bots/ignored/stale) by `loadReviewPRs()`;
+    /// further fuzzy-filtered by `query` the same way the other two lists work.
+    private var displayedReviewPRs: [MatchedReviewPR] {
+        filterReviewPRList(reviewPRs, query: query)
     }
 
     public var body: some View {
@@ -149,7 +171,8 @@ public struct SessionsListView: View {
         switch mode {
         case .sessions: "plus.circle"
         case .createProject: "bubble.left.and.text.bubble.right"
-        case .prompt: "xmark.circle"
+        case .prompt: "checklist"
+        case .review: "xmark.circle"
         }
     }
 
@@ -157,18 +180,20 @@ public struct SessionsListView: View {
         switch mode {
         case .sessions: "New session in a project (Tab)"
         case .createProject: "Ask Claude directly (Tab)"
-        case .prompt: "Back to sessions (Tab/Esc)"
+        case .prompt: "Review a PR (Tab)"
+        case .review: "Back to sessions (Tab/Esc)"
         }
     }
 
     /// Labeled, directly-clickable alternative to the header button's cycle -
-    /// makes which of the three modes is active visually unambiguous, since
+    /// makes which of the four modes is active visually unambiguous, since
     /// the header icon alone only hints at where Tab goes *next*.
     private var modeTabBar: some View {
         HStack(spacing: 4) {
             modeTab("Switch", mode: .sessions)
             modeTab("Create", mode: .createProject)
             modeTab("Ask", mode: .prompt)
+            modeTab("Review", mode: .review)
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
@@ -193,14 +218,15 @@ public struct SessionsListView: View {
     }
 
     /// Tab and the header button both cycle sessions -> createProject ->
-    /// prompt -> sessions; `modeTabBar` jumps straight to any of the three.
-    /// Escape (`handleEscape`) is the shortcut back to `.sessions` from
-    /// either sub-mode without completing the cycle.
+    /// prompt -> review -> sessions; `modeTabBar` jumps straight to any of
+    /// the four. Escape (`handleEscape`) is the shortcut back to `.sessions`
+    /// from any sub-mode without completing the cycle.
     private func advanceMode() {
         switch mode {
         case .sessions: setMode(.createProject)
         case .createProject: setMode(.prompt)
-        case .prompt: setMode(.sessions)
+        case .prompt: setMode(.review)
+        case .review: setMode(.sessions)
         }
     }
 
@@ -216,6 +242,9 @@ public struct SessionsListView: View {
         mode = newMode
         if newMode == .createProject {
             loadProjects()
+        }
+        if newMode == .review {
+            loadReviewPRs()
         }
         searchFocused = true
     }
@@ -243,6 +272,7 @@ public struct SessionsListView: View {
         case .sessions: "Switch to session..."
         case .createProject: "New session in project..."
         case .prompt: "Ask Claude anything..."
+        case .review: "Filter PRs..."
         }
     }
 
@@ -328,6 +358,8 @@ public struct SessionsListView: View {
             projectList
         case .prompt:
             promptConversation
+        case .review:
+            reviewList
         }
     }
 
@@ -464,6 +496,91 @@ public struct SessionsListView: View {
         }
     }
 
+    @ViewBuilder
+    private var reviewList: some View {
+        if isLoadingReviewPRs {
+            VStack {
+                Spacer()
+                ProgressView().controlSize(.small)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+        } else if let reviewLoadError {
+            emptyState(reviewLoadError)
+        } else {
+            let matches = displayedReviewPRs
+            if matches.isEmpty {
+                emptyState(query.isEmpty ? "No PRs to review" : "No matches for \"\(query)\"")
+            } else {
+                VStack(spacing: 0) {
+                    if let reviewSessionError {
+                        Text(reviewSessionError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 6)
+                    }
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(Array(matches.enumerated()), id: \.element.id) { index, match in
+                                    ReviewPRRow(
+                                        match: match,
+                                        isSelected: index == selectedIndex,
+                                        isStarting: startingReviewSessionID == match.id,
+                                        onIgnore: { ignoreReviewPR(match) }
+                                    )
+                                    .id(index)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { startReviewSession(match) }
+                                }
+                            }
+                            .padding(.vertical, 8)
+                        }
+                        .onChange(of: selectedIndex) { proxy.scrollTo(selectedIndex) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// `gh` round-trips (a search plus one `pr view` per result) take
+    /// noticeably longer than a local disk scan, so this is deliberately
+    /// async with a loading state, unlike `loadProjects()`.
+    private func loadReviewPRs() {
+        isLoadingReviewPRs = true
+        reviewLoadError = nil
+        Task {
+            do {
+                reviewPRs = try await onLoadReviewPRs()
+            } catch {
+                reviewPRs = []
+                reviewLoadError = "Couldn't load PRs: \(error)"
+            }
+            isLoadingReviewPRs = false
+        }
+    }
+
+    private func startReviewSession(_ match: MatchedReviewPR) {
+        guard startingReviewSessionID == nil else { return }
+        startingReviewSessionID = match.id
+        reviewSessionError = nil
+        Task {
+            do {
+                try await onStartReviewSession(match)
+                onDismiss()
+            } catch {
+                reviewSessionError = "Couldn't start a session for #\(match.pr.number): \(error)"
+            }
+            startingReviewSessionID = nil
+        }
+    }
+
+    private func ignoreReviewPR(_ match: MatchedReviewPR) {
+        reviewPRs.removeAll { $0.id == match.id }
+        onIgnoreReviewPR(match)
+    }
+
     private func emptyState(_ message: String) -> some View {
         VStack {
             Spacer()
@@ -542,6 +659,12 @@ public struct SessionsListView: View {
                     return nil
                 }
                 return event
+            case 51: // delete/backspace - ignore the selected PR in the Review tab
+                if mode == .review, displayedReviewPRs.indices.contains(selectedIndex) {
+                    ignoreReviewPR(displayedReviewPRs[selectedIndex])
+                    return nil
+                }
+                return event
             default: return event
             }
         }
@@ -576,6 +699,7 @@ public struct SessionsListView: View {
         case .sessions: displayedSessions.count
         case .createProject: displayedProjects.count
         case .prompt: 0
+        case .review: displayedReviewPRs.count
         }
     }
 
@@ -596,6 +720,10 @@ public struct SessionsListView: View {
             submitCreateProject(projects[selectedIndex])
         case .prompt:
             submitInlinePrompt()
+        case .review:
+            let matches = displayedReviewPRs
+            guard matches.indices.contains(selectedIndex) else { return }
+            startReviewSession(matches[selectedIndex])
         }
     }
 
@@ -658,6 +786,42 @@ private struct ProjectRow: View {
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+private struct ReviewPRRow: View {
+    let match: MatchedReviewPR
+    let isSelected: Bool
+    let isStarting: Bool
+    let onIgnore: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(match.pr.title)
+                    .font(.body)
+                    .lineLimit(1)
+                Text("\(match.pr.repoSlug) #\(match.pr.number)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if isStarting {
+                ProgressView().controlSize(.small)
+            } else {
+                Button(action: onIgnore) {
+                    Image(systemName: "eye.slash")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Not reviewing this (Delete)")
+            }
+        }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)

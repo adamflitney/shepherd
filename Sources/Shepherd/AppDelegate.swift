@@ -41,6 +41,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onPeekSession: { [weak self] id in
                 guard let self else { throw BackendError.unavailable("Shepherd is shutting down") }
                 return try await self.store.peek(id)
+            },
+            onLoadReviewPRs: { [weak self] in
+                guard let self else { return [] }
+                return try await self.loadReviewPRs()
+            },
+            onStartReviewSession: { [weak self] match in
+                guard let self else { return }
+                try await self.startReviewSession(match)
+            },
+            onIgnoreReviewPR: { match in
+                IgnoredPRStore().ignore(match.pr.id)
             }
         )
 
@@ -228,5 +239,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await store.focus(id)
         }
         panel.hide()
+    }
+
+    /// Fetches PRs you're a requested reviewer on, matches each to an
+    /// already-scanned local clone (a repo with none found this way is
+    /// excluded entirely - Phase 1 doesn't clone), and applies the bot/
+    /// ignored/staleness filters. A `gh` search plus one `gh pr view` per
+    /// result, so this is genuinely async, unlike `loadProjects()`'s plain
+    /// disk scan.
+    private func loadReviewPRs() async throws -> [MatchedReviewPR] {
+        let prs = try await GitHubReviewFetcher.fetchReviewPRs()
+        let config = ShepherdConfig.load()
+        let projects = findGitProjects(in: config.resolvedDirectories).filter { !config.isExcluded($0.path) }
+        let localRepos = LocalRepoScanner.scan(projects)
+        let ignored = IgnoredPRStore().load()
+        let options = ReviewFilterOptions(includeBots: config.review.includeBots, hideOlderThanDays: config.review.hideOlderThanDays)
+        let filtered = filterReviewPRs(prs, ignored: ignored, options: options)
+        return filtered.compactMap { pr in
+            matchingLocalRepo(forSlug: pr.repoSlug, in: localRepos).map { MatchedReviewPR(pr: pr, localPath: $0.path) }
+        }
+    }
+
+    /// Creates (or reuses) an isolated worktree for the PR's branch, then
+    /// starts and focuses a session in it - the same
+    /// `CreateSessionRequest`/`workspace.create` + `agent.start` path the
+    /// project picker already uses, just pointed at the worktree instead.
+    private func startReviewSession(_ match: MatchedReviewPR) async throws {
+        let worktreePath = try PRWorktree.ensureWorktree(
+            repoPath: match.localPath, repoSlug: match.pr.repoSlug, prNumber: match.pr.number
+        )
+        let request = CreateSessionRequest(
+            workingDirectory: worktreePath,
+            agent: .claude,
+            initialPrompt: reviewPrompt(for: match.pr),
+            title: match.pr.title
+        )
+        let id = try await store.createSession(request)
+        try await store.focus(id)
+    }
+
+    private func reviewPrompt(for pr: ReviewPR) -> String {
+        """
+        Please review this pull request: \(pr.title)
+        \(pr.url)
+
+        Give me a summary of the changes and flag anything that looks concerning or worth discussing.
+        """
     }
 }
