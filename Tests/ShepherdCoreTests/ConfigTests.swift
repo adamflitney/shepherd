@@ -136,3 +136,26 @@ import Foundation
     let home = FileManager.default.homeDirectoryForCurrentUser.path
     #expect(cfg.resolvedDefaultSessionDirectory == "\(home)/dev")
 }
+
+@Test func defaultConfigExcludesBotsAndHasNoStalenessLimit() {
+    #expect(ShepherdConfig.default.review.includeBots == false)
+    #expect(ShepherdConfig.default.review.hideOlderThanDays == nil)
+}
+
+@Test func configWithoutAReviewKeyDecodesToTheDefaults() throws {
+    let json = """
+    {"projects":{"directories":["~/dev"],"exclude":[]}}
+    """
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: Data(json.utf8))
+    #expect(decoded.review.includeBots == false)
+    #expect(decoded.review.hideOlderThanDays == nil)
+}
+
+@Test func aConfiguredReviewSettingPersistsThroughARoundTrip() throws {
+    var cfg = ShepherdConfig.default
+    cfg.review = ReviewConfig(includeBots: true, hideOlderThanDays: 30)
+    let data = try JSONEncoder().encode(cfg)
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: data)
+    #expect(decoded.review.includeBots == true)
+    #expect(decoded.review.hideOlderThanDays == 30)
+}

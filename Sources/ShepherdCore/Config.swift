@@ -60,31 +60,47 @@ public struct SessionsConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// Filters for the Review tab's PR list - see `ReviewFilterOptions`, which
+/// this mirrors field-for-field (kept separate since that one is pure
+/// domain logic with no `Codable` concerns, this one is the on-disk shape).
+public struct ReviewConfig: Codable, Equatable, Sendable {
+    public var includeBots: Bool
+    public var hideOlderThanDays: Int?
+
+    public init(includeBots: Bool = false, hideOlderThanDays: Int? = nil) {
+        self.includeBots = includeBots
+        self.hideOlderThanDays = hideOlderThanDays
+    }
+}
+
 public struct ShepherdConfig: Codable, Equatable, Sendable {
     public var projects: ProjectsConfig
     public var hotkey: HotkeyConfig
     public var notifications: NotificationsConfig
     public var terminal: TerminalConfig
     public var sessions: SessionsConfig
+    public var review: ReviewConfig
 
     public init(
         projects: ProjectsConfig,
         hotkey: HotkeyConfig = HotkeyConfig(switchSession: "hyper+w"),
         notifications: NotificationsConfig = NotificationsConfig(enabled: true),
         terminal: TerminalConfig = TerminalConfig(appName: "Ghostty"),
-        sessions: SessionsConfig = SessionsConfig(defaultDirectory: "~")
+        sessions: SessionsConfig = SessionsConfig(defaultDirectory: "~"),
+        review: ReviewConfig = ReviewConfig()
     ) {
         self.projects = projects
         self.hotkey = hotkey
         self.notifications = notifications
         self.terminal = terminal
         self.sessions = sessions
+        self.review = review
     }
 
     // Custom decode so existing config files written before `hotkey`/
-    // `notifications`/`terminal`/`sessions` existed (no such keys on disk)
-    // default to Hyper+W, enabled notifications, Ghostty, and $HOME
-    // instead of failing to load.
+    // `notifications`/`terminal`/`sessions`/`review` existed (no such keys
+    // on disk) default to Hyper+W, enabled notifications, Ghostty, $HOME,
+    // and bots-excluded/no-staleness-filter instead of failing to load.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         projects = try container.decode(ProjectsConfig.self, forKey: .projects)
@@ -96,6 +112,8 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
             ?? TerminalConfig(appName: "Ghostty")
         sessions = try container.decodeIfPresent(SessionsConfig.self, forKey: .sessions)
             ?? SessionsConfig(defaultDirectory: "~")
+        review = try container.decodeIfPresent(ReviewConfig.self, forKey: .review)
+            ?? ReviewConfig()
     }
 
     public static let `default` = ShepherdConfig(
@@ -103,7 +121,8 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
         hotkey: HotkeyConfig(switchSession: "hyper+w"),
         notifications: NotificationsConfig(enabled: true),
         terminal: TerminalConfig(appName: "Ghostty"),
-        sessions: SessionsConfig(defaultDirectory: "~")
+        sessions: SessionsConfig(defaultDirectory: "~"),
+        review: ReviewConfig()
     )
 }
 
