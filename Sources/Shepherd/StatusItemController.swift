@@ -29,6 +29,10 @@ final class StatusItemController: NSObject {
     /// starting point) and applies a newly-picked one.
     var currentDefaultSessionDirectory: (() -> String)?
     var onChangeDefaultSessionDirectory: ((String) -> Void)?
+    /// Supplies the currently-configured agent kind (for the checkmark),
+    /// and applies a newly-picked one.
+    var currentAgentKind: (() -> String)?
+    var onSelectAgentKind: ((String) -> Void)?
 
     /// (menu label, actual AppleScript app name) - kept apart because
     /// iTerm2's real AppleScript name is "iTerm" (it's literally iTerm.app
@@ -38,6 +42,14 @@ final class StatusItemController: NSObject {
         ("Ghostty", "Ghostty"),
         ("Terminal", "Terminal"),
         ("iTerm2", "iTerm"),
+    ]
+
+    /// (menu label, `AgentKind.rawValue`) - mirrors `knownTerminals`'s
+    /// fixed-picker approach, so the config file only ever gets a value
+    /// Shepherd actually knows how to drive.
+    private let knownAgents: [(label: String, kind: String)] = [
+        ("Claude Code", "claude"),
+        ("OpenCode", "opencode"),
     ]
 
     var button: NSStatusBarButton? { statusItem.button }
@@ -72,6 +84,7 @@ final class StatusItemController: NSObject {
         changeHotkeyItem.target = self
         menu.addItem(changeHotkeyItem)
         menu.addItem(terminalMenuItem())
+        menu.addItem(agentMenuItem())
         let changeDefaultDirectoryItem = NSMenuItem(
             title: "Change Default Directory…", action: #selector(promptForDefaultSessionDirectory), keyEquivalent: ""
         )
@@ -152,6 +165,28 @@ final class StatusItemController: NSObject {
     @objc private func selectTerminal(_ sender: NSMenuItem) {
         guard let appName = sender.representedObject as? String else { return }
         onSelectTerminal?(appName)
+    }
+
+    /// Which agent CLI new sessions (project picker, Review tab, and the
+    /// Ask tab's escalated/promoted sessions) get started with.
+    private func agentMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Agent", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        let current = currentAgentKind?() ?? "claude"
+        for agent in knownAgents {
+            let agentItem = NSMenuItem(title: agent.label, action: #selector(selectAgentKind(_:)), keyEquivalent: "")
+            agentItem.target = self
+            agentItem.representedObject = agent.kind
+            agentItem.state = agent.kind == current ? .on : .off
+            submenu.addItem(agentItem)
+        }
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func selectAgentKind(_ sender: NSMenuItem) {
+        guard let kind = sender.representedObject as? String else { return }
+        onSelectAgentKind?(kind)
     }
 
     /// Native directory picker, rather than a free-text field, for where

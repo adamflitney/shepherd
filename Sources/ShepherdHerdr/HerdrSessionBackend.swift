@@ -123,11 +123,12 @@ public actor HerdrSessionBackend: SessionBackend {
             resultType: WorkspaceCreatedResultWire.self
         )
         let paneID = created.rootPane.paneID
-        // `--resume <id>` continues an existing `claude` CLI conversation
-        // (the inline quick-answer panel's "move to a session" action) -
-        // mutually exclusive with `initialPrompt` below, since a resumed
-        // session already has that context.
-        let args = request.resumeSessionID.map { ["--resume", $0] } ?? []
+        // Continues an existing agent CLI conversation (the inline
+        // quick-answer panel's "move to a session" action) - mutually
+        // exclusive with `initialPrompt` below, since a resumed session
+        // already has that context. The flag name is CLI-specific: Claude
+        // Code uses `--resume <id>`, OpenCode uses `-s <id>`.
+        let args = request.resumeSessionID.map { resumeArgs(for: request.agent, sessionID: $0) } ?? []
         _ = try await requestClient.call(
             method: "agent.start",
             params: AgentStartParamsWire(name: uniqueAgentName(kind: request.agent.rawValue), kind: request.agent.rawValue, paneID: paneID, args: args),
@@ -140,11 +141,13 @@ public actor HerdrSessionBackend: SessionBackend {
         // blocks until it reaches a real status.
         var settled = try await waitForSettledStatus(paneID: paneID)
 
-        // A brand-new pane's very first "blocked" status is Claude Code's
+        // A brand-new Claude Code pane's very first "blocked" status is its
         // own one-time folder-trust prompt ("Yes, I trust this folder" is
         // the second option, hence down+enter), not a real blocker - dismiss
-        // it and wait again for the agent to actually finish booting.
-        if settled.agentStatus == "blocked" {
+        // it and wait again for the agent to actually finish booting. Other
+        // agent kinds have no such prompt, so a genuine first-boot blocker
+        // (e.g. a permission question) must be left alone.
+        if request.agent == .claude, settled.agentStatus == "blocked" {
             _ = try await requestClient.call(
                 method: "agent.send_keys",
                 params: AgentSendKeysParamsWire(target: paneID, keys: ["down", "enter"]),
@@ -296,6 +299,19 @@ public actor HerdrSessionBackend: SessionBackend {
 func uniqueAgentName(kind: String) -> String {
     let suffix = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(8)
     return "\(kind.lowercased())-\(suffix)"
+}
+
+/// The CLI args that continue an existing conversation - Claude Code takes
+/// `--resume <id>`, OpenCode takes `-s <id>` (its `--session` short form).
+/// Any other/unrecognised kind falls back to Claude's flag, matching the
+/// only behavior this ever had before other kinds existed.
+func resumeArgs(for agent: AgentKind, sessionID: String) -> [String] {
+    switch agent {
+    case .opencode:
+        return ["-s", sessionID]
+    default:
+        return ["--resume", sessionID]
+    }
 }
 
 private struct WorkspaceTargetParams: Encodable {

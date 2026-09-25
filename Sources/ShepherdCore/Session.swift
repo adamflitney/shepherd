@@ -19,6 +19,7 @@ public struct AgentKind: Hashable, Sendable, Codable, RawRepresentable {
 
     public static let claude = AgentKind(rawValue: "claude")
     public static let codex = AgentKind(rawValue: "codex")
+    public static let opencode = AgentKind(rawValue: "opencode")
 }
 
 /// What actions a session supports. A backend that can't (say) focus

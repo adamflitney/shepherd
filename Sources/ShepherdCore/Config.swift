@@ -60,6 +60,18 @@ public struct SessionsConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// Which agent CLI new sessions (project picker, review sessions, and the
+/// Ask tab's escalated/promoted sessions) are started with. A raw string
+/// (not `AgentKind` directly) so the on-disk shape stays a plain
+/// `{"kind": "claude"}` regardless of how `AgentKind` itself encodes.
+public struct AgentConfig: Codable, Equatable, Sendable {
+    public var kind: String
+
+    public init(kind: String = "claude") {
+        self.kind = kind
+    }
+}
+
 /// Filters for the Review tab's PR list - see `ReviewFilterOptions`, which
 /// this mirrors field-for-field (kept separate since that one is pure
 /// domain logic with no `Codable` concerns, this one is the on-disk shape).
@@ -80,6 +92,7 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
     public var terminal: TerminalConfig
     public var sessions: SessionsConfig
     public var review: ReviewConfig
+    public var agent: AgentConfig
 
     public init(
         projects: ProjectsConfig,
@@ -87,7 +100,8 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
         notifications: NotificationsConfig = NotificationsConfig(enabled: true),
         terminal: TerminalConfig = TerminalConfig(appName: "Ghostty"),
         sessions: SessionsConfig = SessionsConfig(defaultDirectory: "~"),
-        review: ReviewConfig = ReviewConfig()
+        review: ReviewConfig = ReviewConfig(),
+        agent: AgentConfig = AgentConfig()
     ) {
         self.projects = projects
         self.hotkey = hotkey
@@ -95,12 +109,14 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
         self.terminal = terminal
         self.sessions = sessions
         self.review = review
+        self.agent = agent
     }
 
     // Custom decode so existing config files written before `hotkey`/
-    // `notifications`/`terminal`/`sessions`/`review` existed (no such keys
-    // on disk) default to Hyper+W, enabled notifications, Ghostty, $HOME,
-    // and bots-excluded/no-staleness-filter instead of failing to load.
+    // `notifications`/`terminal`/`sessions`/`review`/`agent` existed (no such
+    // keys on disk) default to Hyper+W, enabled notifications, Ghostty,
+    // $HOME, bots-excluded/no-staleness-filter, and Claude Code instead of
+    // failing to load.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         projects = try container.decode(ProjectsConfig.self, forKey: .projects)
@@ -114,6 +130,8 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
             ?? SessionsConfig(defaultDirectory: "~")
         review = try container.decodeIfPresent(ReviewConfig.self, forKey: .review)
             ?? ReviewConfig()
+        agent = try container.decodeIfPresent(AgentConfig.self, forKey: .agent)
+            ?? AgentConfig()
     }
 
     public static let `default` = ShepherdConfig(
@@ -122,7 +140,8 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
         notifications: NotificationsConfig(enabled: true),
         terminal: TerminalConfig(appName: "Ghostty"),
         sessions: SessionsConfig(defaultDirectory: "~"),
-        review: ReviewConfig()
+        review: ReviewConfig(),
+        agent: AgentConfig()
     )
 }
 
@@ -224,6 +243,12 @@ public extension ShepherdConfig {
     /// `sessions.defaultDirectory` with tilde expanded.
     var resolvedDefaultSessionDirectory: String {
         expandTilde(sessions.defaultDirectory)
+    }
+
+    /// `agent.kind` as an `AgentKind` - the agent new sessions (project
+    /// picker, review sessions, Ask-tab escalations) get started with.
+    var resolvedAgentKind: AgentKind {
+        AgentKind(rawValue: agent.kind)
     }
 }
 

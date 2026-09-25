@@ -84,6 +84,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController.currentTerminalAppName = { ShepherdConfig.load().terminal.appName }
         statusItemController.onSelectTerminal = { [weak self] appName in self?.changeTerminal(to: appName) }
 
+        statusItemController.currentAgentKind = { ShepherdConfig.load().agent.kind }
+        statusItemController.onSelectAgentKind = { kind in
+            var config = ShepherdConfig.load()
+            config.agent.kind = kind
+            try? config.save()
+        }
+
         statusItemController.currentDefaultSessionDirectory = { ShepherdConfig.load().sessions.defaultDirectory }
         statusItemController.onChangeDefaultSessionDirectory = { directory in
             var config = ShepherdConfig.load()
@@ -242,7 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func spawnSession(workingDirectory: URL, initialPrompt: String?, resumeSessionID: String?) async {
         let request = CreateSessionRequest(
             workingDirectory: workingDirectory,
-            agent: .claude,
+            agent: ShepherdConfig.load().resolvedAgentKind,
             initialPrompt: initialPrompt,
             resumeSessionID: resumeSessionID
         )
@@ -320,7 +327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let request = CreateSessionRequest(
             workingDirectory: worktreePath,
-            agent: .claude,
+            agent: ShepherdConfig.load().resolvedAgentKind,
             initialPrompt: reviewPrompt(for: match.pr),
             title: match.pr.title
         )

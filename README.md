@@ -72,6 +72,7 @@ Right-click the menu bar icon for:
 - **Install Hooks…** / **Uninstall Hooks…** — installs Claude Code hooks that let shepherd distinguish *why* a session is blocked (a plain question vs. a permission prompt) and show todo progress while idle, richer than what Herdr's socket alone reports.
 - **Change Hotkey…** — set the quick-switcher's global hotkey (see [Configuration](#configuration)).
 - **Terminal** — a submenu to pick which terminal app shepherd raises after switching to a session (Ghostty, Terminal, or iTerm2), applied immediately.
+- **Agent** — a submenu to pick which agent CLI new sessions get started with (Claude Code or OpenCode), applied immediately.
 - **Change Default Directory…** — pick where the Ask tab's escalated/promoted sessions get created (see [Configuration](#configuration)).
 - **Launch at Login** — toggle starting shepherd automatically at login.
 - **Notifications** — toggle desktop notifications on/off (see [Configuration](#configuration)).
@@ -88,7 +89,8 @@ Right-click the menu bar icon for:
   "notifications": { "enabled": true },
   "terminal": { "appName": "Ghostty" },
   "sessions": { "defaultDirectory": "~" },
-  "review": { "includeBots": false, "hideOlderThanDays": null }
+  "review": { "includeBots": false, "hideOlderThanDays": null },
+  "agent": { "kind": "claude" }
 }
 ```
 
@@ -109,11 +111,14 @@ You can edit this field directly, or change it from the app: right-click the men
 
 `review.includeBots` shows bot-authored PRs (Dependabot, Renovate, etc.) in the Review tab instead of hiding them — off by default. `review.hideOlderThanDays` hides PRs whose last update is older than N days — off (`null`) by default, since silently hiding a real long-open PR without being asked could surprise. Explicitly-ignored PRs (pressing Delete on a row, or the eye-slash icon) are tracked separately in `~/.config/shepherd/ignored-prs.json`; delete entries from that file to bring a PR back.
 
+`agent.kind` is which agent CLI new sessions get started with — the project picker, Review-tab sessions, and the Ask tab's escalated/promoted sessions. Defaults to `"claude"`; set to `"opencode"` to use [OpenCode](https://opencode.ai) instead (via the right-click menu's **Agent** submenu, or by editing the field directly). **OpenCode support is experimental** — blocked-reason detail (needs permission vs. needs an answer) and idle todo-progress aren't wired up for it yet, so those sessions only ever show a plain "blocked"/"idle" badge. The Ask tab itself always answers via the Claude Code CLI regardless of this setting and is disabled when `"opencode"` is selected — see [Dependencies](#dependencies).
+
 ## Dependencies
 
 - **macOS 14+**
 - **[Herdr](https://herdr.dev)** — shepherd talks to Herdr's local socket API; it has no functionality without a running Herdr instance.
 - **[Claude Code CLI](https://claude.com/claude-code)** (`claude`) on your `PATH` — used both for the sessions Herdr manages and for shepherd's own inline quick-answer feature.
+- **[OpenCode](https://opencode.ai)** (`opencode`) on your `PATH`, with `herdr integration install opencode` run at least once — only needed if you set `agent.kind` to `"opencode"` (experimental, see [Configuration](#configuration)).
 - **[GitHub CLI](https://cli.github.com)** (`gh`), authenticated, on your `PATH` — used by the Review tab. Optional otherwise.
 - **Swift 6 toolchain** (Xcode 16+) to build from source. No third-party Swift package dependencies.
 

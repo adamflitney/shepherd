@@ -179,10 +179,19 @@ public struct SessionsListView: View {
     private var headerHelpText: String {
         switch mode {
         case .sessions: "New session in a project (Tab)"
-        case .createProject: "Ask Claude directly (Tab)"
+        case .createProject: askTabAvailable ? "Ask Claude directly (Tab)" : "Review a PR (Tab)"
         case .prompt: "Review a PR (Tab)"
         case .review: "Back to sessions (Tab/Esc)"
         }
+    }
+
+    /// The Ask tab always answers via the Claude Code CLI directly
+    /// (`ClaudeCLIRunner`), regardless of `agent.kind` - OpenCode's headless
+    /// output isn't a single JSON result the same way, so there's no
+    /// equivalent run for it yet. Disabled rather than hidden, so switching
+    /// back to Claude Code always finds it exactly where it was.
+    private var askTabAvailable: Bool {
+        ShepherdConfig.load().resolvedAgentKind == .claude
     }
 
     /// Labeled, directly-clickable alternative to the header button's cycle -
@@ -192,14 +201,14 @@ public struct SessionsListView: View {
         HStack(spacing: 4) {
             modeTab("Switch", mode: .sessions)
             modeTab("Create", mode: .createProject)
-            modeTab("Ask", mode: .prompt)
+            modeTab("Ask", mode: .prompt, enabled: askTabAvailable)
             modeTab("Review", mode: .review)
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }
 
-    private func modeTab(_ title: String, mode targetMode: Mode) -> some View {
+    private func modeTab(_ title: String, mode targetMode: Mode, enabled: Bool = true) -> some View {
         let isActive = mode == targetMode
         return Button {
             setMode(targetMode)
@@ -215,6 +224,9 @@ public struct SessionsListView: View {
                 )
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
+        .help(enabled ? "" : "Ask isn't available while OpenCode is the selected agent")
     }
 
     /// Tab and the header button both cycle sessions -> createProject ->
@@ -224,7 +236,7 @@ public struct SessionsListView: View {
     private func advanceMode() {
         switch mode {
         case .sessions: setMode(.createProject)
-        case .createProject: setMode(.prompt)
+        case .createProject: setMode(askTabAvailable ? .prompt : .review)
         case .prompt: setMode(.review)
         case .review: setMode(.sessions)
         }
@@ -232,6 +244,7 @@ public struct SessionsListView: View {
 
     private func setMode(_ newMode: Mode) {
         guard newMode != mode else { return }
+        guard newMode != .prompt || askTabAvailable else { return }
         query = ""
         selectedIndex = 0
         // Deliberately NOT resetting inline-prompt state here - switching
@@ -592,7 +605,10 @@ public struct SessionsListView: View {
 
     private func submitCreateProject(_ project: Project) {
         recordVisit(to: project.path)
-        onCreateSession(CreateSessionRequest(workingDirectory: URL(fileURLWithPath: project.path), agent: .claude))
+        onCreateSession(CreateSessionRequest(
+            workingDirectory: URL(fileURLWithPath: project.path),
+            agent: ShepherdConfig.load().resolvedAgentKind
+        ))
         onDismiss()
     }
 
