@@ -105,6 +105,15 @@ Everything lives under `Sources/ShepherdWeb/`:
   on `Task.sleep` right after starting the server, so anything declared below that line there would
   never initialize).
 - `WebPushCrypto.swift`, `PushService.swift`, `PushAPI.swift` — Web Push (see Phase C).
+- `KeepAwake.swift` — `PreventUserIdleSystemSleep` power assertion while any session is working or
+  blocked (60s release grace). Why: agents run on this Mac, so a sleeping Mac stalls working ones and
+  can't receive an answer to a blocked one from the phone. Opt out with `--no-keep-awake`.
+- Deployment: `scripts/install-web.sh` builds release and installs the LaunchAgent
+  `com.adamflitney.shepherd-web` (RunAtLoad + KeepAlive, logs in `~/.shepherd/logs/shepherd-web.log`),
+  running the binary in place from `.build/release`; re-run it to deploy a change; `uninstall` removes it.
+  Deliberately a separate agent rather than living in the menu bar app (decided with Adam). One
+  caveat: the "Focus" action's AppleScript Automation permission may need granting to the launchd-run
+  binary the first time.
 - `Public/index.html` — the entire client: vanilla JS, no build step, no framework. Session list +
   per-card expand/collapse state (`selected` Set), peek fetch/cache (`peekCache`), numbered-option
   parsing (`parseNumberedOptions`, regex over peek text), the `keyrow` (currently hardcoded
@@ -225,6 +234,8 @@ Phase C scope before starting it.
   nothing — just rely on being physically near the Mac to hear its existing menu-bar notification
   sound, and treat ShepherdWeb as pull-only). Flagging rather than deciding: Adam should weigh in
   before Phase C starts, since it's the most expensive item here by a wide margin.
-- Productionizing: ShepherdWeb is still a hand-started process (`nohup`). Push is only useful if it is
-  always running, so it needs launchd or to live in the menu bar app. Not decided.
-- Push when the Mac is asleep: the server can't notify while the Mac sleeps. Unaddressed.
+- Idle/done sessions never hold the Mac awake (see `KeepAwake.swift`); only working or blocked ones do.
+  If you're away and a session finishes, you can reply from the phone only while the Mac is awake —
+  after the 60s grace it may sleep. Unaddressed; the cost of holding for idle sessions is never sleeping.
+- A blocked session left unanswered holds the assertion indefinitely (no cap). Worth a max-hold if
+  that turns out to matter on battery.

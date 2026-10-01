@@ -40,6 +40,11 @@ let pushDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPat
 let push = try PushService(directory: pushDirectory, subject: "https://github.com/adamflitney/shepherd")
 let pushAPI = PushAPI(push: push)
 Task { await runPushNotifier(backend: backend, push: push) }
+
+if !CommandLine.arguments.contains("--no-keep-awake") {
+    let keepAwake = KeepAwakeController(assertion: SystemSleepAssertion())
+    Task { await runKeepAwake(backend: backend, controller: keepAwake) }
+}
 let publicDirectory = locatePublicDirectory()
 
 let server = try HTTPServer(
