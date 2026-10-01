@@ -30,6 +30,16 @@ let package = Package(
             path: "Sources/Shepherd",
             resources: [.copy("HookScripts")]
         ),
+        // Prototype: a standalone HTTP+SSE bridge over the same
+        // SessionBackend the menu bar app uses, for the mobile-web
+        // experiment. Its own process (not the menu bar app) so it can be
+        // iterated on and restarted without relaunching the GUI.
+        .executableTarget(
+            name: "ShepherdWeb",
+            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdUI"],
+            path: "Sources/ShepherdWeb",
+            resources: [.copy("Public")]
+        ),
         .testTarget(
             name: "ShepherdCoreTests",
             dependencies: ["ShepherdCore"],

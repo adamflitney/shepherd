@@ -108,4 +108,12 @@ public protocol SessionBackend: Sendable {
     /// parsed "last message" - see `trimmedPeekText` for the only cleanup
     /// applied before display.
     func peek(_ id: SessionID) async throws -> String
+
+    /// Sends raw key presses to a session's agent - e.g. `["1"]` to pick a
+    /// numbered option in a permission or `AskUserQuestion` prompt, or
+    /// `["down", "enter"]` to navigate a plain (unnumbered) prompt the way
+    /// a human at the terminal would. Distinct from `prompt`, which submits
+    /// free-form conversational text rather than driving an interactive
+    /// choice already on screen.
+    func respond(_ id: SessionID, keys: [String]) async throws
 }

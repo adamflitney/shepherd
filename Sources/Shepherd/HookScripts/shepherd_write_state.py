@@ -31,15 +31,65 @@ def read_state(session_id):
         return None
 
 
+def extract_ask_user_question(tool_input):
+    # AskUserQuestion's own input already carries the exact question text
+    # and labeled options Claude Code will render, in the same order it
+    # numbers them - no need to guess or parse the rendered terminal text.
+    # Only the first question is read: Shepherd's blocked-state model is
+    # one question per session, and multi-question batches are rare.
+    questions = (tool_input or {}).get("questions") or []
+    if not questions:
+        return {}
+    first = questions[0]
+    options = [opt.get("label") for opt in (first.get("options") or []) if opt.get("label")]
+    detail = {}
+    if first.get("question"):
+        detail["question"] = first["question"]
+    if options:
+        detail["options"] = options
+    if first.get("multiSelect"):
+        detail["multi_select"] = True
+    return detail
+
+
+def summarize_permission_request(tool_name, tool_input):
+    # What's actually being approved, one line - captured live from a real
+    # PermissionRequest payload per tool: Bash carries a `description` (a
+    # short human summary Claude itself writes) or falls back to the raw
+    # `command`; Write/Edit/NotebookEdit carry `file_path`; WebFetch/WebSearch
+    # carry the URL or query. Unrecognised tools fall back to just the tool
+    # name - better than nothing, but see the `needs-permission` branch
+    # below for why that's still shown alongside, not hidden.
+    tool_input = tool_input or {}
+    if tool_name == "Bash":
+        detail = tool_input.get("description") or tool_input.get("command")
+    elif tool_name in ("Write", "Edit", "NotebookEdit"):
+        detail = tool_input.get("file_path")
+    elif tool_name == "WebFetch":
+        detail = tool_input.get("url")
+    elif tool_name == "WebSearch":
+        detail = tool_input.get("query")
+    else:
+        detail = None
+    return f"{tool_name}: {detail}" if detail else tool_name
+
+
 def resolve_state(payload, existing):
     hook_event_name = payload.get("hook_event_name")
     notification_type = payload.get("notification_type")
     tool_name = payload.get("tool_name")
+    tool_input = payload.get("tool_input")
 
     if hook_event_name == "PermissionRequest":
         if tool_name in QUESTION_TOOLS:
-            return "asked-a-question", {"tool_name": tool_name}
-        return "needs-permission", {"tool_name": tool_name}
+            detail = {"tool_name": tool_name}
+            if tool_name == "AskUserQuestion":
+                detail.update(extract_ask_user_question(tool_input))
+            return "asked-a-question", detail
+        return "needs-permission", {
+            "tool_name": tool_name,
+            "summary": summarize_permission_request(tool_name, tool_input),
+        }
 
     if hook_event_name == "Notification":
         if notification_type == "idle_prompt":

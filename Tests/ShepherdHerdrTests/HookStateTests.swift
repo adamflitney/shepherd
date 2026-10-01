@@ -41,6 +41,27 @@ private func stateJSON(schema: Int = 1, state: String, updatedAt: String, detail
     #expect(parsed?.toolName == "ExitPlanMode")
 }
 
+@Test func parseHookStateFileReadsAskUserQuestionDetail() {
+    let content = stateJSON(
+        schema: 1, state: "asked-a-question", updatedAt: "2026-09-17T14:11:41Z",
+        detail: #"{"tool_name":"AskUserQuestion","question":"Which color?","options":["Red","Blue","Green"]}"#
+    )
+    let now = ISO8601DateFormatter().date(from: "2026-09-17T14:11:41Z")!.addingTimeInterval(1)
+    let parsed = parseHookStateFile(content, now: now, staleAfter: 15 * 60)
+    #expect(parsed?.question == "Which color?")
+    #expect(parsed?.options == ["Red", "Blue", "Green"])
+}
+
+@Test func parseHookStateFileReadsPermissionSummary() {
+    let content = stateJSON(
+        schema: 1, state: "needs-permission", updatedAt: "2026-09-17T14:11:41Z",
+        detail: #"{"tool_name":"Bash","summary":"Bash: rm -rf build/"}"#
+    )
+    let now = ISO8601DateFormatter().date(from: "2026-09-17T14:11:41Z")!.addingTimeInterval(1)
+    let parsed = parseHookStateFile(content, now: now, staleAfter: 15 * 60)
+    #expect(parsed?.summary == "Bash: rm -rf build/")
+}
+
 @Test func parseHookStateFileReadsTodoProgress() {
     let content = stateJSON(
         schema: 1, state: "stalled", updatedAt: "2026-09-17T14:11:41Z",
@@ -93,4 +114,26 @@ private func stateJSON(schema: Int = 1, state: String, updatedAt: String, detail
 @Test func reconcileAttentionSurfacesToolNameAsSummaryOnlyWhenBlocked() {
     let result = reconcileAttention(herdrKind: .blocked, hookState: ParsedHookState(state: "needs-permission", toolName: "Edit", todos: nil))
     #expect(result.summary == "Edit")
+}
+
+@Test func reconcileAttentionPrefersThePermissionSummaryOverTheBareToolName() {
+    let hookState = ParsedHookState(state: "needs-permission", toolName: "Bash", todos: nil, summary: "Bash: rm -rf build/")
+    let result = reconcileAttention(herdrKind: .blocked, hookState: hookState)
+    #expect(result.summary == "Bash: rm -rf build/")
+}
+
+@Test func reconcileAttentionSurfacesAskUserQuestionTextAndOptionsOverToolName() {
+    let hookState = ParsedHookState(
+        state: "asked-a-question", toolName: "AskUserQuestion", todos: nil,
+        question: "Which color?", options: ["Red", "Blue", "Green"]
+    )
+    let result = reconcileAttention(herdrKind: .blocked, hookState: hookState)
+    #expect(result.summary == "Which color?")
+    #expect(result.options == ["Red", "Blue", "Green"])
+}
+
+@Test func reconcileAttentionLeavesOptionsNilForAPlainTextQuestion() {
+    let result = reconcileAttention(herdrKind: .blocked, hookState: ParsedHookState(state: "asked-a-question", toolName: "ExitPlanMode", todos: nil))
+    #expect(result.summary == "ExitPlanMode")
+    #expect(result.options == nil)
 }

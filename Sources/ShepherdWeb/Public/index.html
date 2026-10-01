@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Shepherd</title>
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<meta name="theme-color" content="#0b0b0d" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Shepherd" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<style>
+  :root {
+    --bg: #0b0b0d;
+    --card: #17171a;
+    --card-border: #2a2a2e;
+    --text: #f2f2f3;
+    --text-dim: #9a9aa0;
+    --blocked: #ff5b5b;
+    --done: #33c17a;
+    --working: #4d9dff;
+    --idle: #6b6b70;
+    --unknown: #6b6b70;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; min-width: 0; }
+  html, body { max-width: 100%; overflow-x: hidden; }
+  /* Safari renders form controls (button, textarea) with their own native
+     "appearance" box model, which can ignore `box-sizing: border-box` and
+     impose its own intrinsic padding/width - a well-known source of
+     overflow that only shows up in Safari, never in Chromium (which is
+     why this wasn't reproducible in devtools emulation, no matter the
+     viewport size). Disabling native appearance makes these fully governed
+     by the CSS box model above, on every engine. */
+  button, textarea, input { appearance: none; -webkit-appearance: none; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  header {
+    padding: 16px;
+    font-size: 20px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--card-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  #status { font-size: 13px; color: var(--text-dim); font-weight: 400; flex-shrink: 0; }
+  main { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    overflow: clip;
+  }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .row.header { cursor: pointer; margin: -2px; padding: 2px; border-radius: 8px; }
+  .row.header:active { background: #ffffff0d; }
+  .chevron { color: var(--text-dim); font-size: 12px; flex-shrink: 0; width: 1em; text-align: center; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .dot.blocked { background: var(--blocked); }
+  .dot.done { background: var(--done); }
+  .dot.working { background: var(--working); }
+  .dot.idle { background: var(--idle); }
+  .dot.unknown { background: var(--unknown); }
+  .title { font-weight: 600; font-size: 16px; flex: 1; overflow-wrap: anywhere; }
+  .kind { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+  .summary { margin-top: 6px; font-size: 14px; color: var(--text-dim); overflow-wrap: anywhere; }
+  .cwd { margin-top: 2px; font-size: 12px; color: var(--text-dim); opacity: 0.7; overflow-wrap: anywhere; }
+  .actions { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .actions button { flex: 1 1 auto; text-align: left; white-space: normal; line-height: 1.3; overflow-wrap: anywhere; max-width: 100%; }
+  .tag { font-size: 11px; color: var(--done); border: 1px solid var(--done); border-radius: 4px; padding: 1px 5px; margin-left: 4px; white-space: nowrap; }
+  button {
+    font-size: 14px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--card-border);
+    background: #232327;
+    color: var(--text);
+  }
+  button:active { background: #2c2c31; }
+  button.primary { background: var(--working); border-color: var(--working); color: #fff; }
+  /* "Focus" (raise this session's terminal window on the Mac) is a real
+     but edge-case action from a phone - kept, but deliberately not styled
+     like the buttons that actually resolve a blocked session. */
+  button.subtle { background: transparent; border-color: transparent; color: var(--text-dim); flex: 0 1 auto; }
+  /* Pinned to the bottom of the *visual* viewport while a card is on screen,
+     so the keys and reply box stay reachable above the on-screen keyboard.
+     --kb is the keyboard's height, kept current by the visualViewport
+     listener below (iOS doesn't shrink the layout viewport for it). */
+  .replybar {
+    position: sticky;
+    bottom: var(--kb, 0px);
+    margin: 8px -14px -12px;
+    padding: 4px 14px 12px;
+    background: var(--card);
+    border-top: 1px solid var(--card-border);
+    z-index: 2;
+  }
+  .keyrow { display: flex; gap: 6px; margin-top: 8px; }
+  .keyrow button { flex: 1; padding: 10px 0; min-width: 0; }
+  textarea, input[type=text] {
+    width: 100%;
+    max-width: 100%;
+    margin-top: 8px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--card-border);
+    background: #0f0f11;
+    color: var(--text);
+    font-size: 14px;
+  }
+  .peek {
+    margin-top: 8px;
+    background: #0f0f11;
+    border-radius: 8px;
+    padding: 8px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 220px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .empty { text-align: center; color: var(--text-dim); padding: 40px 0; }
+</style>
+</head>
+<body>
+<header>
+  Shepherd
+  <span id="status">connecting…</span>
+</header>
+<main id="sessions"></main>
+
+<script>
+const el = (tag, props = {}, children = []) => {
+  const node = document.createElement(tag);
+  Object.entries(props).forEach(([k, v]) => {
+    if (k === "onclick") node.addEventListener("click", v);
+    else if (k === "class") node.className = v;
+    else node.setAttribute(k, v);
+  });
+  children.forEach(c => node.appendChild(typeof c === "string" ? document.createTextNode(c) : c));
+  return node;
+};
+
+// Every session starts collapsed to just its status row - `selected` is
+// which ones you've tapped open to see/act on. Peek text is only fetched
+// for a session once it's both selected and blocked (see `toggleSelected`
+// and `refresh`), not for every blocked session up front - collapsed
+// sessions don't need it, and it's the one bit of per-session work
+// expensive enough to bother deferring. Cached by session id so re-renders
+// (from every SSE tick) don't re-fetch it.
+const selected = new Set();
+const hiddenPeek = new Set();
+const peekCache = {};
+const draftText = {};
+// Per-session set of chosen option numbers (as strings) for a multi-select
+// `AskUserQuestion` - cleared once the answer is actually sent, since the
+// session moves on to a new blocker after that.
+const multiChoices = {};
+let sessions = [];
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.status === 204 ? null : res.json();
+}
+
+async function refresh() {
+  try {
+    sessions = await api("/api/sessions");
+    document.getElementById("status").textContent = "live";
+    render();
+    const stillBlocked = new Set(sessions.filter(s => s.attention_kind === "blocked").map(s => s.id));
+    // Drop cached peek text for anything no longer blocked, so if it
+    // blocks again later (a new tool call, a new question) it's re-fetched
+    // rather than showing what was on screen last time.
+    Object.keys(peekCache).forEach(id => { if (!stillBlocked.has(id)) delete peekCache[id]; });
+    sessions
+      .filter(s => selected.has(s.id) && s.attention_kind === "blocked" && !(s.options && s.options.length))
+      .forEach(s => fetchPeekIfNeeded(s.id));
+  } catch (e) {
+    document.getElementById("status").textContent = "disconnected";
+  }
+}
+
+async function fetchPeekIfNeeded(id) {
+  if (id in peekCache) return;
+  peekCache[id] = null; // claim it immediately so a second refresh tick doesn't double-fetch
+  try {
+    const { text } = await api(`/api/sessions/${id}/peek`);
+    peekCache[id] = text;
+  } catch (e) {
+    peekCache[id] = "(couldn't read pane)";
+  }
+  render();
+}
+
+async function sendRespond(id, keys) {
+  await api(`/api/sessions/${id}/respond`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keys })
+  });
+  await refresh();
+}
+
+// Verify-before-send for a button built from `parseNumberedOptions`: our
+// option text comes from regex-parsing a screen snapshot, not a verified
+// structured answer (unlike the AskUserQuestion case, whose options come
+// straight from the hook payload), so it's more exposed to the screen
+// having moved on between render and tap. Re-peek immediately before
+// sending and refuse (re-render instead of send) if the option at that
+// number no longer matches what the button was built from.
+async function verifyAndRespond(id, number, expectedLabel) {
+  let text;
+  try {
+    ({ text } = await api(`/api/sessions/${id}/peek`));
+  } catch (e) {
+    return; // couldn't re-verify - fail closed, don't send
+  }
+  const fresh = parseNumberedOptions(text).find(o => o.number === number);
+  if (!fresh || fresh.label !== expectedLabel) {
+    peekCache[id] = text;
+    render();
+    return;
+  }
+  await sendRespond(id, [number]);
+}
+
+async function sendMultiRespond(id) {
+  const chosen = Array.from(multiChoices[id] || []).sort();
+  if (!chosen.length) return;
+  delete multiChoices[id];
+  await sendRespond(id, [...chosen, "enter"]);
+}
+
+async function sendPrompt(id) {
+  const text = (draftText[id] || "").trim();
+  if (!text) return;
+  await api(`/api/sessions/${id}/prompt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+  draftText[id] = "";
+  await refresh();
+}
+
+async function focusSession(id) {
+  await api(`/api/sessions/${id}/focus`, { method: "POST" });
+}
+
+function toggleHidePeek(id) {
+  if (hiddenPeek.has(id)) hiddenPeek.delete(id);
+  else hiddenPeek.add(id);
+  render();
+}
+
+function toggleSelected(id) {
+  if (selected.has(id)) {
+    selected.delete(id);
+  } else {
+    selected.add(id);
+    const session = sessions.find(s => s.id === id);
+    if (session && session.attention_kind === "blocked" && !(session.options && session.options.length)) {
+      fetchPeekIfNeeded(id);
+    }
+  }
+  render();
+}
+
+// A permission prompt's hook payload doesn't reliably give the exact
+// rendered option list (see the investigation into `permission_suggestions` -
+// it hints at *one* extra option, not the full numbered menu Claude Code
+// actually shows). The peek text we already fetch does have the real thing
+// verbatim, so parse it the same way a human reading the screen would,
+// rather than guessing from the hook payload. Matches lines like
+// " ❯ 1. Yes" or "   2. Yes, and switch to accept edits...".
+function parseNumberedOptions(peekText) {
+  if (!peekText) return [];
+  return peekText.split("\n")
+    .map(line => line.match(/^\s*[❯>]?\s*(\d+)\.\s+(.+)$/))
+    .filter(Boolean)
+    .map(m => ({ number: m[1], label: m[2].trim() }));
+}
+
+// AskUserQuestion's own tool guidance has Claude append "(Recommended)" to an
+// option's label text - split it out so it renders as a small tag instead of
+// sitting in the label itself (matches herdr-web-ui's `labelOf()`).
+function splitRecommended(label) {
+  const match = label.match(/^(.*?)\s*\(Recommended\)\s*$/i);
+  return match ? { label: match[1], recommended: true } : { label, recommended: false };
+}
+
+function optionLabelNode(rawLabel) {
+  const { label, recommended } = splitRecommended(rawLabel);
+  const nodes = [label];
+  if (recommended) nodes.push(el("span", { class: "tag" }, [" Recommended"]));
+  return nodes;
+}
+
+function lastPathComponent(path) {
+  const parts = path.split("/").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : path;
+}
+
+function replyCard(session) {
+  const card = el("div", { class: "card" });
+  const isSelected = selected.has(session.id);
+  const dot = el("span", { class: `dot ${session.attention_kind}` });
+  const title = el("span", { class: "title" }, [session.title]);
+  const kind = el("span", { class: "kind" }, [session.attention_kind]);
+  const chevron = el("span", { class: "chevron" }, [isSelected ? "▾" : "▸"]);
+  const header = el("div", { class: "row header", onclick: () => toggleSelected(session.id) }, [dot, title, kind, chevron]);
+  card.appendChild(header);
+
+  if (session.summary) {
+    card.appendChild(el("div", { class: "summary" }, [session.summary]));
+  }
+  if (session.working_directory) {
+    card.appendChild(el("div", { class: "cwd" }, [lastPathComponent(session.working_directory)]));
+  }
+
+  if (!isSelected) return card;
+
+  const isBlocked = session.attention_kind === "blocked";
+  const actions = el("div", { class: "actions" });
+
+  if (isBlocked && session.options && session.options.length && session.options_allow_multiple) {
+    // Multi-select AskUserQuestion: toggleable rows (checkbox-style) plus a
+    // Submit button, rather than a single tap resolving the question - the
+    // real prompt expects any number of choices before it's confirmed.
+    const chosen = multiChoices[session.id] || (multiChoices[session.id] = new Set());
+    session.options.forEach((label, index) => {
+      const number = String(index + 1);
+      const isChosen = chosen.has(number);
+      actions.appendChild(el("button", {
+        class: isChosen ? "primary" : "",
+        onclick: () => {
+          if (isChosen) chosen.delete(number); else chosen.add(number);
+          render();
+        }
+      }, [`${isChosen ? "☑" : "☐"} ${number}. `, ...optionLabelNode(label)]));
+    });
+    actions.appendChild(el("button", {
+      class: "subtle",
+      onclick: () => sendMultiRespond(session.id)
+    }, [`Submit (${chosen.size})`]));
+  } else if (isBlocked && session.options && session.options.length) {
+    // AskUserQuestion: real labeled buttons, one per option, numbered the
+    // same way Claude Code's own prompt is - see the digit-key finding
+    // this prototype is built around.
+    session.options.forEach((label, index) => {
+      actions.appendChild(el("button", {
+        class: index === 0 ? "primary" : "",
+        onclick: () => sendRespond(session.id, [String(index + 1)])
+      }, [`${index + 1}. `, ...optionLabelNode(label)]));
+    });
+  } else if (isBlocked && session.blocker === "needsPermission") {
+    const parsedOptions = parseNumberedOptions(peekCache[session.id]);
+    if (parsedOptions.length) {
+      // The real options, read straight off the screen we already
+      // fetched - one button per option, labeled with its actual text
+      // instead of a blind "Approve (1)".
+      parsedOptions.forEach(({ number, label }) => {
+        actions.appendChild(el("button", {
+          class: number === "1" ? "primary" : "",
+          onclick: () => verifyAndRespond(session.id, number, label)
+        }, [`${number}. ${label}`]));
+      });
+    } else {
+      // Peek text hasn't arrived yet, or didn't parse - fall back to the
+      // common shape (1 = yes, 3 = no) rather than showing nothing.
+      actions.appendChild(el("button", { class: "primary", onclick: () => sendRespond(session.id, ["1"]) }, ["Approve (1)"]));
+      actions.appendChild(el("button", { onclick: () => sendRespond(session.id, ["3"]) }, ["Deny (3)"]));
+    }
+  } else if (!isBlocked) {
+    actions.appendChild(el("button", { class: "subtle", onclick: () => focusSession(session.id) }, ["Focus"]));
+  }
+  // A plain-text question (isBlocked, no options, blocker !== needsPermission)
+  // gets no quick-action button at all here - just the reply box below,
+  // since there's nothing numbered to pick from.
+
+  card.appendChild(actions);
+
+  if (isBlocked) {
+    const showingPeek = !hiddenPeek.has(session.id) && peekCache[session.id];
+    if (peekCache[session.id]) {
+      actions.appendChild(el("button", { onclick: () => toggleHidePeek(session.id) }, [showingPeek ? "Hide screen" : "Show screen"]));
+    }
+    if (showingPeek) {
+      card.appendChild(el("div", { class: "peek" }, [peekCache[session.id]]));
+    } else if (!(session.options && session.options.length)) {
+      card.appendChild(el("div", { class: "summary" }, ["Reading the screen…"]));
+    }
+
+    // Beyond the numbered-option shortcuts above, a dialog can be unnumbered
+    // entirely (e.g. the one-time folder-trust prompt, which only responds
+    // to down+enter) - these drive it directly rather than leaving peek-and-
+    // despair as the only option.
+    const replybar = el("div", { class: "replybar" });
+    const keyrow = el("div", { class: "keyrow" });
+    [
+      ["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"], ["5", "5"],
+      ["↑", "up"], ["↓", "down"], ["⏎", "enter"], ["esc", "esc"]
+    ].forEach(([label, key]) => {
+      keyrow.appendChild(el("button", { onclick: () => sendRespond(session.id, [key]) }, [label]));
+    });
+    replybar.appendChild(keyrow);
+
+    const textarea = el("textarea", { rows: "2", placeholder: "Type a reply…" });
+    textarea.value = draftText[session.id] || "";
+    textarea.addEventListener("input", e => { draftText[session.id] = e.target.value; });
+    replybar.appendChild(textarea);
+    replybar.appendChild(el("button", { class: "primary", onclick: () => sendPrompt(session.id) }, ["Send reply"]));
+    card.appendChild(replybar);
+  }
+
+  return card;
+}
+
+// A full re-render replaces every node, which would drop focus (and the
+// on-screen keyboard) from a reply box mid-typing every time an SSE tick
+// lands. While one is focused, hold the render and flush it shortly after
+// blur - the delay lets a tap on "Send reply" register before its button
+// is rebuilt out from under the finger.
+let renderPending = false;
+function render() {
+  if (document.activeElement && document.activeElement.tagName === "TEXTAREA") {
+    renderPending = true;
+    return;
+  }
+  renderPending = false;
+  const container = document.getElementById("sessions");
+  container.innerHTML = "";
+  if (sessions.length === 0) {
+    container.appendChild(el("div", { class: "empty" }, ["No sessions"]));
+    return;
+  }
+  sessions.forEach(session => container.appendChild(replyCard(session)));
+}
+
+document.addEventListener("focusout", () => {
+  setTimeout(() => { if (renderPending) render(); }, 300);
+});
+
+// Track the on-screen keyboard: the gap between the layout viewport's bottom
+// and the visual viewport's bottom is the keyboard height (0 when closed).
+if (window.visualViewport) {
+  const vv = window.visualViewport;
+  const updateKeyboardInset = () => {
+    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty("--kb", `${kb}px`);
+  };
+  vv.addEventListener("resize", updateKeyboardInset);
+  vv.addEventListener("scroll", updateKeyboardInset);
+  updateKeyboardInset();
+}
+
+// Service workers need a secure context (https or localhost), so this is a
+// silent no-op over a plain-http LAN address - the manifest and Add to Home
+// Screen still work there; only offline shell caching doesn't.
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
+function connectEvents() {
+  const source = new EventSource("/api/events");
+  source.onmessage = () => refresh();
+  source.onerror = () => {
+    document.getElementById("status").textContent = "reconnecting…";
+    source.close();
+    setTimeout(connectEvents, 2000);
+  };
+}
+
+refresh();
+connectEvents();
+</script>
+</body>
+</html>

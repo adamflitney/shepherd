@@ -38,3 +38,25 @@ private let snapshotFixture = Data(#"""
         try await backend.prompt(SessionID(rawValue: "agent:ghost"), text: "hello")
     }
 }
+
+@Test func herdrBackendRespondSendsAgentSendKeysWithTheRoutedPaneID() async throws {
+    let requestTransport = InMemoryLineTransport(responses: [
+        snapshotFixture,
+        Data(#"{"id":"req2","result":{"type":"ok"}}"#.utf8),
+    ])
+    let backend = HerdrSessionBackend(
+        requestClient: RequestClient(transport: requestTransport),
+        eventTransport: InMemoryEventTransport()
+    )
+    _ = try await backend.snapshot() // populates the route table
+
+    try await backend.respond(SessionID(rawValue: "agent:abc"), keys: ["1"])
+
+    struct Shape: Decodable { let method: String; let params: Params }
+    struct Params: Decodable { let target: String; let keys: [String] }
+    let sent = await requestTransport.sentLines
+    let decoded = try JSONDecoder().decode(Shape.self, from: sent[1])
+    #expect(decoded.method == "agent.send_keys")
+    #expect(decoded.params.target == "w4:p1")
+    #expect(decoded.params.keys == ["1"])
+}

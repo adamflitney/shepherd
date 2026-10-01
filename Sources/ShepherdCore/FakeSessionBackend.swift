@@ -69,9 +69,18 @@ public actor FakeSessionBackend: SessionBackend {
         return peekTexts[id] ?? "(demo) last screen for \(session.title) - \(session.attention.kind.rawValue)"
     }
 
+    public func respond(_ id: SessionID, keys: [String]) async throws {
+        guard var session = sessions[id] else { throw BackendError.unknownSession(id) }
+        lastRespondKeys[id] = keys
+        session.attention = AttentionState(kind: .working)
+        sessions[id] = session
+        hub.broadcast(.sessionChanged(session))
+    }
+
     // MARK: - Test/demo control surface
 
     private var peekTexts: [SessionID: String] = [:]
+    public private(set) var lastRespondKeys: [SessionID: [String]] = [:]
 
     public func setAttention(_ attention: AttentionState, for id: SessionID) async {
         guard var session = sessions[id] else { return }

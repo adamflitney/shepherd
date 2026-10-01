@@ -27,6 +27,17 @@ public struct AttentionState: Hashable, Sendable {
     public var blocker: Blocker?
     public var progress: TaskProgress?
     public var summary: String?
+    /// Labeled choices for a `needsAnswer` blocker whose source was a
+    /// structured question (Claude Code's `AskUserQuestion` tool), in the
+    /// same order Claude Code numbers them - a client can offer real
+    /// labeled buttons instead of a blind digit. `nil` for a plain-text
+    /// question or a `needsPermission` blocker, where no such structure
+    /// exists from the hook payload alone.
+    public var options: [String]?
+    /// Whether `options` represents a multi-select `AskUserQuestion` (pick
+    /// any number, then submit) rather than a single-tap choice. Always
+    /// `false` when `options` is `nil`.
+    public var optionsAllowMultiple: Bool
     public var since: Date?
 
     public init(
@@ -34,12 +45,16 @@ public struct AttentionState: Hashable, Sendable {
         blocker: Blocker? = nil,
         progress: TaskProgress? = nil,
         summary: String? = nil,
+        options: [String]? = nil,
+        optionsAllowMultiple: Bool = false,
         since: Date? = nil
     ) {
         self.kind = kind
         self.blocker = blocker
         self.progress = progress
         self.summary = summary
+        self.options = options
+        self.optionsAllowMultiple = optionsAllowMultiple
         self.since = since
     }
 

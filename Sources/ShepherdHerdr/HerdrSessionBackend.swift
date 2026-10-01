@@ -218,7 +218,16 @@ public actor HerdrSessionBackend: SessionBackend {
             params: PaneReadParamsWire(paneID: route.paneID, source: "visible"),
             resultType: PaneReadResultWire.self
         )
-        return result.text
+        return result.read.text
+    }
+
+    public func respond(_ id: SessionID, keys: [String]) async throws {
+        guard let route = projection.route(for: id) else { throw BackendError.unknownSession(id) }
+        _ = try await requestClient.call(
+            method: "agent.send_keys",
+            params: AgentSendKeysParamsWire(target: route.paneID, keys: keys),
+            resultType: IgnoredResult.self
+        )
     }
 
     // MARK: - Event connection
@@ -361,8 +370,13 @@ private struct PaneReadParamsWire: Encodable {
     enum CodingKeys: String, CodingKey { case paneID = "pane_id", source }
 }
 
+/// Herdr's `pane.read` response wraps the actual read under a nested
+/// `read` object (`{"type":"pane_read","read":{...,"text":...}}`), not a
+/// flat `{"text":...}` - confirmed live against a running Herdr instance;
+/// this code had drifted from Herdr's current wire format.
 private struct PaneReadResultWire: Decodable {
-    let text: String
+    let read: ReadWire
+    struct ReadWire: Decodable { let text: String }
 }
 
 private struct SubscribeParams: Encodable {

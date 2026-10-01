@@ -10,7 +10,7 @@ private let snapshotFixture = Data(#"""
 @Test func herdrBackendPeekReadsTheVisiblePaneTextForTheRoutedPaneID() async throws {
     let requestTransport = InMemoryLineTransport(responses: [
         snapshotFixture,
-        Data(#"{"id":"req2","result":{"pane_id":"w4:p1","workspace_id":"w4","tab_id":"w4:t1","source":"visible","format":"text","text":"last line of output","revision":1,"truncated":false}}"#.utf8),
+        Data(#"{"id":"req2","result":{"type":"pane_read","read":{"pane_id":"w4:p1","workspace_id":"w4","tab_id":"w4:t1","source":"visible","format":"text","text":"last line of output","revision":1,"truncated":false}}}"#.utf8),
     ])
     let backend = HerdrSessionBackend(
         requestClient: RequestClient(transport: requestTransport),
