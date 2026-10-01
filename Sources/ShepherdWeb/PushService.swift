@@ -127,23 +127,40 @@ struct PushMessage: Encodable {
     }
 }
 
-/// Watches the backend and pushes once per *transition into* blocked/done,
-/// via the same `notificationsToFire` policy the menu bar app uses. The
-/// first snapshot only seeds state, so starting (or restarting) the server
-/// never fires a notification for sessions that were already waiting.
+/// Herdr moves a finished Claude Code session straight to idle - the `done`
+/// status that `notificationsToFire` keys on doesn't occur for real sessions
+/// - so "an agent finished" is a working -> idle transition here.
+func sessionsThatFinishedWorking(previousKinds: [SessionID: AttentionState.Kind], sessions: [Session]) -> [Session] {
+    sessions.filter { previousKinds[$0.id] == .working && $0.attention.kind == .idle }
+}
+
+/// Watches the backend and pushes once per *transition into* blocked/done
+/// (via the same `notificationsToFire` policy the menu bar app uses) or out
+/// of working into idle. The initial snapshot only seeds state, so starting
+/// (or restarting) the server never fires for sessions already waiting.
 func runPushNotifier(backend: any SessionBackend, push: PushService) async {
     var lastNotified: [SessionID: AttentionState.Kind] = [:]
+    var lastKinds: [SessionID: AttentionState.Kind] = [:]
     if let initial = try? await backend.snapshot() {
         lastNotified = notificationsToFire(for: initial.sessions, lastNotifiedKind: [:]).updatedState
+        lastKinds = Dictionary(uniqueKeysWithValues: initial.sessions.map { ($0.id, $0.attention.kind) })
     }
     for await _ in backend.events() {
         guard let snapshot = try? await backend.snapshot() else { continue }
+        for session in snapshot.sessions where lastKinds[session.id] != session.attention.kind {
+            print("state: \(session.title.prefix(40)): \(lastKinds[session.id]?.rawValue ?? "new") -> \(session.attention.kind.rawValue)")
+        }
         let result = notificationsToFire(for: snapshot.sessions, lastNotifiedKind: lastNotified)
+        let finished = sessionsThatFinishedWorking(previousKinds: lastKinds, sessions: snapshot.sessions)
         lastNotified = result.updatedState
-        for pending in result.toFire {
-            guard let session = snapshot.sessions.first(where: { $0.id == pending.sessionID }),
-                  let payload = try? JSONEncoder().encode(PushMessage(for: session)) else { continue }
-            await push.send(payload)
+        lastKinds = Dictionary(uniqueKeysWithValues: snapshot.sessions.map { ($0.id, $0.attention.kind) })
+
+        let firing = result.toFire.compactMap { pending in snapshot.sessions.first { $0.id == pending.sessionID } }
+        let toNotify = firing + finished.filter { f in !firing.contains { $0.id == f.id } }
+        for session in toNotify {
+            guard let payload = try? JSONEncoder().encode(PushMessage(for: session)) else { continue }
+            let delivered = await push.send(payload)
+            print("push: \(session.title.prefix(40)) (\(session.attention.kind.rawValue)) delivered to \(delivered)/\(await push.subscriptionCount)")
         }
     }
 }

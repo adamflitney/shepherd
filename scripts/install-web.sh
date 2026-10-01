@@ -14,7 +14,15 @@ DOMAIN="gui/$(id -u)"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="${HOME}/.shepherd/logs"
 
-stop_agent() { launchctl bootout "${DOMAIN}/${LABEL}" 2>/dev/null || true; }
+# bootout returns before launchd has finished tearing the service down, and
+# an immediate bootstrap then fails with an I/O error - so wait it out.
+stop_agent() {
+    launchctl bootout "${DOMAIN}/${LABEL}" 2>/dev/null || true
+    for _ in $(seq 1 50); do
+        launchctl print "${DOMAIN}/${LABEL}" >/dev/null 2>&1 || return 0
+        sleep 0.2
+    done
+}
 
 if [ "${1:-}" = "uninstall" ]; then
     stop_agent
