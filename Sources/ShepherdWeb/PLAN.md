@@ -227,8 +227,9 @@ was tiny and uniformly dark grey. `Public/index.html` is now two views:
   reload and notification taps (`/?session=` → hash) all work.
 - Readability: output is 14px (cycle 12/14/16/18 with `Aa`, remembered in `localStorage`) in full-
   contrast text. `formatTerminal()` turns runs of box-drawing rules into one divider, bolds `⏺`
-  assistant lines, and dims Claude Code's input box + status bar — only when the region really is the
-  input prompt, so a permission dialog's options stay bright. `reflow()` re-joins the terminal's own
+  assistant lines, and drops Claude Code's input box + status bar (first dimmed; Adam found it still read as fluff
+  sitting at the bottom above the keyboard while replying) — only when the region really is the
+  input prompt, so a permission dialog's options stay. `reflow()` re-joins the terminal's own
   hard-wrapped prose (previous line ≥85% of the widest line, current is indented non-list prose) so it
   doesn't stack with the phone's wrap; code/tables don't match that shape and are left alone.
 - Live-updating peek (a Phase D item) is done as a side effect: the open session polls its screen every

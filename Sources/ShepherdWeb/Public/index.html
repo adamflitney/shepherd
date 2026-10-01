@@ -454,9 +454,10 @@ window.addEventListener("popstate", route);
 
 // Strips the terminal chrome that wastes a phone screen: runs of box-drawing
 // rules become one thin divider, assistant messages (⏺) are emphasised, and
-// Claude Code's input box + status bar are dimmed so the actual response is
-// what reads. The footer is only dimmed when it really is that input box -
-// not a permission dialog, whose numbered options must stay prominent.
+// Claude Code's input box + status bar are dropped so the response is what
+// sits at the bottom (it's what you see above the keyboard while replying).
+// The footer is only dropped when it really is that input box - not a
+// permission dialog, whose numbered options must stay.
 const RULE = /^\s*[─━═╌╍┄┅]{6,}\s*$/;
 const INPUT_PROMPT = /^\s*❯(?!\s*\d+\.)(\s.*)?$/;
 
@@ -504,9 +505,9 @@ function formatTerminal(text) {
       return;
     }
     lastWasRule = false;
+    if (i >= footerStart) return;
     const cls = ["l"];
-    if (i >= footerStart) cls.push("dim");
-    else if (/^\s*⏺/.test(line)) cls.push("msg");
+    if (/^\s*⏺/.test(line)) cls.push("msg");
     frag.appendChild(el("div", { class: cls.join(" ") }, [line.length ? line : " "]));
   });
   return frag;
