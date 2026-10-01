@@ -1,4 +1,4 @@
-const CACHE = "shepherd-shell-v1";
+const CACHE = "shepherd-shell-v2";
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", event => {
@@ -32,4 +32,34 @@ self.addEventListener("fetch", event => {
       })
       .catch(() => caches.match(request))
   );
+});
+
+// Safari (and Chrome) require every push to show a notification
+// (`userVisibleOnly`), so there's no "skip it because the app is open" path.
+// `tag` collapses repeats for the same session into one entry.
+self.addEventListener("push", event => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) {}
+  event.waitUntil(self.registration.showNotification(data.title || "Shepherd", {
+    body: data.body || "",
+    tag: data.session_id || "shepherd",
+    renotify: true,
+    icon: "/icon-192.png",
+    data: { session_id: data.session_id || "" }
+  }));
+});
+
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const id = (event.notification.data && event.notification.data.session_id) || "";
+  event.waitUntil((async () => {
+    const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    if (windows.length) {
+      const client = windows[0];
+      await client.focus();
+      client.postMessage({ type: "open-session", id });
+    } else {
+      await clients.openWindow(id ? `/?session=${encodeURIComponent(id)}` : "/");
+    }
+  })());
 });

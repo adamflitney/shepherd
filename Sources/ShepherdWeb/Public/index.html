@@ -51,6 +51,9 @@
     justify-content: space-between;
     gap: 8px;
   }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  #alerts { display: flex; gap: 6px; }
+  #alerts button { font-size: 12px; padding: 5px 9px; }
   #status { font-size: 13px; color: var(--text-dim); font-weight: 400; flex-shrink: 0; }
   main { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
   .card {
@@ -127,7 +130,7 @@
     color: var(--text-dim);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    max-height: 220px;
+    max-height: 300px;
     overflow-y: auto;
     overflow-x: hidden;
   }
@@ -137,7 +140,10 @@
 <body>
 <header>
   Shepherd
-  <span id="status">connecting…</span>
+  <span class="header-right">
+    <span id="alerts"></span>
+    <span id="status">connecting…</span>
+  </span>
 </header>
 <main id="sessions"></main>
 
@@ -181,29 +187,32 @@ async function refresh() {
     sessions = await api("/api/sessions");
     document.getElementById("status").textContent = "live";
     render();
-    const stillBlocked = new Set(sessions.filter(s => s.attention_kind === "blocked").map(s => s.id));
-    // Drop cached peek text for anything no longer blocked, so if it
-    // blocks again later (a new tool call, a new question) it's re-fetched
-    // rather than showing what was on screen last time.
-    Object.keys(peekCache).forEach(id => { if (!stillBlocked.has(id)) delete peekCache[id]; });
-    sessions
-      .filter(s => selected.has(s.id) && s.attention_kind === "blocked" && !(s.options && s.options.length))
-      .forEach(s => fetchPeekIfNeeded(s.id));
+    // Only expanded cards show a screen, so only those are kept fresh (on
+    // every tick - a session's output changes without its status changing);
+    // anything collapsed drops its cache so reopening never shows old text.
+    Object.keys(peekCache).forEach(id => { if (!selected.has(id)) delete peekCache[id]; });
+    sessions.filter(s => selected.has(s.id)).forEach(s => refreshPeek(s.id));
   } catch (e) {
     document.getElementById("status").textContent = "disconnected";
   }
 }
 
-async function fetchPeekIfNeeded(id) {
-  if (id in peekCache) return;
-  peekCache[id] = null; // claim it immediately so a second refresh tick doesn't double-fetch
+const peekInFlight = new Set();
+async function refreshPeek(id) {
+  if (peekInFlight.has(id)) return;
+  peekInFlight.add(id);
+  let text;
   try {
-    const { text } = await api(`/api/sessions/${id}/peek`);
-    peekCache[id] = text;
+    ({ text } = await api(`/api/sessions/${id}/peek`));
   } catch (e) {
-    peekCache[id] = "(couldn't read pane)";
+    text = "(couldn't read pane)";
   }
-  render();
+  peekInFlight.delete(id);
+  // Re-render only on a real change, or every tick would rebuild the page.
+  if (selected.has(id) && peekCache[id] !== text) {
+    peekCache[id] = text;
+    render();
+  }
 }
 
 async function sendRespond(id, keys) {
@@ -272,10 +281,7 @@ function toggleSelected(id) {
     selected.delete(id);
   } else {
     selected.add(id);
-    const session = sessions.find(s => s.id === id);
-    if (session && session.attention_kind === "blocked" && !(session.options && session.options.length)) {
-      fetchPeekIfNeeded(id);
-    }
+    refreshPeek(id);
   }
   render();
 }
@@ -316,7 +322,7 @@ function lastPathComponent(path) {
 }
 
 function replyCard(session) {
-  const card = el("div", { class: "card" });
+  const card = el("div", { class: "card", "data-sid": session.id });
   const isSelected = selected.has(session.id);
   const dot = el("span", { class: `dot ${session.attention_kind}` });
   const title = el("span", { class: "title" }, [session.title]);
@@ -394,36 +400,40 @@ function replyCard(session) {
 
   card.appendChild(actions);
 
-  if (isBlocked) {
-    const showingPeek = !hiddenPeek.has(session.id) && peekCache[session.id];
-    if (peekCache[session.id]) {
-      actions.appendChild(el("button", { onclick: () => toggleHidePeek(session.id) }, [showingPeek ? "Hide screen" : "Show screen"]));
-    }
-    if (showingPeek) {
-      card.appendChild(el("div", { class: "peek" }, [peekCache[session.id]]));
-    } else if (!(session.options && session.options.length)) {
-      card.appendChild(el("div", { class: "summary" }, ["Reading the screen…"]));
-    }
+  // Every expanded session shows its screen (the latest response, for an
+  // idle one) and takes a reply; only a blocked one also gets the key row.
+  const showingPeek = !hiddenPeek.has(session.id) && peekCache[session.id];
+  if (peekCache[session.id]) {
+    actions.appendChild(el("button", { class: isBlocked ? "" : "subtle", onclick: () => toggleHidePeek(session.id) }, [showingPeek ? "Hide screen" : "Show screen"]));
+  }
+  if (showingPeek) {
+    card.appendChild(el("div", { class: "peek" }, [peekCache[session.id]]));
+  } else if (!(session.id in peekCache) && !(session.options && session.options.length)) {
+    card.appendChild(el("div", { class: "summary" }, ["Reading the screen…"]));
+  }
 
+  if (isBlocked || session.can_prompt) {
     // Beyond the numbered-option shortcuts above, a dialog can be unnumbered
     // entirely (e.g. the one-time folder-trust prompt, which only responds
     // to down+enter) - these drive it directly rather than leaving peek-and-
     // despair as the only option.
     const replybar = el("div", { class: "replybar" });
-    const keyrow = el("div", { class: "keyrow" });
-    [
-      ["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"], ["5", "5"],
-      ["↑", "up"], ["↓", "down"], ["⏎", "enter"], ["esc", "esc"]
-    ].forEach(([label, key]) => {
-      keyrow.appendChild(el("button", { onclick: () => sendRespond(session.id, [key]) }, [label]));
-    });
-    replybar.appendChild(keyrow);
+    if (isBlocked) {
+      const keyrow = el("div", { class: "keyrow" });
+      [
+        ["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"], ["5", "5"],
+        ["↑", "up"], ["↓", "down"], ["⏎", "enter"], ["esc", "esc"]
+      ].forEach(([label, key]) => {
+        keyrow.appendChild(el("button", { onclick: () => sendRespond(session.id, [key]) }, [label]));
+      });
+      replybar.appendChild(keyrow);
+    }
 
-    const textarea = el("textarea", { rows: "2", placeholder: "Type a reply…" });
+    const textarea = el("textarea", { rows: "2", placeholder: isBlocked ? "Type a reply…" : "Send a message…" });
     textarea.value = draftText[session.id] || "";
     textarea.addEventListener("input", e => { draftText[session.id] = e.target.value; });
     replybar.appendChild(textarea);
-    replybar.appendChild(el("button", { class: "primary", onclick: () => sendPrompt(session.id) }, ["Send reply"]));
+    replybar.appendChild(el("button", { class: "primary", onclick: () => sendPrompt(session.id) }, [isBlocked ? "Send reply" : "Send"]));
     card.appendChild(replybar);
   }
 
@@ -449,6 +459,8 @@ function render() {
     return;
   }
   sessions.forEach(session => container.appendChild(replyCard(session)));
+  // The newest output is at the bottom of the screen text.
+  container.querySelectorAll(".peek").forEach(p => { p.scrollTop = p.scrollHeight; });
 }
 
 document.addEventListener("focusout", () => {
@@ -475,6 +487,79 @@ if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
+// --- Push notifications -------------------------------------------------
+// Needs a secure context and, on iOS, the app installed to the Home Screen
+// (otherwise `PushManager` doesn't exist and the control simply stays hidden).
+const urlBase64ToBytes = b64 => {
+  const raw = atob(b64.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(b64.length / 4) * 4, "="));
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+};
+
+async function pushSubscription() {
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+
+async function postJSON(path, body) {
+  return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
+async function enableAlerts() {
+  if (await Notification.requestPermission() !== "granted") return renderAlerts();
+  const reg = await navigator.serviceWorker.ready;
+  const { public_key } = await api("/api/push/key");
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToBytes(public_key) });
+  await postJSON("/api/push/subscribe", sub.toJSON());
+  renderAlerts();
+}
+
+async function disableAlerts() {
+  const sub = await pushSubscription();
+  if (sub) {
+    await postJSON("/api/push/unsubscribe", { endpoint: sub.endpoint });
+    await sub.unsubscribe();
+  }
+  renderAlerts();
+}
+
+async function renderAlerts() {
+  const box = document.getElementById("alerts");
+  box.innerHTML = "";
+  if (!("PushManager" in window) || !("serviceWorker" in navigator) || !window.isSecureContext) return;
+  if (Notification.permission === "denied") {
+    box.appendChild(el("button", { class: "subtle", disabled: "true" }, ["Alerts blocked"]));
+    return;
+  }
+  const sub = Notification.permission === "granted" ? await pushSubscription() : null;
+  if (!sub) {
+    box.appendChild(el("button", { onclick: () => enableAlerts().catch(renderAlerts) }, ["Enable alerts"]));
+    return;
+  }
+  // The server's store is a file that can be lost or reset; re-sending the
+  // subscription on every load keeps it in sync without a separate check.
+  postJSON("/api/push/subscribe", sub.toJSON()).catch(() => {});
+  box.appendChild(el("button", { class: "subtle", onclick: () => disableAlerts() }, ["Alerts on"]));
+  box.appendChild(el("button", { class: "subtle", onclick: () => api("/api/push/test", { method: "POST" }) }, ["Test"]));
+}
+
+// Opening from a notification: expand that session's card.
+function openSession(id) {
+  if (!id) return;
+  selected.add(id);
+  refreshPeek(id);
+  render();
+  setTimeout(() => {
+    const target = Array.from(document.querySelectorAll(".card")).find(c => c.dataset.sid === id);
+    if (target) target.scrollIntoView({ block: "start" });
+  }, 50);
+}
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", e => {
+    if (e.data && e.data.type === "open-session") openSession(e.data.id);
+  });
+}
+
 function connectEvents() {
   const source = new EventSource("/api/events");
   source.onmessage = () => refresh();
@@ -485,8 +570,9 @@ function connectEvents() {
   };
 }
 
-refresh();
+refresh().then(() => openSession(new URLSearchParams(location.search).get("session")));
 connectEvents();
+renderAlerts();
 </script>
 </body>
 </html>

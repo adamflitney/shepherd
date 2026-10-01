@@ -32,6 +32,14 @@ if CommandLine.arguments.contains("--fake") {
 }
 
 let api = SessionsAPI(backend: backend)
+
+// VAPID `sub` is a contact URI the push service can use to reach the
+// operator - a project URL rather than a personal email address, since it's
+// sent to Apple/Google with every push.
+let pushDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".shepherd/web-push")
+let push = try PushService(directory: pushDirectory, subject: "https://github.com/adamflitney/shepherd")
+let pushAPI = PushAPI(push: push)
+Task { await runPushNotifier(backend: backend, push: push) }
 let publicDirectory = locatePublicDirectory()
 
 let server = try HTTPServer(
@@ -39,6 +47,9 @@ let server = try HTTPServer(
     router: { request in
         if request.method == "GET", !request.path.hasPrefix("/api/") {
             return serveStaticFile(request.path, from: publicDirectory)
+        }
+        if request.path.hasPrefix("/api/push/") {
+            return await pushAPI.handle(request)
         }
         return await api.handle(request)
     },

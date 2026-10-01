@@ -104,6 +104,7 @@ Everything lives under `Sources/ShepherdWeb/`:
   in `main.swift` only initializes once execution reaches its line, and `main.swift` blocks forever
   on `Task.sleep` right after starting the server, so anything declared below that line there would
   never initialize).
+- `WebPushCrypto.swift`, `PushService.swift`, `PushAPI.swift` — Web Push (see Phase C).
 - `Public/index.html` — the entire client: vanilla JS, no build step, no framework. Session list +
   per-card expand/collapse state (`selected` Set), peek fetch/cache (`peekCache`), numbered-option
   parsing (`parseNumberedOptions`, regex over peek text), the `keyrow` (currently hardcoded
@@ -177,15 +178,35 @@ and Add to Home Screen works but with no offline shell. Verified on localhost on
 real HTTPS for the phone (e.g. Tailscale `serve`/`cert`, or a locally-trusted cert) — add that to the
 Phase C scope before starting it.
 
-### Phase C — push notifications (the big one)
-- [ ] Server: VAPID keypair (generate once, persist), a `GET` endpoint for the public key, a
-      subscription-registration endpoint, in-memory (or file-backed) subscription store.
-- [ ] Client: service worker `push`/`notificationclick` handlers, subscribe flow gated on
-      `Notification.requestPermission()`.
-- [ ] A notify policy (mirroring their `shared/notify-policy.ts`): push on transition *into*
-      blocked/done, never on every `working` tick or on every reconnect.
-- [ ] Server-side send: build and encrypt the Web Push payload (CryptoKit), sign the VAPID JWT, POST
-      to the subscription's push-service endpoint.
+### Phase C — push notifications — BUILT; real-transition push awaiting a live check
+- [x] Server identity + storage: `WebPushCrypto.swift` (`VAPIDKeys`, persisted at
+      `~/.shepherd/web-push/vapid.key`, mode 0600 — regenerating it would orphan every subscription)
+      and `PushService.swift` (subscriptions persisted to `subscriptions.json`; same endpoint
+      re-subscribing replaces rather than duplicates; a 404/410 from the push service drops it).
+- [x] Endpoints (`PushAPI.swift`): `GET /api/push/key`, `POST /api/push/subscribe|unsubscribe|test`.
+- [x] Client: `sw.js` `push` + `notificationclick` handlers (tap focuses the app and expands that
+      session's card, or opens `/?session=<id>`); header "Enable alerts" / "Alerts on" / "Test"
+      control in `index.html` (hidden when `PushManager` is missing, e.g. a plain Safari tab on iOS —
+      push there needs the installed Home Screen app). The page re-POSTs its subscription on every
+      load so a lost server store self-heals.
+- [x] Notify policy: `runPushNotifier` reuses `ShepherdUI`'s `notificationsToFire` (push once per
+      *transition into* blocked/done), seeded from a first snapshot so a server restart never
+      announces sessions that were already waiting.
+- [x] Web Push crypto, hand-written on `CryptoKit` (no dependency): RFC 8291 aes128gcm + RFC 8292
+      VAPID (ES256, `rawRepresentation` = the r||s form JWS wants). Tests in
+      `Tests/ShepherdWebTests/WebPushCryptoTests.swift`: RFC 8291 Appendix A ECDH secret and body,
+      a browser-side decrypt round trip, and a verified-signature check on the VAPID JWT.
+      **Gotcha:** a first attempt at pinning the RFC body failed because the vector had been copied
+      through a summarising fetch and was corrupted (it decoded to a record with no room for the
+      padding delimiter). The RFC's intermediate values (IKM/CEK/nonce) were re-derived independently
+      and matched; if the vector is ever re-pinned, copy it from the RFC text itself.
+- [x] Verified on a real iPhone: Enable alerts → permission → Test push arrives.
+- [ ] Verify an organic push (a real session going blocked/done) and tap-to-open on the phone.
+- VAPID `sub` is the project URL, not an email: it is sent to Apple/Google with every push.
+- HTTPS: solved with Tailscale — `tailscale serve --bg 8787` fronts the server at
+  `https://macbook1.stern-saturation.ts.net` (tailnet-only, persistent across restarts of the server;
+  `tailscale serve --https=443 off` removes it). The origin is part of a PWA's identity: renaming the
+  machine/tailnet means re-adding the Home Screen app and re-enabling alerts.
 
 ### Phase D — nice-to-haves, unordered
 - [ ] QR code on the server's startup log / a `/qr` route, for onboarding a new phone onto the LAN
@@ -204,5 +225,6 @@ Phase C scope before starting it.
   nothing — just rely on being physically near the Mac to hear its existing menu-bar notification
   sound, and treat ShepherdWeb as pull-only). Flagging rather than deciding: Adam should weigh in
   before Phase C starts, since it's the most expensive item here by a wide margin.
-- How the phone reaches the Mac over HTTPS (needed for service worker on the phone and for Phase C push):
-  Tailscale vs. a local CA cert vs. something else. Not decided.
+- Productionizing: ShepherdWeb is still a hand-started process (`nohup`). Push is only useful if it is
+  always running, so it needs launchd or to live in the menu bar app. Not decided.
+- Push when the Mac is asleep: the server can't notify while the Mac sleeps. Unaddressed.

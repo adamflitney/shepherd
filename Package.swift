@@ -52,6 +52,11 @@ let package = Package(
             resources: [.copy("Fixtures")]
         ),
         .testTarget(
+            name: "ShepherdWebTests",
+            dependencies: ["ShepherdWeb"],
+            path: "Tests/ShepherdWebTests"
+        ),
+        .testTarget(
             name: "ShepherdUITests",
             dependencies: ["ShepherdUI"],
             path: "Tests/ShepherdUITests"
