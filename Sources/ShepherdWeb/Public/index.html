@@ -23,6 +23,7 @@
     --working: #4d9dff;
     --idle: #6b6b70;
     --unknown: #6b6b70;
+    --out-size: 14px;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; min-width: 0; }
   html, body { max-width: 100%; overflow-x: hidden; }
@@ -41,6 +42,9 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
+  [hidden] { display: none !important; }
+
+  /* ---- list view ---- */
   header {
     padding: 16px;
     font-size: 20px;
@@ -61,12 +65,11 @@
     border: 1px solid var(--card-border);
     border-radius: 12px;
     padding: 12px 14px;
-    overflow: clip;
+    cursor: pointer;
   }
+  .card:active { background: #1d1d21; }
   .row { display: flex; align-items: center; gap: 10px; }
-  .row.header { cursor: pointer; margin: -2px; padding: 2px; border-radius: 8px; }
-  .row.header:active { background: #ffffff0d; }
-  .chevron { color: var(--text-dim); font-size: 12px; flex-shrink: 0; width: 1em; text-align: center; }
+  .chevron { color: var(--text-dim); font-size: 16px; flex-shrink: 0; }
   .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .dot.blocked { background: var(--blocked); }
   .dot.done { background: var(--done); }
@@ -77,9 +80,9 @@
   .kind { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
   .summary { margin-top: 6px; font-size: 14px; color: var(--text-dim); overflow-wrap: anywhere; }
   .cwd { margin-top: 2px; font-size: 12px; color: var(--text-dim); opacity: 0.7; overflow-wrap: anywhere; }
-  .actions { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
-  .actions button { flex: 1 1 auto; text-align: left; white-space: normal; line-height: 1.3; overflow-wrap: anywhere; max-width: 100%; }
-  .tag { font-size: 11px; color: var(--done); border: 1px solid var(--done); border-radius: 4px; padding: 1px 5px; margin-left: 4px; white-space: nowrap; }
+  .empty { text-align: center; color: var(--text-dim); padding: 40px 0; }
+
+  /* ---- shared controls ---- */
   button {
     font-size: 14px;
     padding: 10px 14px;
@@ -90,64 +93,134 @@
   }
   button:active { background: #2c2c31; }
   button.primary { background: var(--working); border-color: var(--working); color: #fff; }
-  /* "Focus" (raise this session's terminal window on the Mac) is a real
-     but edge-case action from a phone - kept, but deliberately not styled
-     like the buttons that actually resolve a blocked session. */
-  button.subtle { background: transparent; border-color: transparent; color: var(--text-dim); flex: 0 1 auto; }
-  /* Pinned to the bottom of the *visual* viewport while a card is on screen,
-     so the keys and reply box stay reachable above the on-screen keyboard.
-     --kb is the keyboard's height, kept current by the visualViewport
-     listener below (iOS doesn't shrink the layout viewport for it). */
-  .replybar {
-    position: sticky;
-    bottom: var(--kb, 0px);
-    margin: 8px -14px -12px;
-    padding: 4px 14px 12px;
-    background: var(--card);
-    border-top: 1px solid var(--card-border);
-    z-index: 2;
-  }
-  .keyrow { display: flex; gap: 6px; margin-top: 8px; }
+  button.subtle { background: transparent; border-color: transparent; color: var(--text-dim); }
+  button:disabled { opacity: 0.5; }
+  .tag { font-size: 11px; color: var(--done); border: 1px solid var(--done); border-radius: 4px; padding: 1px 5px; margin-left: 4px; white-space: nowrap; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .actions button { flex: 1 1 auto; text-align: left; white-space: normal; line-height: 1.3; overflow-wrap: anywhere; max-width: 100%; }
+  .actions button.subtle { flex: 0 1 auto; }
+  .keyrow { display: flex; gap: 6px; }
   .keyrow button { flex: 1; padding: 10px 0; min-width: 0; }
-  textarea, input[type=text] {
+  textarea {
     width: 100%;
     max-width: 100%;
-    margin-top: 8px;
     padding: 10px;
     border-radius: 8px;
     border: 1px solid var(--card-border);
     background: #0f0f11;
     color: var(--text);
-    font-size: 14px;
+    font-size: 16px; /* 16px stops iOS zooming the page when the field is focused */
+    font-family: inherit;
   }
-  .peek {
-    margin-top: 8px;
-    background: #0f0f11;
-    border-radius: 8px;
-    padding: 8px;
-    font-family: ui-monospace, monospace;
-    font-size: 11px;
-    color: var(--text-dim);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    max-height: 300px;
+
+  /* ---- session view: fills the screen; the output takes the slack and the
+     reply area stays pinned at the bottom. Sized from the *visual* viewport
+     (see the listener below) so the on-screen keyboard shrinks it instead
+     of covering the reply box. ---- */
+  #detail-view {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: var(--app-top, 0px);
+    height: var(--app-height, 100dvh);
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    z-index: 5;
+  }
+  #detail-view[data-kb] { padding-bottom: 0; }
+  .d-top { display: flex; align-items: center; gap: 4px; padding: 4px 6px 0; }
+  .d-top .spacer { flex: 1; }
+  .d-top button { padding: 8px 10px; }
+  .d-head { padding: 0 14px; }
+  .output {
+    flex: 1;
+    min-height: 0;
+    margin: 8px 10px;
+    padding: 10px 12px;
     overflow-y: auto;
     overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    background: #0f0f11;
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: var(--out-size);
+    line-height: 1.45;
+    color: var(--text);
   }
-  .empty { text-align: center; color: var(--text-dim); padding: 40px 0; }
+  .output .l { white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1.45em; }
+  .output .l.msg { font-weight: 600; }
+  .output .l.dim { color: var(--text-dim); font-size: 0.85em; }
+  .output hr { border: 0; border-top: 1px solid var(--card-border); margin: 8px 0; }
+  #d-bottom {
+    padding: 8px 12px 10px;
+    border-top: 1px solid var(--card-border);
+    background: var(--card);
+    max-height: 55%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  #d-bottom .summary { margin-top: 0; color: var(--text); font-size: 15px; }
+  .reply { display: flex; gap: 8px; align-items: flex-end; }
+  .reply textarea { flex: 1; resize: none; }
+  .reply button { flex-shrink: 0; }
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 140px;
+    transform: translateX(-50%);
+    background: #2c2c31;
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 14px;
+    z-index: 10;
+    max-width: 90%;
+  }
 </style>
 </head>
 <body>
-<header>
-  Shepherd
-  <span class="header-right">
-    <span id="alerts"></span>
-    <span id="status">connecting…</span>
-  </span>
-</header>
-<main id="sessions"></main>
+<div id="list-view">
+  <header>
+    Shepherd
+    <span class="header-right">
+      <span id="alerts"></span>
+      <span id="status">connecting…</span>
+    </span>
+  </header>
+  <main id="sessions"></main>
+</div>
+
+<div id="detail-view" hidden>
+  <div class="d-top">
+    <button id="d-back" class="subtle">‹ Sessions</button>
+    <span class="spacer"></span>
+    <button id="d-size" class="subtle" title="Text size">Aa</button>
+    <button id="d-focus" class="subtle">Focus</button>
+  </div>
+  <div class="d-head">
+    <div class="row"><span class="dot" id="d-dot"></span><span class="title" id="d-title"></span><span class="kind" id="d-kind"></span></div>
+    <div class="cwd" id="d-cwd"></div>
+  </div>
+  <div class="output" id="d-output"></div>
+  <div id="d-bottom">
+    <div class="summary" id="d-summary" hidden></div>
+    <div class="actions" id="d-actions" hidden></div>
+    <div class="keyrow" id="d-keyrow" hidden></div>
+    <div class="reply" id="d-reply-row">
+      <textarea id="d-reply" rows="1"></textarea>
+      <button id="d-send" class="primary">Send</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
 
 <script>
+const $ = id => document.getElementById(id);
 const el = (tag, props = {}, children = []) => {
   const node = document.createElement(tag);
   Object.entries(props).forEach(([k, v]) => {
@@ -159,22 +232,14 @@ const el = (tag, props = {}, children = []) => {
   return node;
 };
 
-// Every session starts collapsed to just its status row - `selected` is
-// which ones you've tapped open to see/act on. Peek text is only fetched
-// for a session once it's both selected and blocked (see `toggleSelected`
-// and `refresh`), not for every blocked session up front - collapsed
-// sessions don't need it, and it's the one bit of per-session work
-// expensive enough to bother deferring. Cached by session id so re-renders
-// (from every SSE tick) don't re-fetch it.
-const selected = new Set();
-const hiddenPeek = new Set();
-const peekCache = {};
-const draftText = {};
+let sessions = [];
+let currentId = null;          // the session whose full-screen view is open, if any
+const peekCache = {};          // id -> latest screen text (only kept for currentId)
+const draftText = {};          // id -> unsent reply
 // Per-session set of chosen option numbers (as strings) for a multi-select
 // `AskUserQuestion` - cleared once the answer is actually sent, since the
 // session moves on to a new blocker after that.
 const multiChoices = {};
-let sessions = [];
 
 async function api(path, options) {
   const res = await fetch(path, options);
@@ -182,18 +247,27 @@ async function api(path, options) {
   return res.status === 204 ? null : res.json();
 }
 
+const postJSON = (path, body) => api(path, {
+  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+});
+
+function toast(message) {
+  const t = $("toast");
+  t.textContent = message;
+  t.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { t.hidden = true; }, 3000);
+}
+
+// ---------------------------------------------------------------- data
+
 async function refresh() {
   try {
     sessions = await api("/api/sessions");
-    document.getElementById("status").textContent = "live";
-    render();
-    // Only expanded cards show a screen, so only those are kept fresh (on
-    // every tick - a session's output changes without its status changing);
-    // anything collapsed drops its cache so reopening never shows old text.
-    Object.keys(peekCache).forEach(id => { if (!selected.has(id)) delete peekCache[id]; });
-    sessions.filter(s => selected.has(s.id)).forEach(s => refreshPeek(s.id));
+    $("status").textContent = "live";
+    if (currentId) renderDetail(); else renderList();
   } catch (e) {
-    document.getElementById("status").textContent = "disconnected";
+    $("status").textContent = "disconnected";
   }
 }
 
@@ -205,23 +279,24 @@ async function refreshPeek(id) {
   try {
     ({ text } = await api(`/api/sessions/${id}/peek`));
   } catch (e) {
-    text = "(couldn't read pane)";
+    text = "(couldn't read the screen)";
   }
   peekInFlight.delete(id);
-  // Re-render only on a real change, or every tick would rebuild the page.
-  if (selected.has(id) && peekCache[id] !== text) {
+  // Only a real change re-renders, or every poll would rebuild the view.
+  if (id === currentId && peekCache[id] !== text) {
     peekCache[id] = text;
-    render();
+    renderDetail();
   }
 }
 
-async function sendRespond(id, keys) {
-  await api(`/api/sessions/${id}/respond`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ keys })
-  });
+async function afterAction() {
   await refresh();
+  if (currentId) refreshPeek(currentId);
+}
+
+async function sendRespond(id, keys) {
+  await postJSON(`/api/sessions/${id}/respond`, { keys });
+  await afterAction();
 }
 
 // Verify-before-send for a button built from `parseNumberedOptions`: our
@@ -241,7 +316,8 @@ async function verifyAndRespond(id, number, expectedLabel) {
   const fresh = parseNumberedOptions(text).find(o => o.number === number);
   if (!fresh || fresh.label !== expectedLabel) {
     peekCache[id] = text;
-    render();
+    renderDetail();
+    toast("The screen changed - check it and tap again");
     return;
   }
   await sendRespond(id, [number]);
@@ -257,33 +333,11 @@ async function sendMultiRespond(id) {
 async function sendPrompt(id) {
   const text = (draftText[id] || "").trim();
   if (!text) return;
-  await api(`/api/sessions/${id}/prompt`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text })
-  });
+  await postJSON(`/api/sessions/${id}/prompt`, { text });
   draftText[id] = "";
-  await refresh();
-}
-
-async function focusSession(id) {
-  await api(`/api/sessions/${id}/focus`, { method: "POST" });
-}
-
-function toggleHidePeek(id) {
-  if (hiddenPeek.has(id)) hiddenPeek.delete(id);
-  else hiddenPeek.add(id);
-  render();
-}
-
-function toggleSelected(id) {
-  if (selected.has(id)) {
-    selected.delete(id);
-  } else {
-    selected.add(id);
-    refreshPeek(id);
-  }
-  render();
+  if (id === currentId) $("d-reply").value = "";
+  stickToBottom = true;
+  await afterAction();
 }
 
 // A permission prompt's hook payload doesn't reliably give the exact
@@ -321,28 +375,162 @@ function lastPathComponent(path) {
   return parts.length ? parts[parts.length - 1] : path;
 }
 
-function replyCard(session) {
-  const card = el("div", { class: "card", "data-sid": session.id });
-  const isSelected = selected.has(session.id);
-  const dot = el("span", { class: `dot ${session.attention_kind}` });
-  const title = el("span", { class: "title" }, [session.title]);
-  const kind = el("span", { class: "kind" }, [session.attention_kind]);
-  const chevron = el("span", { class: "chevron" }, [isSelected ? "▾" : "▸"]);
-  const header = el("div", { class: "row header", onclick: () => toggleSelected(session.id) }, [dot, title, kind, chevron]);
-  card.appendChild(header);
+// ---------------------------------------------------------------- list view
 
-  if (session.summary) {
-    card.appendChild(el("div", { class: "summary" }, [session.summary]));
+let listScroll = 0;
+
+function renderList() {
+  const container = $("sessions");
+  container.innerHTML = "";
+  if (sessions.length === 0) {
+    container.appendChild(el("div", { class: "empty" }, ["No sessions"]));
+    return;
   }
-  if (session.working_directory) {
-    card.appendChild(el("div", { class: "cwd" }, [lastPathComponent(session.working_directory)]));
+  sessions.forEach(session => {
+    const card = el("div", { class: "card", onclick: () => openSession(session.id) });
+    card.appendChild(el("div", { class: "row" }, [
+      el("span", { class: `dot ${session.attention_kind}` }),
+      el("span", { class: "title" }, [session.title]),
+      el("span", { class: "kind" }, [session.attention_kind]),
+      el("span", { class: "chevron" }, ["›"])
+    ]));
+    if (session.summary) card.appendChild(el("div", { class: "summary" }, [session.summary]));
+    if (session.working_directory) card.appendChild(el("div", { class: "cwd" }, [lastPathComponent(session.working_directory)]));
+    container.appendChild(card);
+  });
+}
+
+// ---------------------------------------------------------------- navigation
+// The open session lives in the URL hash (#s=<id>), so the system back
+// gesture, a notification tap and a reload all land in the right place.
+
+const routeId = () => {
+  const m = location.hash.match(/^#s=(.+)$/);
+  return m ? decodeURIComponent(m[1]) : null;
+};
+
+function openSession(id) {
+  listScroll = window.scrollY;
+  history.pushState({ fromList: true }, "", `#s=${encodeURIComponent(id)}`);
+  route();
+}
+
+function closeSession() {
+  if (history.state && history.state.fromList) {
+    history.back();
+  } else {
+    history.replaceState(null, "", location.pathname);
+    route();
   }
+}
 
-  if (!isSelected) return card;
+let stickToBottom = true;
 
+function route() {
+  const id = routeId();
+  const changed = id !== currentId;
+  currentId = id;
+  $("list-view").hidden = !!id;
+  $("detail-view").hidden = !id;
+  if (!id) {
+    Object.keys(peekCache).forEach(k => delete peekCache[k]);
+    renderList();
+    window.scrollTo(0, listScroll);
+    return;
+  }
+  if (changed) {
+    Object.keys(peekCache).forEach(k => delete peekCache[k]);
+    $("d-reply").value = draftText[id] || "";
+    $("d-output").textContent = "";
+    stickToBottom = true;
+  }
+  renderDetail();
+  refreshPeek(id);
+}
+
+window.addEventListener("popstate", route);
+
+// ---------------------------------------------------------------- session view
+
+// Strips the terminal chrome that wastes a phone screen: runs of box-drawing
+// rules become one thin divider, assistant messages (⏺) are emphasised, and
+// Claude Code's input box + status bar are dimmed so the actual response is
+// what reads. The footer is only dimmed when it really is that input box -
+// not a permission dialog, whose numbered options must stay prominent.
+const RULE = /^\s*[─━═╌╍┄┅]{6,}\s*$/;
+const INPUT_PROMPT = /^\s*❯(?!\s*\d+\.)(\s.*)?$/;
+
+// The terminal hard-wraps prose at the pane width; on a narrower phone screen
+// that wrap stacks with ours and leaves short ragged lines. A line continues
+// the previous one when that previous line ran (nearly) full width and this
+// one is plain indented prose - not a list item, box-drawing, or a
+// ⏺/❯/✻ marker - so code blocks and tables (which don't fill the width in
+// that way) stay exactly as printed.
+const BULLET = /^\s*([-*•]|\d+[.)])\s/;
+function reflow(lines) {
+  const width = Math.max(0, ...lines.map(l => l.length));
+  if (width < 50) return lines;
+  const out = [];
+  lines.forEach(line => {
+    const prev = out[out.length - 1];
+    const trimmed = line.trim();
+    const continues = prev !== undefined && trimmed && prev.trim()
+      && prev.length >= width * 0.85
+      && /^\s/.test(line)
+      && !BULLET.test(line) && !RULE.test(line) && !RULE.test(prev)
+      && !/^\s*[⏺❯✻*│┃|]/.test(line) && !/^\s*[⏺❯✻│┃|]/.test(prev);
+    if (continues) out[out.length - 1] = prev.replace(/\s+$/, "") + " " + trimmed;
+    else out.push(line);
+  });
+  return out;
+}
+
+function formatTerminal(text) {
+  const lines = reflow(text.replace(/\s+$/, "").split("\n"));
+  const rules = [];
+  lines.forEach((line, i) => { if (RULE.test(line)) rules.push(i); });
+  let footerStart = lines.length;
+  if (rules.length >= 2) {
+    const start = rules[rules.length - 2];
+    const firstInside = lines.slice(start + 1).find(l => l.trim() && !RULE.test(l));
+    if (lines.length - start <= 8 && firstInside && INPUT_PROMPT.test(firstInside)) footerStart = start;
+  }
+  const frag = document.createDocumentFragment();
+  let lastWasRule = false;
+  lines.forEach((line, i) => {
+    if (RULE.test(line)) {
+      if (!lastWasRule) frag.appendChild(el("hr"));
+      lastWasRule = true;
+      return;
+    }
+    lastWasRule = false;
+    const cls = ["l"];
+    if (i >= footerStart) cls.push("dim");
+    else if (/^\s*⏺/.test(line)) cls.push("msg");
+    frag.appendChild(el("div", { class: cls.join(" ") }, [line.length ? line : " "]));
+  });
+  return frag;
+}
+
+function renderOutput() {
+  const out = $("d-output");
+  const text = peekCache[currentId];
+  out.innerHTML = "";
+  if (text == null) {
+    out.appendChild(el("div", { class: "l dim" }, ["Reading the screen…"]));
+    return;
+  }
+  out.appendChild(formatTerminal(text));
+  if (stickToBottom) out.scrollTop = out.scrollHeight;
+}
+
+$("d-output").addEventListener("scroll", () => {
+  const out = $("d-output");
+  stickToBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 80;
+});
+
+function renderActions(session, container) {
   const isBlocked = session.attention_kind === "blocked";
-  const actions = el("div", { class: "actions" });
-
   if (isBlocked && session.options && session.options.length && session.options_allow_multiple) {
     // Multi-select AskUserQuestion: toggleable rows (checkbox-style) plus a
     // Submit button, rather than a single tap resolving the question - the
@@ -351,24 +539,21 @@ function replyCard(session) {
     session.options.forEach((label, index) => {
       const number = String(index + 1);
       const isChosen = chosen.has(number);
-      actions.appendChild(el("button", {
+      container.appendChild(el("button", {
         class: isChosen ? "primary" : "",
         onclick: () => {
           if (isChosen) chosen.delete(number); else chosen.add(number);
-          render();
+          renderDetail();
         }
       }, [`${isChosen ? "☑" : "☐"} ${number}. `, ...optionLabelNode(label)]));
     });
-    actions.appendChild(el("button", {
-      class: "subtle",
-      onclick: () => sendMultiRespond(session.id)
-    }, [`Submit (${chosen.size})`]));
+    container.appendChild(el("button", { class: "primary", onclick: () => sendMultiRespond(session.id) }, [`Submit (${chosen.size})`]));
   } else if (isBlocked && session.options && session.options.length) {
     // AskUserQuestion: real labeled buttons, one per option, numbered the
     // same way Claude Code's own prompt is - see the digit-key finding
     // this prototype is built around.
     session.options.forEach((label, index) => {
-      actions.appendChild(el("button", {
+      container.appendChild(el("button", {
         class: index === 0 ? "primary" : "",
         onclick: () => sendRespond(session.id, [String(index + 1)])
       }, [`${index + 1}. `, ...optionLabelNode(label)]));
@@ -380,7 +565,7 @@ function replyCard(session) {
       // fetched - one button per option, labeled with its actual text
       // instead of a blind "Approve (1)".
       parsedOptions.forEach(({ number, label }) => {
-        actions.appendChild(el("button", {
+        container.appendChild(el("button", {
           class: number === "1" ? "primary" : "",
           onclick: () => verifyAndRespond(session.id, number, label)
         }, [`${number}. ${label}`]));
@@ -388,96 +573,91 @@ function replyCard(session) {
     } else {
       // Peek text hasn't arrived yet, or didn't parse - fall back to the
       // common shape (1 = yes, 3 = no) rather than showing nothing.
-      actions.appendChild(el("button", { class: "primary", onclick: () => sendRespond(session.id, ["1"]) }, ["Approve (1)"]));
-      actions.appendChild(el("button", { onclick: () => sendRespond(session.id, ["3"]) }, ["Deny (3)"]));
+      container.appendChild(el("button", { class: "primary", onclick: () => sendRespond(session.id, ["1"]) }, ["Approve (1)"]));
+      container.appendChild(el("button", { onclick: () => sendRespond(session.id, ["3"]) }, ["Deny (3)"]));
     }
-  } else if (!isBlocked) {
-    actions.appendChild(el("button", { class: "subtle", onclick: () => focusSession(session.id) }, ["Focus"]));
   }
-  // A plain-text question (isBlocked, no options, blocker !== needsPermission)
-  // gets no quick-action button at all here - just the reply box below,
-  // since there's nothing numbered to pick from.
-
-  card.appendChild(actions);
-
-  // Every expanded session shows its screen (the latest response, for an
-  // idle one) and takes a reply; only a blocked one also gets the key row.
-  const showingPeek = !hiddenPeek.has(session.id) && peekCache[session.id];
-  if (peekCache[session.id]) {
-    actions.appendChild(el("button", { class: isBlocked ? "" : "subtle", onclick: () => toggleHidePeek(session.id) }, [showingPeek ? "Hide screen" : "Show screen"]));
-  }
-  if (showingPeek) {
-    card.appendChild(el("div", { class: "peek" }, [peekCache[session.id]]));
-  } else if (!(session.id in peekCache) && !(session.options && session.options.length)) {
-    card.appendChild(el("div", { class: "summary" }, ["Reading the screen…"]));
-  }
-
-  if (isBlocked || session.can_prompt) {
-    // Beyond the numbered-option shortcuts above, a dialog can be unnumbered
-    // entirely (e.g. the one-time folder-trust prompt, which only responds
-    // to down+enter) - these drive it directly rather than leaving peek-and-
-    // despair as the only option.
-    const replybar = el("div", { class: "replybar" });
-    if (isBlocked) {
-      const keyrow = el("div", { class: "keyrow" });
-      [
-        ["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"], ["5", "5"],
-        ["↑", "up"], ["↓", "down"], ["⏎", "enter"], ["esc", "esc"]
-      ].forEach(([label, key]) => {
-        keyrow.appendChild(el("button", { onclick: () => sendRespond(session.id, [key]) }, [label]));
-      });
-      replybar.appendChild(keyrow);
-    }
-
-    const textarea = el("textarea", { rows: "2", placeholder: isBlocked ? "Type a reply…" : "Send a message…" });
-    textarea.value = draftText[session.id] || "";
-    textarea.addEventListener("input", e => { draftText[session.id] = e.target.value; });
-    replybar.appendChild(textarea);
-    replybar.appendChild(el("button", { class: "primary", onclick: () => sendPrompt(session.id) }, [isBlocked ? "Send reply" : "Send"]));
-    card.appendChild(replybar);
-  }
-
-  return card;
+  // A plain-text question (blocked, no options, not a permission prompt) and
+  // any non-blocked session get no quick actions - just the reply box.
 }
 
-// A full re-render replaces every node, which would drop focus (and the
-// on-screen keyboard) from a reply box mid-typing every time an SSE tick
-// lands. While one is focused, hold the render and flush it shortly after
-// blur - the delay lets a tap on "Send reply" register before its button
-// is rebuilt out from under the finger.
-let renderPending = false;
-function render() {
-  if (document.activeElement && document.activeElement.tagName === "TEXTAREA") {
-    renderPending = true;
-    return;
-  }
-  renderPending = false;
-  const container = document.getElementById("sessions");
-  container.innerHTML = "";
-  if (sessions.length === 0) {
-    container.appendChild(el("div", { class: "empty" }, ["No sessions"]));
-    return;
-  }
-  sessions.forEach(session => container.appendChild(replyCard(session)));
-  // The newest output is at the bottom of the screen text.
-  container.querySelectorAll(".peek").forEach(p => { p.scrollTop = p.scrollHeight; });
+function renderDetail() {
+  const session = sessions.find(s => s.id === currentId);
+  const isBlocked = !!session && session.attention_kind === "blocked";
+
+  $("d-dot").className = `dot ${session ? session.attention_kind : "unknown"}`;
+  $("d-title").textContent = session ? session.title : "Session ended";
+  $("d-kind").textContent = session ? session.attention_kind : "";
+  $("d-cwd").textContent = session && session.working_directory ? lastPathComponent(session.working_directory) : "";
+  $("d-focus").hidden = !session;
+
+  const summary = $("d-summary");
+  summary.textContent = isBlocked && session.summary ? session.summary : "";
+  summary.hidden = !summary.textContent;
+
+  const actions = $("d-actions");
+  actions.innerHTML = "";
+  if (session) renderActions(session, actions);
+  actions.hidden = !actions.children.length;
+
+  $("d-keyrow").hidden = !isBlocked;
+  $("d-reply-row").hidden = !session || !(isBlocked || session.can_prompt);
+  $("d-reply").placeholder = isBlocked ? "Type a reply…" : "Send a message…";
+
+  renderOutput();
 }
 
-document.addEventListener("focusout", () => {
-  setTimeout(() => { if (renderPending) render(); }, 300);
+// Beyond the numbered-option shortcuts, a dialog can be unnumbered entirely
+// (e.g. the one-time folder-trust prompt, which only responds to down+enter) -
+// these drive it directly rather than leaving peek-and-despair as the only
+// option.
+[
+  ["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"], ["5", "5"],
+  ["↑", "up"], ["↓", "down"], ["⏎", "enter"], ["esc", "esc"]
+].forEach(([label, key]) => {
+  $("d-keyrow").appendChild(el("button", { onclick: () => sendRespond(currentId, [key]) }, [label]));
 });
 
-// Track the on-screen keyboard: the gap between the layout viewport's bottom
-// and the visual viewport's bottom is the keyboard height (0 when closed).
+$("d-back").addEventListener("click", closeSession);
+$("d-focus").addEventListener("click", () => { if (currentId) api(`/api/sessions/${currentId}/focus`, { method: "POST" }); });
+$("d-send").addEventListener("click", () => { if (currentId) sendPrompt(currentId); });
+$("d-reply").addEventListener("input", e => { if (currentId) draftText[currentId] = e.target.value; });
+
+// Output text size: cycles through a few steps and is remembered.
+const OUTPUT_SIZES = [12, 14, 16, 18];
+let sizeIndex = 1;
+try { sizeIndex = Math.min(OUTPUT_SIZES.length - 1, Math.max(0, parseInt(localStorage.getItem("outputSize"), 10))); } catch (e) {}
+if (Number.isNaN(sizeIndex)) sizeIndex = 1;
+const applySize = () => document.documentElement.style.setProperty("--out-size", `${OUTPUT_SIZES[sizeIndex]}px`);
+applySize();
+$("d-size").addEventListener("click", () => {
+  sizeIndex = (sizeIndex + 1) % OUTPUT_SIZES.length;
+  applySize();
+  try { localStorage.setItem("outputSize", String(sizeIndex)); } catch (e) {}
+  toast(`Text size ${OUTPUT_SIZES[sizeIndex]}px`);
+  if (stickToBottom) $("d-output").scrollTop = $("d-output").scrollHeight;
+});
+
+// The session's screen changes without its status changing, so while one is
+// open, keep it fresh on a short poll rather than only on status events.
+setInterval(() => { if (currentId && !document.hidden) refreshPeek(currentId); }, 2000);
+
+// Track the on-screen keyboard: the session view is sized to the *visual*
+// viewport (iOS doesn't shrink the layout viewport for the keyboard), so the
+// reply box rides above it and the output gives up the space.
 if (window.visualViewport) {
   const vv = window.visualViewport;
-  const updateKeyboardInset = () => {
-    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    document.documentElement.style.setProperty("--kb", `${kb}px`);
+  const detail = $("detail-view");
+  const update = () => {
+    document.documentElement.style.setProperty("--app-height", `${vv.height}px`);
+    document.documentElement.style.setProperty("--app-top", `${vv.offsetTop}px`);
+    const keyboardOpen = window.innerHeight - vv.height - vv.offsetTop > 100;
+    if (keyboardOpen) detail.setAttribute("data-kb", ""); else detail.removeAttribute("data-kb");
+    if (stickToBottom) $("d-output").scrollTop = $("d-output").scrollHeight;
   };
-  vv.addEventListener("resize", updateKeyboardInset);
-  vv.addEventListener("scroll", updateKeyboardInset);
-  updateKeyboardInset();
+  vv.addEventListener("resize", update);
+  vv.addEventListener("scroll", update);
+  update();
 }
 
 // Service workers need a secure context (https or localhost), so this is a
@@ -487,7 +667,7 @@ if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
-// --- Push notifications -------------------------------------------------
+// ---------------------------------------------------------------- push alerts
 // Needs a secure context and, on iOS, the app installed to the Home Screen
 // (otherwise `PushManager` doesn't exist and the control simply stays hidden).
 const urlBase64ToBytes = b64 => {
@@ -498,10 +678,6 @@ const urlBase64ToBytes = b64 => {
 async function pushSubscription() {
   const reg = await navigator.serviceWorker.ready;
   return reg.pushManager.getSubscription();
-}
-
-async function postJSON(path, body) {
-  return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
 async function enableAlerts() {
@@ -523,7 +699,7 @@ async function disableAlerts() {
 }
 
 async function renderAlerts() {
-  const box = document.getElementById("alerts");
+  const box = $("alerts");
   box.innerHTML = "";
   if (!("PushManager" in window) || !("serviceWorker" in navigator) || !window.isSecureContext) return;
   if (Notification.permission === "denied") {
@@ -542,21 +718,10 @@ async function renderAlerts() {
   box.appendChild(el("button", { class: "subtle", onclick: () => api("/api/push/test", { method: "POST" }) }, ["Test"]));
 }
 
-// Opening from a notification: expand that session's card.
-function openSession(id) {
-  if (!id) return;
-  selected.add(id);
-  refreshPeek(id);
-  render();
-  setTimeout(() => {
-    const target = Array.from(document.querySelectorAll(".card")).find(c => c.dataset.sid === id);
-    if (target) target.scrollIntoView({ block: "start" });
-  }, 50);
-}
-
+// A tap on a notification while the app is already open.
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", e => {
-    if (e.data && e.data.type === "open-session") openSession(e.data.id);
+    if (e.data && e.data.type === "open-session" && e.data.id) openSession(e.data.id);
   });
 }
 
@@ -564,13 +729,17 @@ function connectEvents() {
   const source = new EventSource("/api/events");
   source.onmessage = () => refresh();
   source.onerror = () => {
-    document.getElementById("status").textContent = "reconnecting…";
+    $("status").textContent = "reconnecting…";
     source.close();
     setTimeout(connectEvents, 2000);
   };
 }
 
-refresh().then(() => openSession(new URLSearchParams(location.search).get("session")));
+// A notification tap that had to launch the app arrives as ?session=<id>.
+const launchSession = new URLSearchParams(location.search).get("session");
+if (launchSession) history.replaceState(null, "", `/#s=${encodeURIComponent(launchSession)}`);
+
+refresh().then(route);
 connectEvents();
 renderAlerts();
 </script>

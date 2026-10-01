@@ -217,14 +217,35 @@ Phase C scope before starting it.
   `tailscale serve --https=443 off` removes it). The origin is part of a PWA's identity: renaming the
   machine/tailnet means re-adding the Home Screen app and re-enabling alerts.
 
+### UI rework: full-screen session view — BUILT; keyboard behaviour unverified on a phone
+Adam's feedback after using it for real: inline expand-in-the-list was cramped, and the terminal text
+was tiny and uniformly dark grey. `Public/index.html` is now two views:
+- **List** — one tappable row per session (dot, title, status, summary, cwd).
+- **Session view** — full screen: top bar (‹ Sessions, `Aa` text size, Focus), the screen output filling
+  the slack, and a pinned bottom area (question summary, option buttons, key row when blocked, reply
+  box). Open session lives in the URL hash (`#s=<id>`) via `pushState`, so the system back gesture,
+  reload and notification taps (`/?session=` → hash) all work.
+- Readability: output is 14px (cycle 12/14/16/18 with `Aa`, remembered in `localStorage`) in full-
+  contrast text. `formatTerminal()` turns runs of box-drawing rules into one divider, bolds `⏺`
+  assistant lines, and dims Claude Code's input box + status bar — only when the region really is the
+  input prompt, so a permission dialog's options stay bright. `reflow()` re-joins the terminal's own
+  hard-wrapped prose (previous line ≥85% of the widest line, current is indented non-list prose) so it
+  doesn't stack with the phone's wrap; code/tables don't match that shape and are left alone.
+- Live-updating peek (a Phase D item) is done as a side effect: the open session polls its screen every
+  2s, and the view sticks to the bottom unless you've scrolled up.
+- The view is sized from the *visual* viewport (`--app-height`/`--app-top` set by a `visualViewport`
+  listener) so the keyboard shrinks the output instead of covering the reply box. This replaced the
+  earlier sticky `.replybar`/`--kb` approach, which was verified on a phone — **this one has only been
+  checked in devtools**, so verify on the phone (iOS standalone is the case that differs).
+- Rejected: a literal terminal emulator for the output (see "Not adopting"); wrapping off with
+  horizontal scroll (unreadable on a phone for prose).
+
 ### Phase D — nice-to-haves, unordered
 - [ ] QR code on the server's startup log / a `/qr` route, for onboarding a new phone onto the LAN
       URL without typing it. Needs a from-scratch QR encoder (Reed-Solomon ECC + matrix placement)
       to keep the no-third-party-dependency rule — real but bounded work; lower priority than it
       sounds, since typing a short LAN URL once isn't actually painful.
-- [ ] Live-updating peek instead of a one-shot snapshot (poll on an interval while a card is
-      expanded, or push diffs over the existing SSE stream) — closer to their "live terminal" feel
-      without building a terminal emulator.
+- [x] Live-updating peek — done via a 2s poll while a session is open (see UI rework above).
 
 ## Open questions / not yet decided
 
