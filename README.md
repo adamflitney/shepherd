@@ -193,7 +193,7 @@ You can edit this field directly, or change it from the app: right-click the men
 
 ## Getting started
 
-**Install.** Download `Shepherd.zip` from the project's Releases page, unzip it, and drag `Shepherd.app` to `/Applications`. (It's ad-hoc signed rather than notarized, so the first launch needs right-click → Open, or `xattr -cr /Applications/Shepherd.app` if macOS still blocks it.) Mobile access is newer than the v0.6.0 release, so for it you need a later release or a source build:
+**Install.** Download `Shepherd.zip` from the project's Releases page, unzip it, and drag `Shepherd.app` to `/Applications`. (It's ad-hoc signed rather than notarized, so the first launch needs right-click → Open, or `xattr -cr /Applications/Shepherd.app` if macOS still blocks it.) Or build and install from source:
 
 ```bash
 scripts/install.sh
