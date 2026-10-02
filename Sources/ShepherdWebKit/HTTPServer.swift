@@ -33,7 +33,11 @@ actor HTTPServer {
         }
 
         static func forbidden(_ message: String) -> Response {
-            Response(status: 403, reason: "Forbidden", headers: ["Content-Type": "text/plain"], body: Data(message.utf8))
+            plain(403, "Forbidden", message)
+        }
+
+        static func plain(_ status: Int, _ reason: String, _ message: String) -> Response {
+            Response(status: status, reason: reason, headers: ["Content-Type": "text/plain"], body: Data(message.utf8))
         }
 
         static func serverError(_ message: String) -> Response {
@@ -43,10 +47,10 @@ actor HTTPServer {
 
     /// Handles every path except `/api/events`, which is routed to
     /// `sseEvents` instead since it never returns a normal response.
-    private let router: (Request) async -> Response
+    private let router: @Sendable (Request) async -> Response
     /// Runs before every request, including the SSE stream: a non-nil
     /// response is sent instead of handling the request.
-    private let gate: (Request) async -> Response?
+    private let gate: @Sendable (Request) async -> Response?
     /// One independent event subscription per SSE connection - safe because
     /// `BackendEventHub.makeStream()` (what every `SessionBackend` is built
     /// on) already fans out to any number of subscribers. Takes the raw
@@ -56,15 +60,27 @@ actor HTTPServer {
     /// Swift 6 concurrency runtime isolation check in practice; iterating
     /// the original stream straight from this actor's own task, as done
     /// below, doesn't.
-    private let sseEvents: () -> AsyncStream<BackendEvent>
+    private let sseEvents: @Sendable () -> AsyncStream<BackendEvent>
     private let listener: NWListener
+
+    /// Limits on what a client may make us read. The real traffic is tiny (a
+    /// short JSON body at most), so these are generous for it and tight
+    /// against anything else.
+    static let maxHeaderBytes = 16 * 1024
+    static let maxBodyBytes = 256 * 1024
+    private let readTimeout: Duration
+    private let queue: DispatchQueue
 
     init(
         port: UInt16,
-        gate: @escaping (Request) async -> Response? = { _ in nil },
-        router: @escaping (Request) async -> Response,
-        sseEvents: @escaping () -> AsyncStream<BackendEvent>
+        readTimeout: Duration = .seconds(10),
+        queue: DispatchQueue = .main,
+        gate: @escaping @Sendable (Request) async -> Response? = { _ in nil },
+        router: @escaping @Sendable (Request) async -> Response,
+        sseEvents: @escaping @Sendable () -> AsyncStream<BackendEvent>
     ) throws {
+        self.readTimeout = readTimeout
+        self.queue = queue
         self.router = router
         self.gate = gate
         self.sseEvents = sseEvents
@@ -83,7 +99,11 @@ actor HTTPServer {
         listener = try NWListener(using: parameters)
     }
 
-    enum ServerError: Error { case invalidPort(UInt16), connectionClosed }
+    enum ServerError: Error {
+        case invalidPort(UInt16), connectionClosed, timedOut
+        /// A request we refuse to parse, with the response to send for it.
+        case rejected(Int, String, String)
+    }
 
     private var connectionTasks: [UUID: Task<Void, Never>] = [:]
 
@@ -109,7 +129,7 @@ actor HTTPServer {
                     break
                 }
             }
-            listener.start(queue: .main)
+            listener.start(queue: queue)
         }
     }
 
@@ -133,8 +153,16 @@ actor HTTPServer {
     }
 
     private func handle(_ connection: NWConnection) async {
-        connection.start(queue: .main)
-        guard let (head, body) = try? await readRequest(connection) else {
+        connection.start(queue: queue)
+        let head: RequestHead
+        let body: Data
+        do {
+            (head, body) = try await readRequest(connection)
+        } catch ServerError.rejected(let status, let reason, let message) {
+            try? await write(connection, response: .plain(status, reason, message), keepAlive: false)
+            connection.cancel()
+            return
+        } catch {
             connection.cancel()
             return
         }
@@ -164,13 +192,36 @@ actor HTTPServer {
         var query: [String: String]
         var headers: [String: String]
         var contentLength: Int
+        /// Set when the framing headers can't be trusted (a negative or
+        /// non-numeric `Content-Length`, or a `Transfer-Encoding` we don't
+        /// implement) - the request is refused rather than guessed at.
+        var framingError: String?
     }
 
     /// Reads until the blank line ending the header block, then (if
     /// `Content-Length` says so) exactly that many more bytes for the body.
     /// No support for chunked transfer-encoding - not needed by this
-    /// prototype's own client.
+    /// server's own client, and refused outright rather than half-handled.
+    /// Bounded in size and in time, so a client that sends too much, or
+    /// stalls, can't hold the server's memory or a connection open.
     private func readRequest(_ connection: NWConnection) async throws -> (RequestHead, Data) {
+        let timeout = readTimeout
+        return try await withThrowingTaskGroup(of: (RequestHead, Data)?.self) { group in
+            group.addTask { try await self.readRequestUnbounded(connection) }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                // `receive` can't be cancelled from here; closing the
+                // connection is what makes a stalled read return.
+                connection.cancel()
+                return nil
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next(), let result = first else { throw ServerError.timedOut }
+            return result
+        }
+    }
+
+    private func readRequestUnbounded(_ connection: NWConnection) async throws -> (RequestHead, Data) {
         var buffer = Data()
         var headerEnd: Range<Data.Index>?
         while headerEnd == nil {
@@ -179,12 +230,22 @@ actor HTTPServer {
             }
             buffer.append(chunk)
             headerEnd = buffer.range(of: Data("\r\n\r\n".utf8))
+            if (headerEnd?.lowerBound ?? buffer.count) > Self.maxHeaderBytes {
+                throw ServerError.rejected(431, "Request Header Fields Too Large", "Headers too large")
+            }
         }
 
         let headerData = buffer[..<headerEnd!.lowerBound]
         var bodyData = buffer[headerEnd!.upperBound...]
         let headerText = String(decoding: headerData, as: UTF8.self)
         let head = parseHead(headerText)
+
+        if let problem = head.framingError {
+            throw ServerError.rejected(400, "Bad Request", problem)
+        }
+        if head.contentLength > Self.maxBodyBytes {
+            throw ServerError.rejected(413, "Payload Too Large", "Body too large")
+        }
 
         while bodyData.count < head.contentLength {
             guard let chunk = try await receive(connection), !chunk.isEmpty else { break }
@@ -215,6 +276,7 @@ actor HTTPServer {
         }
 
         var contentLength = 0
+        var framingError: String?
         var headers: [String: String] = [:]
         for line in lines.dropFirst() {
             guard let colon = line.firstIndex(of: ":") else { continue }
@@ -222,11 +284,20 @@ actor HTTPServer {
             let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
             headers[key] = value
             if key == "content-length" {
-                contentLength = Int(value) ?? 0
+                // A non-numeric or negative length is not "0" - and a
+                // negative one used to crash the process outright.
+                if let length = Int(value), length >= 0 {
+                    contentLength = length
+                } else {
+                    framingError = "Invalid Content-Length"
+                }
+            }
+            if key == "transfer-encoding" {
+                framingError = "Transfer-Encoding is not supported"
             }
         }
 
-        return RequestHead(method: method, path: path, query: query, headers: headers, contentLength: contentLength)
+        return RequestHead(method: method, path: path, query: query, headers: headers, contentLength: contentLength, framingError: framingError)
     }
 
     // MARK: - Response writing

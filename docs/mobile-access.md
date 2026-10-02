@@ -75,6 +75,18 @@ is the whole story.
   `Tailscale-Funnel-Request` (public internet); refuses proxied requests with no user (tagged devices).
   A direct loopback request is trusted — a local process can already read `~/.shepherd`.
 - The gate runs in front of the SSE stream too (`/api/events` bypasses the router).
+- **Web pages in your own browser.** A request from a browser is a *local* request, so the identity check
+  trusts it; without more, any website could send blind POSTs to `localhost` (browsers allow cross-origin
+  "simple" requests without asking), and a DNS-rebinding page could read the replies. `requestSafety` in
+  `AccessPolicy.swift` therefore also requires: a `Host` we serve (loopback or this Mac's tailnet name);
+  `Sec-Fetch-Site` of `same-origin`/`none` when present (this also stops another app on a different
+  localhost port, which is same-site, not same-origin); an `Origin` naming the same host as `Host`; and
+  JSON for any request body. Verified live: a cross-origin `text/plain` POST that used to answer a pending
+  question now does nothing, our own page still works through the real Tailscale proxy, and a spoofed
+  `Host` gets 403.
+- **Input limits.** 16 KB of headers, 256 KB of body, a 10s read timeout; a negative or non-numeric
+  `Content-Length` and any `Transfer-Encoding` are refused with a 4xx. (A `Content-Length: -1` used to crash
+  the whole process — in the app, all of Shepherd.)
 - **Start-directory allow-list.** `POST /api/sessions` only starts a session in a directory the server
   itself listed (default folder + configured git projects, minus exclusions), compared on symlink-resolved
   paths — never a path taken from the request.
@@ -131,6 +143,10 @@ is the whole story.
 
 ## Gotchas worth remembering
 
+- Validate framing headers before using them: `Int("-1")` parses fine and then crashed the process in
+  `prefix(_:)`. The fix has a test that sends the raw request, since no HTTP client would.
+- Test servers need their own dispatch queue (`HTTPServer(queue:)`); the test runner may not service
+  `.main`.
 - A top-level `let` in `main.swift` only initializes when execution reaches it, and `main.swift` blocks
   forever on the server — keep shared state in other files.
 - `Bundle.module`'s accessor `fatalError`s inside an `.app` when its bundle isn't where it expects;
@@ -152,8 +168,9 @@ is the whole story.
 - The iOS "Add to Home Screen" hint (plain Safari tab) is only exercised on a desktop browser.
 - If the app quits or crashes the phone view goes down with it (the old LaunchAgent restarted itself);
   `tailscale serve`'s entry stays, so the phone shows a bad gateway until Shepherd is back.
-- The hand-rolled HTTP server is part of a shipped product: loopback + the gate limit exposure, but it
-  isn't hardened against malformed or oversized requests.
+- The HTTP server is still hand-rolled and part of a shipped product. It now validates framing, caps sizes
+  and times out stalled reads, but has no rate limiting, and an old browser without `Sec-Fetch-*` metadata
+  gets only the `Origin`/`Host` checks (so a page on another localhost *port* isn't caught there).
 - Only the Mac owner's Tailscale login is accepted (no shared-tailnet / multi-user Macs).
 - Stale push subscriptions (e.g. a deleted Home Screen app) are only pruned when the push service reports
   404/410, so "phones with alerts" can overstate.

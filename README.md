@@ -122,7 +122,7 @@ Installing the Claude Code hooks (right-click menu → **Install Hooks…**) is 
 
 ### Security
 
-The server listens on this Mac's loopback address only, so nothing on your network can reach it directly. The only way in is `tailscale serve`, which stamps each request with the caller's Tailscale account; Shepherd accepts only your own account (a device someone shared into your tailnet is refused) and refuses Tailscale Funnel (public internet) traffic outright. Anyone who passes that check can approve permission prompts and type into your agents, so treat access to your tailnet accordingly. It's off until you switch it on, and new sessions can only be started in your default folder or your configured project folders.
+The server listens on this Mac's loopback address only, so nothing on your network can reach it directly. The only way in is `tailscale serve`, which stamps each request with the caller's Tailscale account; Shepherd accepts only your own account (a device someone shared into your tailnet is refused) and refuses Tailscale Funnel (public internet) traffic outright. It also refuses requests that originate from other websites in your browser (it checks the `Host`, `Origin` and fetch-metadata headers and only accepts JSON bodies), so a page you happen to visit can't send it commands, and it caps request sizes and times out stalled connections. Anyone who passes the identity check can approve permission prompts and type into your agents, so treat access to your tailnet accordingly. It's off until you switch it on, and new sessions can only be started in your default folder or your configured project folders.
 
 ### Things to know
 

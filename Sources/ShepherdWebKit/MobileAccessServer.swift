@@ -109,8 +109,18 @@ public actor MobileAccessServer {
         let server = try HTTPServer(
             port: options.port,
             gate: { request in
-                // Only look up the Mac's Tailscale owner when a request
-                // actually carries an identity to compare it against.
+                // Web-page attacks first (cheap, and applies to every
+                // request), then who the caller is. Tailscale is only asked
+                // when a request needs it: for the tailnet name when the
+                // Host isn't a local one, and for the owner when it carries
+                // an identity to compare.
+                let host = request.headers["host"].flatMap(hostname(fromHostHeader:))
+                let tailnetHost = isLocalHostName(host) ? nil : await tailscale.status()?.dnsName
+                if case .deny(let reason) = requestSafety(
+                    method: request.method, headers: request.headers, hasBody: !request.body.isEmpty, tailnetHost: tailnetHost
+                ) {
+                    return .forbidden(reason)
+                }
                 let owner = request.headers["tailscale-user-login"] != nil ? await tailscale.status()?.ownerLogin : nil
                 switch accessDecision(headers: request.headers, ownerLogin: owner) {
                 case .allow: return nil
