@@ -166,7 +166,7 @@ final class MobileAccessModel {
         guard server == nil else { return }
         let candidate = MobileAccessServer(
             backend: backend,
-            options: .init(port: UInt16(clamping: config.port), keepAwake: config.keepAwake, onlyWhenAway: config.alertsOnlyWhenAway, terminalAppName: ShepherdConfig.load().terminal.appName)
+            options: .init(port: UInt16(clamping: config.port), keepAwake: config.keepAwake, onlyWhenAway: config.alertsOnlyWhenAway)
         )
         do {
             try await candidate.start()

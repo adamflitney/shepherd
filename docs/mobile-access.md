@@ -101,13 +101,12 @@ is the whole story.
 - **Notifications.** One shared `notificationsToFire` (once per transition into blocked/done). The phone also
   gets working→idle (`notifyOnFinishedWork`): Herdr reports a finished run you have *seen* as `idle` and an
   unseen one as `done`, so the Mac (where you are) shouldn't ping on idle but a phone should. The Mac's
-  Notifications toggle doesn't silence the phone. `alertsOnlyWhenAway` (default **on**) holds pushes only while you are
-  "looking at the terminal": recent keyboard/mouse input (<120s) AND the configured `terminal.appName` is the
-  frontmost app (`NSWorkspace.frontmostApplication`, matched on display or bundle name, case-insensitive).
-  Active in another app, or idle, counts as away. Blocked/done stay pending (retried every 10s), a finished
-  run is dropped. Rejected: matching a hard-coded list of terminals (the app already has a configured
-  terminal). Gap: Herdr doesn't expose which pane has focus, so a terminal in front with the blocked session
-  in another tab is still treated as "looking". Existing configs with an explicit `false` keep it off.
+  Notifications toggle doesn't silence the phone. `alertsOnlyWhenAway` (default **on**) holds pushes while you are
+  at the Mac: keyboard/mouse input within the last 120s, in any app (the desktop notification is enough then).
+  Idle counts as away. Blocked/done stay pending (retried every 10s), a finished run is dropped. Rejected:
+  also requiring the terminal to be frontmost (v0.7.3 did this; being in another window still pinged the
+  phone, which was unwanted) and matching a hard-coded list of terminals. Gap: a locked screen or a
+  screensaver only counts as away once the idle time passes. Existing configs with an explicit `false` keep it off.
   The first snapshot only seeds state, so a restart never announces sessions that were already waiting.
 - **Keep-awake.** A `PreventUserIdleSystemSleep` assertion while any session is working *or blocked*
   (60s release grace): a sleeping Mac stalls working agents and can't receive an answer to a blocked one.

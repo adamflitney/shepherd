@@ -85,9 +85,9 @@ public struct WebConfig: Codable, Equatable, Sendable {
     /// agents keep running and a blocked one can still be answered from the
     /// phone.
     public var keepAwake: Bool
-    /// Hold phone alerts back while you're looking at the terminal (the
-    /// Mac's own notifications already cover that). They're sent as soon as
-    /// you're in another app, or after a couple of minutes without input.
+    /// Hold phone alerts back while you're active at the Mac (its own
+    /// notifications already cover that). They're sent after a couple of
+    /// minutes without keyboard or mouse input.
     public var alertsOnlyWhenAway: Bool
 
     public init(enabled: Bool = false, port: Int = 8787, keepAwake: Bool = true, alertsOnlyWhenAway: Bool = true) {

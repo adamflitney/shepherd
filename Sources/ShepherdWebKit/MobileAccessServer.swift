@@ -63,17 +63,13 @@ public actor MobileAccessServer {
     public struct Options: Sendable {
         public var port: UInt16
         public var keepAwake: Bool
-        /// Hold phone alerts back while you're looking at the terminal.
+        /// Hold phone alerts back while you're active at the Mac.
         public var onlyWhenAway: Bool
-        /// The terminal Herdr runs in (e.g. "Ghostty"). With it, being in any
-        /// other app counts as away; without it only idle time does.
-        public var terminalAppName: String?
 
-        public init(port: UInt16 = 8787, keepAwake: Bool = true, onlyWhenAway: Bool = true, terminalAppName: String? = nil) {
+        public init(port: UInt16 = 8787, keepAwake: Bool = true, onlyWhenAway: Bool = true) {
             self.port = port
             self.keepAwake = keepAwake
             self.onlyWhenAway = onlyWhenAway
-            self.terminalAppName = terminalAppName
         }
     }
 
@@ -151,11 +147,7 @@ public actor MobileAccessServer {
 
         self.http = server
         self.push = push
-        let terminalName = options.terminalAppName
-        let notifier = PushNotifier(
-            onlyWhenAway: options.onlyWhenAway,
-            terminalInFront: { terminalName.map(terminalIsFrontmost(named:)) ?? true }
-        ) { message in
+        let notifier = PushNotifier(onlyWhenAway: options.onlyWhenAway) { message in
             guard let payload = try? JSONEncoder().encode(message) else { return 0 }
             return await push.send(payload)
         }

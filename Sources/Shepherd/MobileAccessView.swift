@@ -171,7 +171,7 @@ struct MobileAccessView: View {
                 get: { model.config.keepAwake },
                 set: { on in Task { await model.setKeepAwake(on) } }
             ))
-            Toggle("Don't alert my phone while I'm looking at my terminal (alerts still arrive if I'm in another app or away for a couple of minutes)", isOn: Binding(
+            Toggle("Don't alert my phone while I'm at my Mac (alerts arrive after a couple of minutes without keyboard or mouse input)", isOn: Binding(
                 get: { model.config.alertsOnlyWhenAway },
                 set: { on in Task { await model.setAlertsOnlyWhenAway(on) } }
             ))
