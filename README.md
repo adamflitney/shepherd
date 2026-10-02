@@ -114,6 +114,10 @@ Installing the Claude Code hooks (right-click menu → **Install Hooks…**) is 
 
 ### What you can do from the phone
 
+<img src="Resources/screenshots/mobile-list.png" alt="Mobile session list" width="260"> <img src="Resources/screenshots/mobile-session.png" alt="Mobile full-screen session with answer buttons" width="260">
+
+*The session list, and a blocked session with its choices as buttons (demo data, not real projects).*
+
 - **The session list** — every session with its status, summary and project; blocked ones first.
 - **A full-screen session view** — the session's latest output (refreshed every couple of seconds, with terminal clutter tidied), its model and usage in the header, and a reply box pinned above the keyboard. **Aa** changes the text size.
 - **One-tap answers** — permission prompts and questions show their real options as buttons, including multiple-choice (tick, then Submit). Unnumbered dialogs can be driven with the arrow/Enter/Esc keys. A button built from the screen's text re-checks the screen first and refuses to send if it changed under you.

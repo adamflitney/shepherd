@@ -18,6 +18,7 @@ if arguments.contains("--fake") {
     let fake = FakeSessionBackend(sessions: demoSessions)
     await fake.setPeekText(demoPermissionPeekText, for: SessionID(rawValue: "demo:permission"))
     await fake.setPeekText(demoQuestionPeekText, for: SessionID(rawValue: "demo:question"))
+    await fake.setPeekText(demoChoicePeekText, for: SessionID(rawValue: "demo:choice"))
     backend = fake
 } else {
     // Real terminal-raising (not the default no-op), same as the menu bar

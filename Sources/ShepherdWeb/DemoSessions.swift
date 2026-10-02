@@ -92,3 +92,22 @@ let demoQuestionPeekText = """
 
   (No response needed via terminal - type your answer below.)
 """
+
+/// What Claude said just before an `AskUserQuestion` for the numbered-choice demo.
+let demoChoicePeekText = """
+⏺ I've added a theme setting to the preferences panel and wired it into
+  the menu bar icon. The accent colour is still a placeholder, so I need
+  a decision before I go further.
+
+⏺ Read(Sources/Shepherd/Preferences.swift)
+  ⎿ Read 84 lines
+
+⏺ Update(Sources/Shepherd/Preferences.swift)
+  ⎿ Added 12 lines, removed 2 lines
+
+  Which color?
+
+  ❯ 1. Red
+    2. Blue (Recommended)
+    3. Green
+"""
