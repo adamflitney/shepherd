@@ -52,6 +52,8 @@ private struct PeekWire: Encodable { let text: String }
 private struct ErrorWire: Encodable { let error: String }
 private struct PromptBody: Decodable { let text: String }
 private struct RespondBody: Decodable { let keys: [String] }
+private struct CreateBody: Decodable { let path: String; let prompt: String? }
+private struct CreatedWire: Encodable { let id: String }
 
 /// Everything the prototype's HTTP layer needs from the live app: the
 /// current session list (freshly fetched per request - Herdr's socket call
@@ -60,6 +62,7 @@ private struct RespondBody: Decodable { let keys: [String] }
 /// already exposes through `SessionBackend`.
 struct SessionsAPI {
     let backend: any SessionBackend
+    var config: @Sendable () -> ShepherdConfig = { ShepherdConfig.load() }
 
     func handle(_ request: HTTPServer.Request) async -> HTTPServer.Response {
         let parts = pathComponents(request.path)
@@ -70,6 +73,17 @@ struct SessionsAPI {
             // variable-length `[String]` matches.
             if request.method == "GET", parts == ["api", "sessions"] {
                 return try await listSessions()
+            }
+            if request.method == "GET", parts == ["api", "projects"] {
+                return .json(try JSONEncoder().encode(startTargets(config: config())))
+            }
+            if request.method == "POST", parts == ["api", "sessions"] {
+                let body = try JSONDecoder().decode(CreateBody.self, from: request.body)
+                guard let createRequest = makeCreateRequest(path: body.path, prompt: body.prompt, config: config()) else {
+                    return .json(try JSONEncoder().encode(ErrorWire(error: "not a known project")), status: 400)
+                }
+                let id = try await backend.createSession(createRequest)
+                return .json(try JSONEncoder().encode(CreatedWire(id: id.rawValue)))
             }
             if parts.count == 4, parts[0] == "api", parts[1] == "sessions" {
                 let id = SessionID(rawValue: parts[2])

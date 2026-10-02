@@ -241,6 +241,26 @@ was tiny and uniformly dark grey. `Public/index.html` is now two views:
 - Rejected: a literal terminal emulator for the output (see "Not adopting"); wrapping off with
   horizontal scroll (unreadable on a phone for prose).
 
+### Session screen follow-ups — BUILT
+- **Model/usage strip**: Adam wanted the footer's model + context + cost back ("sometimes clutter, but
+  useful to keep track"). The input box/status bar stay out of the output, but `formatTerminal()` now
+  also returns the model/usage line (progress bar removed — it costs width and repeats the percentage),
+  shown as a small dim line under the project name. Hidden via CSS while the keyboard is open
+  (`#detail-view[data-kb]`), so it never competes with typing. The "auto mode on" line is not shown;
+  easy to add if wanted.
+- **Optimistic Send**: box clears at once, button says "Sending…", option/key buttons go inert while a
+  send is in flight (`busy`), and the text is restored with a toast if the send fails.
+- **New session** (`NewSession.swift`, `GET /api/projects`, `POST /api/sessions`, `#new` view): a
+  "+ New" button on the list opens a picker (default folder first, then the same git projects/exclusions
+  the menu bar picker uses, searchable) with an optional first message. Uses the configured agent
+  (`agent.kind`) and `createSession` with `focus: false`, so it doesn't raise a window on the Mac.
+  The server only starts sessions in directories it itself listed (an allow-list, not a path taken from
+  the request); comparison is on symlink-resolved paths. Gotcha found: the shared `isExcluded` is a
+  plain string-prefix match, so an exclusion silently fails when a symlink is involved
+  (`/var/..` vs `/private/var/..`) — the web path uses its own resolved comparison; the menu bar
+  picker still has the weakness. Frecency ordering isn't available (the native app stores visits in
+  its own UserDefaults), so projects are alphabetical. `--port N` runs a throwaway instance.
+
 ### Phase D — nice-to-haves, unordered
 - [ ] QR code on the server's startup log / a `/qr` route, for onboarding a new phone onto the LAN
       URL without typing it. Needs a from-scratch QR encoder (Reed-Solomon ECC + matrix placement)

@@ -101,7 +101,7 @@
   .actions button.subtle { flex: 0 1 auto; }
   .keyrow { display: flex; gap: 6px; }
   .keyrow button { flex: 1; padding: 10px 0; min-width: 0; }
-  textarea {
+  textarea, input[type=search] {
     width: 100%;
     max-width: 100%;
     padding: 10px;
@@ -117,7 +117,7 @@
      reply area stays pinned at the bottom. Sized from the *visual* viewport
      (see the listener below) so the on-screen keyboard shrinks it instead
      of covering the reply box. ---- */
-  #detail-view {
+  #detail-view, #new-view {
     position: fixed;
     left: 0;
     right: 0;
@@ -129,11 +129,13 @@
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     z-index: 5;
   }
-  #detail-view[data-kb] { padding-bottom: 0; }
+  #detail-view[data-kb], #new-view[data-kb] { padding-bottom: 0; }
   .d-top { display: flex; align-items: center; gap: 4px; padding: 4px 6px 0; }
   .d-top .spacer { flex: 1; }
   .d-top button { padding: 8px 10px; }
   .d-head { padding: 0 14px; }
+  .status-line { margin-top: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--text-dim); overflow-wrap: anywhere; }
+  #detail-view[data-kb] .status-line { display: none; }
   .output {
     flex: 1;
     min-height: 0;
@@ -165,9 +167,32 @@
     gap: 8px;
   }
   #d-bottom .summary { margin-top: 0; color: var(--text); font-size: 15px; }
+  #d-bottom[data-busy] .actions button, #d-bottom[data-busy] .keyrow button { opacity: 0.5; pointer-events: none; }
+  #d-send { min-width: 84px; }
   .reply { display: flex; gap: 8px; align-items: flex-end; }
   .reply textarea { flex: 1; resize: none; }
   .reply button { flex-shrink: 0; }
+  .fab {
+    position: fixed;
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    padding: 14px 20px;
+    border-radius: 999px;
+    font-size: 16px;
+    font-weight: 600;
+    box-shadow: 0 4px 16px #0008;
+    z-index: 4;
+  }
+  main { padding-bottom: 88px; }
+  .n-search { margin: 8px 12px 0; width: calc(100% - 24px); font-family: inherit; }
+  #n-list { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .target { background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; padding: 12px 14px; cursor: pointer; }
+  .target.selected { border-color: var(--working); background: #16202e; }
+  .target .name { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .target .path { font-size: 12px; color: var(--text-dim); margin-top: 2px; overflow-wrap: anywhere; }
+  #n-bottom { padding: 8px 12px 10px; border-top: 1px solid var(--card-border); background: var(--card); display: flex; flex-direction: column; gap: 8px; }
+  #n-bottom textarea { resize: none; }
+  #n-start { width: 100%; font-size: 16px; padding: 12px; }
   .toast {
     position: fixed;
     left: 50%;
@@ -193,6 +218,20 @@
     </span>
   </header>
   <main id="sessions"></main>
+  <button id="n-open" class="primary fab">+ New</button>
+</div>
+
+<div id="new-view" hidden>
+  <div class="d-top">
+    <button id="n-back" class="subtle">‹ Sessions</button>
+  </div>
+  <div class="d-head"><div class="row"><span class="title">New session</span></div></div>
+  <input id="n-search" class="n-search" type="search" placeholder="Search projects…" autocapitalize="none" autocorrect="off" />
+  <div id="n-list"></div>
+  <div id="n-bottom">
+    <textarea id="n-prompt" rows="2" placeholder="First message (optional)"></textarea>
+    <button id="n-start" class="primary" disabled>Choose a project</button>
+  </div>
 </div>
 
 <div id="detail-view" hidden>
@@ -205,6 +244,7 @@
   <div class="d-head">
     <div class="row"><span class="dot" id="d-dot"></span><span class="title" id="d-title"></span><span class="kind" id="d-kind"></span></div>
     <div class="cwd" id="d-cwd"></div>
+    <div class="status-line" id="d-status" hidden></div>
   </div>
   <div class="output" id="d-output"></div>
   <div id="d-bottom">
@@ -294,8 +334,37 @@ async function afterAction() {
   if (currentId) refreshPeek(currentId);
 }
 
+// While a send is in flight the bottom area is inert and the Send button
+// says so - otherwise the round trip to Herdr looks like nothing happened
+// (and invites a second tap).
+let busy = false;
+let sendingText = false;
+function renderBusy() {
+  $("d-bottom").toggleAttribute("data-busy", busy);
+  $("d-send").textContent = busy && sendingText ? "Sending…" : "Send";
+}
+
+async function runBusy(task, isText = false) {
+  busy = true;
+  sendingText = isText;
+  renderBusy();
+  try {
+    await task();
+  } finally {
+    busy = false;
+    sendingText = false;
+    renderBusy();
+  }
+}
+
 async function sendRespond(id, keys) {
-  await postJSON(`/api/sessions/${id}/respond`, { keys });
+  if (busy) return;
+  try {
+    await runBusy(() => postJSON(`/api/sessions/${id}/respond`, { keys }));
+  } catch (e) {
+    toast("Couldn't send - try again");
+    return;
+  }
   await afterAction();
 }
 
@@ -332,11 +401,20 @@ async function sendMultiRespond(id) {
 
 async function sendPrompt(id) {
   const text = (draftText[id] || "").trim();
-  if (!text) return;
-  await postJSON(`/api/sessions/${id}/prompt`, { text });
+  if (!text || busy) return;
+  // Optimistic: clear the box straight away, and put the text back if the
+  // send fails so nothing typed is ever lost.
   draftText[id] = "";
   if (id === currentId) $("d-reply").value = "";
   stickToBottom = true;
+  try {
+    await runBusy(() => postJSON(`/api/sessions/${id}/prompt`, { text }), true);
+  } catch (e) {
+    draftText[id] = text;
+    if (id === currentId) $("d-reply").value = text;
+    toast("Couldn't send - your message is back in the box");
+    return;
+  }
   await afterAction();
 }
 
@@ -400,6 +478,71 @@ function renderList() {
   });
 }
 
+// ---------------------------------------------------------------- new session
+
+let targets = [];
+let selectedTarget = null;   // path
+let starting = false;
+
+function renderTargets() {
+  const list = $("n-list");
+  const q = $("n-search").value.trim().toLowerCase();
+  list.innerHTML = "";
+  const shown = targets.filter(t => !q || t.name.toLowerCase().includes(q) || t.path.toLowerCase().includes(q));
+  if (!shown.length) list.appendChild(el("div", { class: "empty" }, [targets.length ? "No matches" : "Loading…"]));
+  shown.forEach(t => {
+    const name = el("div", { class: "name" }, [t.name]);
+    if (t.is_default) name.appendChild(el("span", { class: "tag" }, ["Default folder"]));
+    list.appendChild(el("div", {
+      class: `target${t.path === selectedTarget ? " selected" : ""}`,
+      onclick: () => { selectedTarget = selectedTarget === t.path ? null : t.path; renderTargets(); }
+    }, [name, el("div", { class: "path" }, [t.path])]));
+  });
+  const chosen = targets.find(t => t.path === selectedTarget);
+  const start = $("n-start");
+  start.disabled = !chosen || starting;
+  start.textContent = starting ? "Starting…" : chosen ? `Start in ${chosen.name}` : "Choose a project";
+}
+
+async function loadTargets() {
+  try {
+    targets = await api("/api/projects");
+  } catch (e) {
+    targets = [];
+    toast("Couldn't load projects");
+  }
+  renderTargets();
+}
+
+async function startSession() {
+  if (!selectedTarget || starting) return;
+  starting = true;
+  renderTargets();
+  try {
+    // Can take several seconds: Herdr waits for the agent to finish booting.
+    const { id } = await postJSON("/api/sessions", { path: selectedTarget, prompt: $("n-prompt").value });
+    await refresh();
+    // Replace the picker's history entry so Back from the new session lands
+    // on the list, not the picker.
+    history.replaceState({ fromList: true }, "", `#s=${encodeURIComponent(id)}`);
+    starting = false;
+    route();
+  } catch (e) {
+    starting = false;
+    renderTargets();
+    toast("Couldn't start the session - try again");
+  }
+}
+
+$("n-open").addEventListener("click", () => {
+  listScroll = window.scrollY;
+  history.pushState({ fromList: true }, "", "#new");
+  route();
+});
+$("n-back").addEventListener("click", () => closeSession());
+$("n-search").addEventListener("input", renderTargets);
+$("n-start").addEventListener("click", startSession);
+
 // ---------------------------------------------------------------- navigation
 // The open session lives in the URL hash (#s=<id>), so the system back
 // gesture, a notification tap and a reload all land in the right place.
@@ -425,13 +568,28 @@ function closeSession() {
 }
 
 let stickToBottom = true;
+let inNew = false;
 
 function route() {
   const id = routeId();
   const changed = id !== currentId;
   currentId = id;
-  $("list-view").hidden = !!id;
+  const isNew = !id && location.hash === "#new";
+  const enteringNew = isNew && !inNew;
+  inNew = isNew;
+  $("list-view").hidden = !!id || isNew;
   $("detail-view").hidden = !id;
+  $("new-view").hidden = !isNew;
+  if (enteringNew) {
+    selectedTarget = null;
+    starting = false;
+    $("n-search").value = "";
+    $("n-prompt").value = "";
+    targets = [];
+    renderTargets();
+    loadTargets();
+  }
+  if (isNew) return;
   if (!id) {
     Object.keys(peekCache).forEach(k => delete peekCache[k]);
     renderList();
@@ -496,32 +654,49 @@ function formatTerminal(text) {
     const firstInside = lines.slice(start + 1).find(l => l.trim() && !RULE.test(l));
     if (lines.length - start <= 8 && firstInside && INPUT_PROMPT.test(firstInside)) footerStart = start;
   }
+  // The footer's model/usage line (e.g. "sonnet-5.5 [███░░] 31% · 315K / 1M
+  // $8.33") is dropped from the output but kept for the header - minus the
+  // progress bar, which costs width and repeats the percentage beside it.
+  const statusSource = lines.slice(footerStart).find(l =>
+    l.trim() && !RULE.test(l) && !INPUT_PROMPT.test(l) && !/^\s*⏵/.test(l));
+  const status = statusSource
+    ? statusSource.replace(/\[[█░▓▒ ]+\]/, "").replace(/\s+/g, " ").trim()
+    : "";
+  // Where the response actually ends: before the footer, and before any
+  // dividers/blank lines trailing it (so the view doesn't end on empty chrome).
+  let bodyEnd = footerStart;
+  while (bodyEnd > 0 && (!lines[bodyEnd - 1].trim() || RULE.test(lines[bodyEnd - 1]))) bodyEnd--;
   const frag = document.createDocumentFragment();
   let lastWasRule = false;
   lines.forEach((line, i) => {
+    if (i >= bodyEnd) return;
     if (RULE.test(line)) {
       if (!lastWasRule) frag.appendChild(el("hr"));
       lastWasRule = true;
       return;
     }
     lastWasRule = false;
-    if (i >= footerStart) return;
     const cls = ["l"];
     if (/^\s*⏺/.test(line)) cls.push("msg");
     frag.appendChild(el("div", { class: cls.join(" ") }, [line.length ? line : " "]));
   });
-  return frag;
+  return { frag, status };
 }
 
 function renderOutput() {
   const out = $("d-output");
   const text = peekCache[currentId];
   out.innerHTML = "";
+  const statusLine = $("d-status");
   if (text == null) {
     out.appendChild(el("div", { class: "l dim" }, ["Reading the screen…"]));
+    statusLine.hidden = true;
     return;
   }
-  out.appendChild(formatTerminal(text));
+  const { frag, status } = formatTerminal(text);
+  out.appendChild(frag);
+  statusLine.textContent = status;
+  statusLine.hidden = !status;
   if (stickToBottom) out.scrollTop = out.scrollHeight;
 }
 
@@ -648,12 +823,12 @@ setInterval(() => { if (currentId && !document.hidden) refreshPeek(currentId); }
 // reply box rides above it and the output gives up the space.
 if (window.visualViewport) {
   const vv = window.visualViewport;
-  const detail = $("detail-view");
+  const views = [$("detail-view"), $("new-view")];
   const update = () => {
     document.documentElement.style.setProperty("--app-height", `${vv.height}px`);
     document.documentElement.style.setProperty("--app-top", `${vv.offsetTop}px`);
     const keyboardOpen = window.innerHeight - vv.height - vv.offsetTop > 100;
-    if (keyboardOpen) detail.setAttribute("data-kb", ""); else detail.removeAttribute("data-kb");
+    views.forEach(v => { if (keyboardOpen) v.setAttribute("data-kb", ""); else v.removeAttribute("data-kb"); });
     if (stickToBottom) $("d-output").scrollTop = $("d-output").scrollHeight;
   };
   vv.addEventListener("resize", update);

@@ -9,7 +9,10 @@ import ShepherdHerdr
 
 setbuf(stdout, nil) // unbuffered - so `print` below shows up immediately when redirected to a log file
 
-let port: UInt16 = 8787
+// `--port N` lets a throwaway instance (e.g. `--fake` on another port) run
+// alongside the real one.
+let port: UInt16 = CommandLine.arguments.firstIndex(of: "--port")
+    .flatMap { CommandLine.arguments.indices.contains($0 + 1) ? UInt16(CommandLine.arguments[$0 + 1]) : nil } ?? 8787
 
 let backend: any SessionBackend
 if CommandLine.arguments.contains("--fake") {
