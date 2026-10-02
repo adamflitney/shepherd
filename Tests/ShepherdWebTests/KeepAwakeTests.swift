@@ -1,7 +1,7 @@
 import Foundation
 import ShepherdCore
 import Testing
-@testable import ShepherdWeb
+@testable import ShepherdWebKit
 
 private final class RecordingAssertion: PowerAssertion, @unchecked Sendable {
     private let lock = NSLock()

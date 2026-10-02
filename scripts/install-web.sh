@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Builds ShepherdWeb (release) and installs it as a per-user LaunchAgent, so
-# the mobile web view and its push notifications are always running.
+# Runs the phone web view as its own always-on LaunchAgent, independent of the
+# menu bar app. Most people don't want this: the Shepherd app hosts the same
+# server itself (menu bar -> Mobile Access...), with a setup checklist. This is
+# for running it headless or while developing the web view. Don't use both at
+# once - they'd fight over the same port.
 #   scripts/install-web.sh              build, (re)install and start
 #   scripts/install-web.sh uninstall    stop and remove
 # The agent runs the binary in place from .build/release (its resource bundle

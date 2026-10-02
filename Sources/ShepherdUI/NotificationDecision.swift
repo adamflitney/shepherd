@@ -10,15 +10,29 @@ public struct PendingNotification: Equatable {
 /// session leaving those kinds (or disappearing entirely) has no entry in
 /// `updatedState`, which is what re-arms the next transition - the "seen"
 /// semantics fall out of this alone, no backend-side watermark needed.
+///
+/// `notifyOnFinishedWork` adds one more event for a caller that wants it: a
+/// session going from working to idle (a finished run). Herdr reports `done`
+/// for a finished run you haven't looked at, but `idle` once it's been seen -
+/// fine for the menu bar app (you're at the Mac), not for a phone, where you
+/// want to hear about a finish regardless. It's edge-triggered off
+/// `previousKinds` (each session's kind on the previous evaluation), so it
+/// fires once per run and, unlike blocked/done, isn't re-attempted later.
 public func notificationsToFire(
     for sessions: [Session],
-    lastNotifiedKind: [SessionID: AttentionState.Kind]
+    lastNotifiedKind: [SessionID: AttentionState.Kind],
+    previousKinds: [SessionID: AttentionState.Kind] = [:],
+    notifyOnFinishedWork: Bool = false
 ) -> (toFire: [PendingNotification], updatedState: [SessionID: AttentionState.Kind]) {
     var toFire: [PendingNotification] = []
     var updatedState: [SessionID: AttentionState.Kind] = [:]
 
     for session in sessions {
         let kind = session.attention.kind
+        if notifyOnFinishedWork, kind == .idle, previousKinds[session.id] == .working {
+            toFire.append(PendingNotification(sessionID: session.id, kind: .idle))
+            continue
+        }
         guard kind == .blocked || kind == .done else { continue }
 
         updatedState[session.id] = kind

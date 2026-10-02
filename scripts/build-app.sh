@@ -30,5 +30,15 @@ if [ -d ".build/release/${APP_NAME}_${APP_NAME}.bundle" ]; then
     cp -R ".build/release/${APP_NAME}_${APP_NAME}.bundle" "${BUNDLE}/Contents/Resources/"
 fi
 
+# The phone web view's static assets (ShepherdWebKit's resource bundle),
+# found at runtime the same way - without these the embedded server would
+# serve nothing on anyone else's machine.
+if [ -d ".build/release/${APP_NAME}_ShepherdWebKit.bundle" ]; then
+    cp -R ".build/release/${APP_NAME}_ShepherdWebKit.bundle" "${BUNDLE}/Contents/Resources/"
+else
+    echo "✗ ShepherdWebKit resource bundle missing from the release build" >&2
+    exit 1
+fi
+
 echo "→ Ad-hoc code signing…"
 codesign --force --deep --sign - "${BUNDLE}"

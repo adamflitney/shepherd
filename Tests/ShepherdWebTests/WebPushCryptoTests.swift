@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import Testing
-@testable import ShepherdWeb
+@testable import ShepherdWebKit
 
 // Every value below is from RFC 8291 Appendix A.
 private let rfcPlaintext = "V2hlbiBJIGdyb3cgdXAsIEkgd2FudCB0byBiZSBhIHdhdGVybWVsb24"

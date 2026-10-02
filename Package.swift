@@ -26,7 +26,7 @@ let package = Package(
         // App entry point: backend selection, NSStatusItem, panel window.
         .executableTarget(
             name: "Shepherd",
-            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdUI"],
+            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdUI", "ShepherdWebKit"],
             path: "Sources/Shepherd",
             resources: [.copy("HookScripts")]
         ),
@@ -34,11 +34,19 @@ let package = Package(
         // SessionBackend the menu bar app uses, for the mobile-web
         // experiment. Its own process (not the menu bar app) so it can be
         // iterated on and restarted without relaunching the GUI.
+        .target(
+            name: "ShepherdWebKit",
+            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdUI"],
+            path: "Sources/ShepherdWebKit",
+            resources: [.copy("Public")]
+        ),
+        // Dev harness over ShepherdWebKit: the same server the menu bar app
+        // hosts, runnable on its own (`swift run ShepherdWeb [--fake]`).
         .executableTarget(
             name: "ShepherdWeb",
-            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdUI"],
+            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdWebKit"],
             path: "Sources/ShepherdWeb",
-            resources: [.copy("Public")]
+            exclude: ["PLAN.md"]
         ),
         .testTarget(
             name: "ShepherdCoreTests",
@@ -53,7 +61,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ShepherdWebTests",
-            dependencies: ["ShepherdWeb"],
+            dependencies: ["ShepherdWebKit"],
             path: "Tests/ShepherdWebTests"
         ),
         .testTarget(

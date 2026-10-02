@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: PanelWindow!
     private var statusItemController: StatusItemController!
     private var notificationManager: NotificationManager!
+    private var mobileAccess: MobileAccessModel!
+    private var mobileAccessWindow: MobileAccessWindowController!
 
     private let signposter = OSSignposter(subsystem: "com.adamflitney.shepherd", category: "panel")
     private let logger = Logger(subsystem: "com.adamflitney.shepherd", category: "hotkey")
@@ -67,6 +69,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let statusItemController = StatusItemController()
         statusItemController.onToggle = { [weak self] in self?.togglePanel() }
+
+        let mobileAccess = MobileAccessModel(backend: backend)
+        self.mobileAccess = mobileAccess
+        mobileAccessWindow = MobileAccessWindowController(model: mobileAccess)
+        statusItemController.onShowMobileAccess = { [weak self] in self?.mobileAccessWindow.show() }
+        mobileAccess.startIfEnabled()
+        if CommandLine.arguments.contains("--show-mobile-access") { mobileAccessWindow.show() }
+
         statusItemController.currentHotkeyBinding = { ShepherdConfig.load().hotkey.switchSession }
         statusItemController.onChangeHotkey = { [weak self] binding in self?.changeHotkey(to: binding) ?? false }
         self.statusItemController = statusItemController

@@ -67,6 +67,13 @@ actor KeepAwakeController {
     }
 
     private func releaseCompleted() { pendingRelease = nil }
+
+    /// Lets go immediately (server stopping) rather than after the grace.
+    func shutdown() {
+        pendingRelease?.cancel()
+        pendingRelease = nil
+        assertion.release()
+    }
 }
 
 func runKeepAwake(backend: any SessionBackend, controller: KeepAwakeController) async {

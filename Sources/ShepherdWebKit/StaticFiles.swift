@@ -1,15 +1,20 @@
 import Foundation
 
-/// `Bundle.module`'s generated accessor is unreliable when run via
-/// `swift run` from a different working directory (same caveat
-/// `HookInstaller.locateBundledScript` already documents for the main
-/// app) - falling back to a path relative to this source file covers
-/// `swift run ShepherdWeb` during development, which is this prototype's
-/// only supported way to run for now.
+/// Finds the bundled web assets without ever touching `Bundle.module`:
+/// its generated accessor calls `fatalError` when neither of its hardcoded
+/// paths resolves, which inside an assembled `.app` would crash the whole
+/// menu bar app. `scripts/build-app.sh` puts this target's resource bundle
+/// in `Contents/Resources/`; for `swift run` the bundle sits next to the
+/// executable, and the source tree is the last-resort dev fallback.
 func locatePublicDirectory() -> URL {
-    if let bundled = Bundle.module.resourceURL?.appendingPathComponent("Public"),
-       FileManager.default.fileExists(atPath: bundled.path) {
-        return bundled
+    let bundleName = "Shepherd_ShepherdWebKit.bundle/Public"
+    let candidates = [
+        Bundle.main.resourceURL?.appendingPathComponent(bundleName),
+        Bundle.main.bundleURL.appendingPathComponent(bundleName),
+        Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent(bundleName),
+    ].compactMap { $0 }
+    if let found = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+        return found
     }
     return URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()

@@ -72,6 +72,40 @@ public struct AgentConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// The phone-facing web view (Mobile Access). Off by default: it opens a
+/// server, and turning that on should be a deliberate choice. Every field
+/// decodes independently with a default, so config files written before a
+/// field existed keep loading.
+public struct WebConfig: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    /// The local (loopback) port the server listens on. `tailscale serve`
+    /// fronts it with HTTPS for other devices; nothing else can reach it.
+    public var port: Int
+    /// Keep the Mac awake while any session is working or blocked, so
+    /// agents keep running and a blocked one can still be answered from the
+    /// phone.
+    public var keepAwake: Bool
+    /// Hold phone alerts back while you're actively at the Mac (the Mac's
+    /// own notifications already cover that), sending them once you've been
+    /// away from the keyboard for a couple of minutes.
+    public var alertsOnlyWhenAway: Bool
+
+    public init(enabled: Bool = false, port: Int = 8787, keepAwake: Bool = true, alertsOnlyWhenAway: Bool = false) {
+        self.enabled = enabled
+        self.port = port
+        self.keepAwake = keepAwake
+        self.alertsOnlyWhenAway = alertsOnlyWhenAway
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        port = try container.decodeIfPresent(Int.self, forKey: .port) ?? 8787
+        keepAwake = try container.decodeIfPresent(Bool.self, forKey: .keepAwake) ?? true
+        alertsOnlyWhenAway = try container.decodeIfPresent(Bool.self, forKey: .alertsOnlyWhenAway) ?? false
+    }
+}
+
 /// Filters for the Review tab's PR list - see `ReviewFilterOptions`, which
 /// this mirrors field-for-field (kept separate since that one is pure
 /// domain logic with no `Codable` concerns, this one is the on-disk shape).
@@ -93,6 +127,7 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
     public var sessions: SessionsConfig
     public var review: ReviewConfig
     public var agent: AgentConfig
+    public var web: WebConfig
 
     public init(
         projects: ProjectsConfig,
@@ -101,7 +136,8 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
         terminal: TerminalConfig = TerminalConfig(appName: "Ghostty"),
         sessions: SessionsConfig = SessionsConfig(defaultDirectory: "~"),
         review: ReviewConfig = ReviewConfig(),
-        agent: AgentConfig = AgentConfig()
+        agent: AgentConfig = AgentConfig(),
+        web: WebConfig = WebConfig()
     ) {
         self.projects = projects
         self.hotkey = hotkey
@@ -110,6 +146,7 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
         self.sessions = sessions
         self.review = review
         self.agent = agent
+        self.web = web
     }
 
     // Custom decode so existing config files written before `hotkey`/
@@ -132,6 +169,8 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
             ?? ReviewConfig()
         agent = try container.decodeIfPresent(AgentConfig.self, forKey: .agent)
             ?? AgentConfig()
+        web = try container.decodeIfPresent(WebConfig.self, forKey: .web)
+            ?? WebConfig()
     }
 
     public static let `default` = ShepherdConfig(
@@ -141,7 +180,8 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
         terminal: TerminalConfig(appName: "Ghostty"),
         sessions: SessionsConfig(defaultDirectory: "~"),
         review: ReviewConfig(),
-        agent: AgentConfig()
+        agent: AgentConfig(),
+        web: WebConfig()
     )
 }
 

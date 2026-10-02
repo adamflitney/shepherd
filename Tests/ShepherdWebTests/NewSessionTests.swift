@@ -1,7 +1,7 @@
 import Foundation
 import ShepherdCore
 import Testing
-@testable import ShepherdWeb
+@testable import ShepherdWebKit
 
 private struct Fixture {
     let root: URL

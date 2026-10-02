@@ -53,3 +53,39 @@ private func session(_ id: String, _ kind: AttentionState.Kind) -> Session {
     let (_, updated) = notificationsToFire(for: [], lastNotifiedKind: [SessionID(rawValue: "a"): .blocked])
     #expect(updated.isEmpty)
 }
+
+@Test func aFinishedRunDoesNotNotifyUnlessAskedTo() {
+    let (toFire, _) = notificationsToFire(
+        for: [session("a", .idle)], lastNotifiedKind: [:], previousKinds: [SessionID(rawValue: "a"): .working]
+    )
+    #expect(toFire.isEmpty)
+}
+
+@Test func aFinishedRunNotifiesWhenWorkingBecomesIdleAndTheCallerOptsIn() {
+    let (toFire, updated) = notificationsToFire(
+        for: [session("a", .idle)], lastNotifiedKind: [:],
+        previousKinds: [SessionID(rawValue: "a"): .working], notifyOnFinishedWork: true
+    )
+    #expect(toFire == [PendingNotification(sessionID: SessionID(rawValue: "a"), kind: .idle)])
+    #expect(updated.isEmpty)   // edge-triggered: nothing to remember
+}
+
+@Test func aSessionThatWasAlreadyIdleIsNotAFinishedRun() {
+    let (toFire, _) = notificationsToFire(
+        for: [session("a", .idle)], lastNotifiedKind: [:],
+        previousKinds: [SessionID(rawValue: "a"): .idle], notifyOnFinishedWork: true
+    )
+    #expect(toFire.isEmpty)
+}
+
+@Test func aNewlySeenIdleSessionIsNotAFinishedRun() {
+    #expect(notificationsToFire(for: [session("a", .idle)], lastNotifiedKind: [:], notifyOnFinishedWork: true).toFire.isEmpty)
+}
+
+@Test func workingToBlockedIsTheBlockedRuleNotAFinishedRun() {
+    let (toFire, _) = notificationsToFire(
+        for: [session("a", .blocked)], lastNotifiedKind: [:],
+        previousKinds: [SessionID(rawValue: "a"): .working], notifyOnFinishedWork: true
+    )
+    #expect(toFire == [PendingNotification(sessionID: SessionID(rawValue: "a"), kind: .blocked)])
+}

@@ -13,6 +13,8 @@ actor HTTPServer {
         var method: String
         var path: String
         var query: [String: String]
+        /// Lower-cased names.
+        var headers: [String: String] = [:]
         var body: Data
     }
 
@@ -30,6 +32,10 @@ actor HTTPServer {
             Response(status: 404, reason: "Not Found", headers: ["Content-Type": "text/plain"], body: Data("Not found".utf8))
         }
 
+        static func forbidden(_ message: String) -> Response {
+            Response(status: 403, reason: "Forbidden", headers: ["Content-Type": "text/plain"], body: Data(message.utf8))
+        }
+
         static func serverError(_ message: String) -> Response {
             Response(status: 500, reason: "Internal Server Error", headers: ["Content-Type": "text/plain"], body: Data(message.utf8))
         }
@@ -38,6 +44,9 @@ actor HTTPServer {
     /// Handles every path except `/api/events`, which is routed to
     /// `sseEvents` instead since it never returns a normal response.
     private let router: (Request) async -> Response
+    /// Runs before every request, including the SSE stream: a non-nil
+    /// response is sent instead of handling the request.
+    private let gate: (Request) async -> Response?
     /// One independent event subscription per SSE connection - safe because
     /// `BackendEventHub.makeStream()` (what every `SessionBackend` is built
     /// on) already fans out to any number of subscribers. Takes the raw
@@ -50,22 +59,77 @@ actor HTTPServer {
     private let sseEvents: () -> AsyncStream<BackendEvent>
     private let listener: NWListener
 
-    init(port: UInt16, router: @escaping (Request) async -> Response, sseEvents: @escaping () -> AsyncStream<BackendEvent>) throws {
+    init(
+        port: UInt16,
+        gate: @escaping (Request) async -> Response? = { _ in nil },
+        router: @escaping (Request) async -> Response,
+        sseEvents: @escaping () -> AsyncStream<BackendEvent>
+    ) throws {
         self.router = router
+        self.gate = gate
         self.sseEvents = sseEvents
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
             throw ServerError.invalidPort(port)
         }
-        listener = try NWListener(using: .tcp, on: nwPort)
+        // Loopback only: the sole way in from another device is
+        // `tailscale serve` (which also gives us TLS and the caller's
+        // identity). Binding every interface would expose an unauthenticated
+        // way to approve prompts and type into agents to the whole LAN, and
+        // would trigger macOS's "accept incoming connections" dialog.
+        // (`requiredInterfaceType = .loopback` was tried first and still left
+        // the socket on `*:port`; pinning the local address is what binds it.)
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: nwPort)
+        listener = try NWListener(using: parameters)
     }
 
     enum ServerError: Error { case invalidPort(UInt16), connectionClosed }
 
-    func start() {
+    private var connectionTasks: [UUID: Task<Void, Never>] = [:]
+
+    /// Returns once the socket is actually listening, and throws if it can't
+    /// be (typically: the port is already in use) - `NWListener` reports
+    /// that asynchronously, not from `init`.
+    func start() async throws {
         listener.newConnectionHandler = { [weak self] connection in
-            Task { await self?.handle(connection) }
+            Task { await self?.accept(connection) }
         }
-        listener.start(queue: .main)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            nonisolated(unsafe) var resumed = false
+            listener.stateUpdateHandler = { state in
+                guard !resumed else { return }
+                switch state {
+                case .ready:
+                    resumed = true
+                    continuation.resume()
+                case .failed(let error):
+                    resumed = true
+                    continuation.resume(throwing: error)
+                default:
+                    break
+                }
+            }
+            listener.start(queue: .main)
+        }
+    }
+
+    func stop() {
+        listener.cancel()
+        // Cancelling the tasks also ends any open SSE streams.
+        connectionTasks.values.forEach { $0.cancel() }
+        connectionTasks = [:]
+    }
+
+    private func accept(_ connection: NWConnection) {
+        let id = UUID()
+        connectionTasks[id] = Task { [weak self] in
+            await self?.handle(connection)
+            await self?.connectionFinished(id)
+        }
+    }
+
+    private func connectionFinished(_ id: UUID) {
+        connectionTasks[id] = nil
     }
 
     private func handle(_ connection: NWConnection) async {
@@ -75,12 +139,19 @@ actor HTTPServer {
             return
         }
 
+        let request = Request(method: head.method, path: head.path, query: head.query, headers: head.headers, body: body)
+        if let denied = await gate(request) {
+            try? await write(connection, response: denied, keepAlive: false)
+            connection.cancel()
+            return
+        }
+
         if head.path == "/api/events" && head.method == "GET" {
             await streamSSE(connection)
             return
         }
 
-        let response = await router(Request(method: head.method, path: head.path, query: head.query, body: body))
+        let response = await router(request)
         try? await write(connection, response: response, keepAlive: false)
         connection.cancel()
     }
@@ -91,6 +162,7 @@ actor HTTPServer {
         var method: String
         var path: String
         var query: [String: String]
+        var headers: [String: String]
         var contentLength: Int
     }
 
@@ -143,16 +215,18 @@ actor HTTPServer {
         }
 
         var contentLength = 0
+        var headers: [String: String] = [:]
         for line in lines.dropFirst() {
             guard let colon = line.firstIndex(of: ":") else { continue }
             let key = line[line.startIndex..<colon].trimmingCharacters(in: .whitespaces).lowercased()
             let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            headers[key] = value
             if key == "content-length" {
                 contentLength = Int(value) ?? 0
             }
         }
 
-        return RequestHead(method: method, path: path, query: query, contentLength: contentLength)
+        return RequestHead(method: method, path: path, query: query, headers: headers, contentLength: contentLength)
     }
 
     // MARK: - Response writing

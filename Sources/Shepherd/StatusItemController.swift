@@ -12,6 +12,7 @@ final class StatusItemController: NSObject {
     private let statusItem: NSStatusItem
     private var imageCache: [AttentionState.Kind: NSImage] = [:]
     var onToggle: (() -> Void)?
+    var onShowMobileAccess: (() -> Void)?
     /// Supplies the currently-configured binding to prefill the "Change
     /// Hotkey…" prompt - read fresh each time rather than cached, since it
     /// can also change via editing the config file directly.
@@ -91,6 +92,9 @@ final class StatusItemController: NSObject {
         changeDefaultDirectoryItem.target = self
         menu.addItem(changeDefaultDirectoryItem)
         menu.addItem(.separator())
+        let mobileAccessItem = NSMenuItem(title: "Mobile Access…", action: #selector(showMobileAccess), keyEquivalent: "")
+        mobileAccessItem.target = self
+        menu.addItem(mobileAccessItem)
         let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         launchAtLoginItem.target = self
         launchAtLoginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -104,6 +108,10 @@ final class StatusItemController: NSObject {
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
+    }
+
+    @objc private func showMobileAccess() {
+        onShowMobileAccess?()
     }
 
     @objc private func toggleHooks() {

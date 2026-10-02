@@ -159,3 +159,28 @@ import Foundation
     #expect(decoded.review.includeBots == true)
     #expect(decoded.review.hideOlderThanDays == 30)
 }
+
+@Test func configWithoutAWebKeyHasMobileAccessOffWithSensibleDefaults() throws {
+    let json = """
+    {"projects":{"directories":["~/dev"],"exclude":[]}}
+    """
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: Data(json.utf8))
+    #expect(decoded.web == WebConfig(enabled: false, port: 8787, keepAwake: true, alertsOnlyWhenAway: false))
+}
+
+@Test func aPartialWebConfigFillsInTheRestFromDefaults() throws {
+    let json = """
+    {"projects":{"directories":[],"exclude":[]},"web":{"enabled":true}}
+    """
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: Data(json.utf8))
+    #expect(decoded.web.enabled)
+    #expect(decoded.web.port == 8787)
+    #expect(decoded.web.keepAwake)
+}
+
+@Test func webConfigPersistsThroughARoundTrip() throws {
+    var cfg = ShepherdConfig.default
+    cfg.web = WebConfig(enabled: true, port: 9000, keepAwake: false, alertsOnlyWhenAway: true)
+    let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: JSONEncoder().encode(cfg))
+    #expect(decoded.web == WebConfig(enabled: true, port: 9000, keepAwake: false, alertsOnlyWhenAway: true))
+}

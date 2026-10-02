@@ -59,6 +59,8 @@
   #alerts { display: flex; gap: 6px; }
   #alerts button { font-size: 12px; padding: 5px 9px; }
   #status { font-size: 13px; color: var(--text-dim); font-weight: 400; flex-shrink: 0; }
+  .hint { margin: 12px 12px 0; padding: 12px 14px; border: 1px solid var(--card-border); border-left: 3px solid var(--working); border-radius: 12px; background: var(--card); font-size: 14px; line-height: 1.4; }
+  .hint .hint-actions { display: flex; gap: 8px; margin-top: 10px; }
   main { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
   .card {
     background: var(--card);
@@ -217,6 +219,7 @@
       <span id="status">connecting…</span>
     </span>
   </header>
+  <div id="hint" class="hint" hidden></div>
   <main id="sessions"></main>
   <button id="n-open" class="primary fab">+ New</button>
 </div>
@@ -874,19 +877,54 @@ async function disableAlerts() {
   renderAlerts();
 }
 
+// First-run guidance. iOS only offers push to a page that has been added to
+// the Home Screen, and in a plain Safari tab the alerts button simply isn't
+// there - so say what to do instead of leaving it a mystery. Dismissals are
+// remembered per hint.
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isStandalone = navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+
+const hintDismissed = key => { try { return localStorage.getItem(`hint:${key}`) === "1"; } catch (e) { return false; } };
+const dismissHint = key => { try { localStorage.setItem(`hint:${key}`, "1"); } catch (e) {} renderAlerts(); };
+
+function showHint(key, text, actions = []) {
+  const box = $("hint");
+  box.innerHTML = "";
+  if (!key || hintDismissed(key)) { box.hidden = true; return; }
+  box.appendChild(el("div", {}, [text]));
+  box.appendChild(el("div", { class: "hint-actions" }, [
+    ...actions,
+    el("button", { class: "subtle", onclick: () => dismissHint(key) }, ["Dismiss"])
+  ]));
+  box.hidden = false;
+}
+
 async function renderAlerts() {
   const box = $("alerts");
   box.innerHTML = "";
-  if (!("PushManager" in window) || !("serviceWorker" in navigator) || !window.isSecureContext) return;
+  const pushCapable = "PushManager" in window && "serviceWorker" in navigator && window.isSecureContext;
+  if (!pushCapable) {
+    if (isIOS && !isStandalone) {
+      showHint("install", "To get alerts when an agent needs you, add Shepherd to your Home Screen: tap the Share button, then Add to Home Screen, and open it from there.");
+    } else {
+      showHint(null);
+    }
+    return;
+  }
   if (Notification.permission === "denied") {
     box.appendChild(el("button", { class: "subtle", disabled: "true" }, ["Alerts blocked"]));
+    showHint("denied", "Alerts are blocked for Shepherd. To turn them on, allow notifications for it in your phone's Settings.");
     return;
   }
   const sub = Notification.permission === "granted" ? await pushSubscription() : null;
   if (!sub) {
     box.appendChild(el("button", { onclick: () => enableAlerts().catch(renderAlerts) }, ["Enable alerts"]));
+    showHint("enable", "Turn on alerts to be told when an agent needs you or finishes - even with this app closed.", [
+      el("button", { class: "primary", onclick: () => enableAlerts().catch(renderAlerts) }, ["Turn on alerts"])
+    ]);
     return;
   }
+  showHint(null);
   // The server's store is a file that can be lost or reset; re-sending the
   // subscription on every load keeps it in sync without a separate check.
   postJSON("/api/push/subscribe", sub.toJSON()).catch(() => {});

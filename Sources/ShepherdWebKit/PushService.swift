@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import ShepherdCore
 import ShepherdUI
@@ -127,40 +128,88 @@ struct PushMessage: Encodable {
     }
 }
 
-/// Herdr moves a finished Claude Code session straight to idle - the `done`
-/// status that `notificationsToFire` keys on doesn't occur for real sessions
-/// - so "an agent finished" is a working -> idle transition here.
-func sessionsThatFinishedWorking(previousKinds: [SessionID: AttentionState.Kind], sessions: [Session]) -> [Session] {
-    sessions.filter { previousKinds[$0.id] == .working && $0.attention.kind == .idle }
+/// Seconds since the last keyboard or mouse input on this Mac.
+func secondsSinceLastUserInput() -> TimeInterval {
+    // `~0` is kCGAnyInputEventType: any keyboard, mouse or trackpad event.
+    guard let anyInput = CGEventType(rawValue: ~0) else { return 0 }
+    return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
 }
 
-/// Watches the backend and pushes once per *transition into* blocked/done
-/// (via the same `notificationsToFire` policy the menu bar app uses) or out
-/// of working into idle. The initial snapshot only seeds state, so starting
-/// (or restarting) the server never fires for sessions already waiting.
-func runPushNotifier(backend: any SessionBackend, push: PushService) async {
-    var lastNotified: [SessionID: AttentionState.Kind] = [:]
-    var lastKinds: [SessionID: AttentionState.Kind] = [:]
-    if let initial = try? await backend.snapshot() {
-        lastNotified = notificationsToFire(for: initial.sessions, lastNotifiedKind: [:]).updatedState
-        lastKinds = Dictionary(uniqueKeysWithValues: initial.sessions.map { ($0.id, $0.attention.kind) })
+/// Decides, session by session, when the phone gets a push, and sends it.
+/// The rules come from the shared `notificationsToFire` (the menu bar app's
+/// own policy) with `notifyOnFinishedWork` on - see there for why a phone
+/// also hears about a finished run.
+///
+/// With `onlyWhenAway`, a push is held back while you're at the Mac (recent
+/// keyboard/mouse input). Held-back blocked/done stay pending - a session
+/// still waiting when you walk away is exactly when you want the push - and
+/// are retried on a timer, since nothing else would wake us. A finished run
+/// is dropped instead: it's a one-off, and you were there when it happened.
+actor PushNotifier {
+    private var lastNotified: [SessionID: AttentionState.Kind] = [:]
+    private var lastKinds: [SessionID: AttentionState.Kind] = [:]
+    private let onlyWhenAway: Bool
+    private let awayAfter: TimeInterval
+    private let idleSeconds: @Sendable () -> TimeInterval
+    private let send: @Sendable (PushMessage) async -> Int
+
+    init(
+        onlyWhenAway: Bool,
+        awayAfter: TimeInterval = 120,
+        idleSeconds: @escaping @Sendable () -> TimeInterval = secondsSinceLastUserInput,
+        send: @escaping @Sendable (PushMessage) async -> Int
+    ) {
+        self.onlyWhenAway = onlyWhenAway
+        self.awayAfter = awayAfter
+        self.idleSeconds = idleSeconds
+        self.send = send
     }
-    for await _ in backend.events() {
-        guard let snapshot = try? await backend.snapshot() else { continue }
-        for session in snapshot.sessions where lastKinds[session.id] != session.attention.kind {
+
+    /// The first snapshot only seeds state, so starting (or restarting) the
+    /// server never announces sessions that were already waiting.
+    func seed(with sessions: [Session]) {
+        lastNotified = notificationsToFire(for: sessions, lastNotifiedKind: [:]).updatedState
+        lastKinds = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0.attention.kind) })
+    }
+
+    func evaluate(_ sessions: [Session]) async {
+        let away = !onlyWhenAway || idleSeconds() >= awayAfter
+        let result = notificationsToFire(
+            for: sessions, lastNotifiedKind: lastNotified, previousKinds: lastKinds, notifyOnFinishedWork: true
+        )
+        for session in sessions where lastKinds[session.id] != session.attention.kind {
             print("state: \(session.title.prefix(40)): \(lastKinds[session.id]?.rawValue ?? "new") -> \(session.attention.kind.rawValue)")
         }
-        let result = notificationsToFire(for: snapshot.sessions, lastNotifiedKind: lastNotified)
-        let finished = sessionsThatFinishedWorking(previousKinds: lastKinds, sessions: snapshot.sessions)
-        lastNotified = result.updatedState
-        lastKinds = Dictionary(uniqueKeysWithValues: snapshot.sessions.map { ($0.id, $0.attention.kind) })
+        lastKinds = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0.attention.kind) })
 
-        let firing = result.toFire.compactMap { pending in snapshot.sessions.first { $0.id == pending.sessionID } }
-        let toNotify = firing + finished.filter { f in !firing.contains { $0.id == f.id } }
-        for session in toNotify {
-            guard let payload = try? JSONEncoder().encode(PushMessage(for: session)) else { continue }
-            let delivered = await push.send(payload)
-            print("push: \(session.title.prefix(40)) (\(session.attention.kind.rawValue)) delivered to \(delivered)/\(await push.subscriptionCount)")
+        guard away else {
+            // Not recording what would have fired keeps blocked/done pending.
+            let held = Set(result.toFire.map(\.sessionID))
+            lastNotified = result.updatedState.filter { !held.contains($0.key) }
+            return
+        }
+        lastNotified = result.updatedState
+        for pending in result.toFire {
+            guard let session = sessions.first(where: { $0.id == pending.sessionID }) else { continue }
+            let delivered = await send(PushMessage(for: session))
+            print("push: \(session.title.prefix(40)) (\(pending.kind.rawValue)) delivered to \(delivered)")
+        }
+    }
+
+    /// Runs until cancelled: re-evaluates on every backend event, plus on a
+    /// timer when pushes can be held back.
+    func run(backend: any SessionBackend) async {
+        if let initial = try? await backend.snapshot() { seed(with: initial.sessions) }
+        let ticker: Task<Void, Never>? = onlyWhenAway ? Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(20))
+                if let snapshot = try? await backend.snapshot() { await self?.evaluate(snapshot.sessions) }
+            }
+        } : nil
+        defer { ticker?.cancel() }
+        for await _ in backend.events() {
+            guard let snapshot = try? await backend.snapshot() else { continue }
+            await evaluate(snapshot.sessions)
         }
     }
 }
