@@ -55,6 +55,9 @@ public struct SessionsListView: View {
     @State private var peekError: String?
     @State private var isLoadingPeek = false
 
+    private let demoStart: PanelDemoStart?
+    @State private var didApplyDemoStart = false
+
     @State private var reviewPRs: [MatchedReviewPR] = []
     @State private var isLoadingReviewPRs = false
     @State private var reviewLoadError: String?
@@ -74,8 +77,10 @@ public struct SessionsListView: View {
         onStartReviewSession: @escaping (MatchedReviewPR) async throws -> Void,
         onIgnoreReviewPR: @escaping (MatchedReviewPR) -> Void,
         onRestoreReviewPR: @escaping (MatchedReviewPR) -> Void,
-        onOpenReviewPRInBrowser: @escaping (MatchedReviewPR) -> Void
+        onOpenReviewPRInBrowser: @escaping (MatchedReviewPR) -> Void,
+        demoStart: PanelDemoStart? = nil
     ) {
+        self.demoStart = demoStart
         self.store = store
         self.onFocusSession = onFocusSession
         self.onDismiss = onDismiss
@@ -133,6 +138,7 @@ public struct SessionsListView: View {
         .onChange(of: query) { selectedIndex = 0 }
         .onAppear {
             installKeyMonitor()
+            applyDemoStartOnce()
             // Delay is required: @FocusState set before the NSPanel becomes
             // key is silently ignored - same workaround as mac-sesh's SearchView.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -178,6 +184,26 @@ public struct SessionsListView: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
+    }
+
+    /// Screenshot tooling only (`--demo-panel`): opens straight onto a tab
+    /// with a filter typed, once per launch.
+    private func applyDemoStartOnce() {
+        guard let demoStart, !didApplyDemoStart else { return }
+        didApplyDemoStart = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            switch demoStart.tab {
+            case "create": setMode(.createProject)
+            case "ask": setMode(.prompt)
+            case "review": setMode(.review)
+            default: break
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard !demoStart.query.isEmpty else { return }
+                query = demoStart.query
+                if mode == .prompt { submitInlinePrompt() }
+            }
+        }
     }
 
     private func resetInlinePromptState() {
@@ -928,7 +954,7 @@ private struct ReviewPRRow: View {
                 Text(match.pr.title)
                     .font(.body)
                     .lineLimit(1)
-                Text("\(match.pr.repoSlug) #\(match.pr.number)\(match.isCloned || match.pr.isMine ? "" : " · not cloned - ⌘Enter clones it")")
+                Text("\(match.pr.repoSlug) #\(match.pr.number)\(match.isCloned || match.pr.isMine ? "" : " · not cloned")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

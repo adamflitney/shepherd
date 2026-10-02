@@ -31,7 +31,8 @@ final class PanelWindow: NSPanel {
         onStartReviewSession: @escaping (MatchedReviewPR) async throws -> Void,
         onIgnoreReviewPR: @escaping (MatchedReviewPR) -> Void,
         onRestoreReviewPR: @escaping (MatchedReviewPR) -> Void,
-        onOpenReviewPRInBrowser: @escaping (MatchedReviewPR) -> Void
+        onOpenReviewPRInBrowser: @escaping (MatchedReviewPR) -> Void,
+        demoStart: PanelDemoStart? = nil
     ) {
         let box = ClosureBox()
         dismissBox = box
@@ -49,7 +50,8 @@ final class PanelWindow: NSPanel {
             onStartReviewSession: onStartReviewSession,
             onIgnoreReviewPR: onIgnoreReviewPR,
             onRestoreReviewPR: onRestoreReviewPR,
-            onOpenReviewPRInBrowser: onOpenReviewPRInBrowser
+            onOpenReviewPRInBrowser: onOpenReviewPRInBrowser,
+            demoStart: demoStart
         )
         hostingController = NSHostingController(rootView: view)
 

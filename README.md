@@ -33,6 +33,14 @@ The inline quick-answer panel — ask a question without opening a terminal:
 
 <img src="Resources/screenshots/quick-answer.png" alt="Inline quick-answer panel with an answered question" width="360">
 
+The Review tab — PRs waiting on you, with review status and check counts; repos you haven't cloned are marked "not cloned" and get cloned when you start a review:
+
+<img src="Resources/screenshots/review.png" alt="Review tab listing PRs to review with status and checks" width="360">
+
+Start the filter with `@` to switch to your own PRs (and `%` for ones you've dismissed):
+
+<img src="Resources/screenshots/review-mine.png" alt="Review tab filtered to my own PRs" width="360">
+
 ### On your phone
 
 The [mobile access](#mobile-access) web page (not the menu bar app) — the session list, and a blocked session with its choices as buttons:
@@ -226,6 +234,7 @@ Then press **Hyper+W** (Cmd+Ctrl+Opt+Shift+W) for the quick switcher; change it 
 swift build
 swift test                       # one live-integration test depends on a real Herdr's state and can fail on its own
 swift run Shepherd -- --fake     # the menu bar app against seeded demo data, no Herdr required
+swift run Shepherd -- --fake --demo-panel=review --demo-query=@   # open the panel on a tab (sessions|create|ask|review) with a filter typed, for screenshots
 ```
 
 Package layout — dependencies point downward, and there are no third-party Swift packages:

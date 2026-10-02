@@ -37,6 +37,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
+    private static var isFake: Bool { CommandLine.arguments.contains("--fake") }
+
+    /// `--demo-panel=<sessions|create|ask|review>` with optional
+    /// `--demo-query=<text>`: opens the panel on that tab at launch, for
+    /// README screenshots. Pair with `--fake`.
+    private static func demoStartFromArguments() -> PanelDemoStart? {
+        func value(_ flag: String) -> String? {
+            CommandLine.arguments.first { $0.hasPrefix(flag + "=") }.map { String($0.dropFirst(flag.count + 1)) }
+        }
+        guard let tab = value("--demo-panel") else { return nil }
+        return PanelDemoStart(tab: tab, query: value("--demo-query") ?? "")
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let store = SessionsStore(backend: backend)
         self.store = store
@@ -71,7 +84,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onOpenReviewPRInBrowser: { match in
                 if let url = URL(string: match.pr.url) { NSWorkspace.shared.open(url) }
-            }
+            },
+            demoStart: Self.demoStartFromArguments()
         )
 
         let statusItemController = StatusItemController()
@@ -83,6 +97,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController.onShowMobileAccess = { [weak self] in self?.mobileAccessWindow.show() }
         mobileAccess.startIfEnabled()
         if CommandLine.arguments.contains("--show-mobile-access") { mobileAccessWindow.show() }
+        if Self.demoStartFromArguments() != nil {
+            DispatchQueue.main.async { [weak self] in self?.panel.presentCentered() }
+        }
 
         statusItemController.currentHotkeyBinding = { ShepherdConfig.load().hotkey.switchSession }
         statusItemController.onChangeHotkey = { [weak self] binding in self?.changeHotkey(to: binding) ?? false }
@@ -234,6 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// focused with the original prompt already sent in - same as picking
     /// an existing session, just arrived at automatically.
     private func runInlinePrompt(_ text: String, resumeSessionID: String?) async -> InlinePromptOutcome {
+        if Self.isFake { return .answered(text: DemoReviewPRs.askAnswer, sessionID: "demo") }
         do {
             let result = try await ClaudeCLIRunner.run(prompt: text, resumeSessionID: resumeSessionID)
             if shouldEscalateToSession(result) {
@@ -332,6 +350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// tab shows its spinner) instead of returning an empty list that
     /// would never update.
     private func loadReviewPRs() async throws -> [MatchedReviewPR] {
+        if Self.isFake { return DemoReviewPRs.all }
         if hasFetchedReviewPRs {
             Task { await refreshReviewPRCache() }
         } else {
