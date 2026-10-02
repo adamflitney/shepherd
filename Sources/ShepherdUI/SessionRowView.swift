@@ -79,6 +79,7 @@ public struct SessionRowView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .help("Send a prompt to this session")
             }
 
             if session.isFocused {

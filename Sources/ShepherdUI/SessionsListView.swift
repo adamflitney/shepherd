@@ -262,7 +262,7 @@ public struct SessionsListView: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.35)
-        .help(enabled ? "" : "Ask isn't available while OpenCode is the selected agent")
+        .help(enabled ? "Switch to \(title) (⇥ cycles tabs)" : "Ask isn't available while OpenCode is the selected agent")
     }
 
     /// Tab and the header button both cycle sessions -> createProject ->
@@ -346,7 +346,7 @@ public struct SessionsListView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Start a new conversation (Hyper+N)")
+                .help("Start a new conversation (⌃⌥⇧⌘N)")
             }
         }
         .padding(.horizontal, 12)
@@ -560,6 +560,7 @@ public struct SessionsListView: View {
         func tab(_ title: String, view: ReviewView, prefix: String) -> some View {
             Button(title) { query = prefix }
                 .buttonStyle(.plain)
+                .help(prefix.isEmpty ? "PRs waiting on you (clear the filter)" : "Your own PRs (start the filter with \(prefix))")
                 .font(.caption.weight(current == view ? .semibold : .regular))
                 .foregroundStyle(current == view ? Color.accentColor : Color.secondary)
         }
@@ -954,19 +955,19 @@ private struct ReviewPRRow: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help(match.pr.isMine ? "Start a session (⌘Return)" : "Review in a session (⌘Return)")
+                .help(match.pr.isMine ? "Start a session (⌘⏎)" : "Review in a session (⌘⏎)")
                 Button(action: onOpenInBrowser) {
                     Image(systemName: "arrow.up.right.square")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Open on GitHub (Return)")
+                .help("Open on GitHub (⏎)")
                 Button(action: onIgnore) {
                     Image(systemName: match.isIgnored ? "eye" : "eye.slash")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help(match.isIgnored ? "Bring back (⌘Delete)" : "Not reviewing this (⌘Delete)")
+                .help(match.isIgnored ? "Bring back (⌘⌫)" : "Not reviewing this (⌘⌫)")
             }
         }
         .padding(.horizontal, 12)
