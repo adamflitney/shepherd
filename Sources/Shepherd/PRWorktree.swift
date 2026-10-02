@@ -12,9 +12,13 @@ enum PRWorktree {
         let dirName = repoSlug.replacingOccurrences(of: "/", with: "-") + "-pr-\(prNumber)"
         let worktreePath = root.appendingPathComponent(dirName)
 
-        // Already set up from a previous review of this PR - reuse as-is
-        // rather than re-fetching every time the Review tab is opened.
+        // Already set up from a previous review of this PR - reuse it, but
+        // pull in commits pushed since (best-effort: a dirty worktree or a
+        // force-push just keeps what's there).
         if FileManager.default.fileExists(atPath: worktreePath.path) {
+            if (try? runGit(["-C", repoPath, "fetch", "origin", "pull/\(prNumber)/head"])) != nil {
+                try? runGit(["-C", worktreePath.path, "merge", "--ff-only", "FETCH_HEAD"])
+            }
             return worktreePath
         }
 

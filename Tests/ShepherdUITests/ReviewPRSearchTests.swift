@@ -22,3 +22,21 @@ private func matched(title: String, repoSlug: String = "owner/repo", number: Int
     let matches = [matched(title: "A change", repoSlug: "owner/club-api", number: 1), matched(title: "Another", repoSlug: "owner/unrelated", number: 2)]
     #expect(filterReviewPRList(matches, query: "club").map(\.pr.number) == [1])
 }
+
+@Test func ignoredPRsOnlyAppearBehindThePercentPrefix() {
+    let shown = MatchedReviewPR(pr: ReviewPR(repoSlug: "o/a", number: 1, title: "Alpha", url: "", headRefName: "x", isBot: false, updatedAt: Date()), localPath: nil)
+    let hidden = MatchedReviewPR(pr: ReviewPR(repoSlug: "o/b", number: 2, title: "Beta", url: "", headRefName: "x", isBot: false, updatedAt: Date()), localPath: nil, isIgnored: true)
+    #expect(filterReviewPRList([shown, hidden], query: "").map(\.id) == [shown.id])
+    #expect(filterReviewPRList([shown, hidden], query: "%").map(\.id) == [hidden.id])
+    #expect(filterReviewPRList([shown, hidden], query: "*bet").map(\.id) == [hidden.id])
+    #expect(filterReviewPRList([shown, hidden], query: "%alpha").isEmpty)
+}
+
+@Test func atPrefixShowsOnlyMyOwnPRsAndNoPrefixHidesThem() {
+    func make(_ n: Int, mine: Bool) -> MatchedReviewPR {
+        MatchedReviewPR(pr: ReviewPR(repoSlug: "o/r", number: n, title: "PR \(n)", url: "", headRefName: "x", isBot: false, updatedAt: Date(), isMine: mine), localPath: nil)
+    }
+    let theirs = make(1, mine: false), mine = make(2, mine: true)
+    #expect(filterReviewPRList([theirs, mine], query: "").map(\.id) == [theirs.id])
+    #expect(filterReviewPRList([theirs, mine], query: "@").map(\.id) == [mine.id])
+}

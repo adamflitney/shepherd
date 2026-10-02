@@ -29,7 +29,9 @@ final class PanelWindow: NSPanel {
         onPeekSession: @escaping (SessionID) async throws -> String,
         onLoadReviewPRs: @escaping () async throws -> [MatchedReviewPR],
         onStartReviewSession: @escaping (MatchedReviewPR) async throws -> Void,
-        onIgnoreReviewPR: @escaping (MatchedReviewPR) -> Void
+        onIgnoreReviewPR: @escaping (MatchedReviewPR) -> Void,
+        onRestoreReviewPR: @escaping (MatchedReviewPR) -> Void,
+        onOpenReviewPRInBrowser: @escaping (MatchedReviewPR) -> Void
     ) {
         let box = ClosureBox()
         dismissBox = box
@@ -45,7 +47,9 @@ final class PanelWindow: NSPanel {
             onPeekSession: onPeekSession,
             onLoadReviewPRs: onLoadReviewPRs,
             onStartReviewSession: onStartReviewSession,
-            onIgnoreReviewPR: onIgnoreReviewPR
+            onIgnoreReviewPR: onIgnoreReviewPR,
+            onRestoreReviewPR: onRestoreReviewPR,
+            onOpenReviewPRInBrowser: onOpenReviewPRInBrowser
         )
         hostingController = NSHostingController(rootView: view)
 

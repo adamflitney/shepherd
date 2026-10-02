@@ -177,3 +177,28 @@ private func pr(
     #expect(reviewStatusLabel("REVIEW_REQUIRED") == "Awaiting approval")
     #expect(reviewStatusLabel("") == "Awaiting approval")
 }
+
+// MARK: - cloneDestination / MatchedReviewPR
+
+@Test func cloneDestinationPutsTheRepoNameInsideTheDirectory() {
+    #expect(cloneDestination(forSlug: "yotoplay/yoto-middy", in: "/Users/me/dev") == "/Users/me/dev/yoto-middy")
+}
+
+@Test func aMatchedPRWithoutALocalPathIsNotCloned() {
+    #expect(MatchedReviewPR(pr: pr(), localPath: nil).isCloned == false)
+    #expect(MatchedReviewPR(pr: pr(), localPath: "/tmp/repo").isCloned)
+}
+
+@Test func reviewCountsSplitToReviewFromMineAndSkipDraftsAndIgnored() {
+    func match(_ number: Int, mine: Bool, draft: Bool = false, decision: String = "", ignored: Bool = false) -> MatchedReviewPR {
+        MatchedReviewPR(
+            pr: ReviewPR(repoSlug: "o/r", number: number, title: "t", url: "", headRefName: "x", isBot: false, updatedAt: Date(), reviewDecision: decision, isMine: mine, isDraft: draft),
+            localPath: nil, isIgnored: ignored
+        )
+    }
+    let counts = reviewCounts([
+        match(1, mine: false), match(2, mine: false, ignored: true),
+        match(3, mine: true), match(4, mine: true, draft: true), match(5, mine: true, decision: "APPROVED"),
+    ])
+    #expect(counts == ReviewCounts(toReview: 1, mine: 3, mineAwaitingApproval: 1))
+}

@@ -21,10 +21,14 @@ public struct ReviewPR: Identifiable, Equatable, Sendable {
     /// `reviewStatusLabel` instead of failing to decode.
     public var reviewDecision: String
     public var checkSummary: CheckSummary?
+    /// You authored it (as opposed to being asked to review it).
+    public var isMine: Bool
+    public var isDraft: Bool
 
     public init(
         repoSlug: String, number: Int, title: String, url: String, headRefName: String,
-        isBot: Bool, updatedAt: Date, reviewDecision: String = "", checkSummary: CheckSummary? = nil
+        isBot: Bool, updatedAt: Date, reviewDecision: String = "", checkSummary: CheckSummary? = nil,
+        isMine: Bool = false, isDraft: Bool = false
     ) {
         self.repoSlug = repoSlug
         self.number = number
@@ -35,7 +39,27 @@ public struct ReviewPR: Identifiable, Equatable, Sendable {
         self.updatedAt = updatedAt
         self.reviewDecision = reviewDecision
         self.checkSummary = checkSummary
+        self.isMine = isMine
+        self.isDraft = isDraft
     }
+}
+
+/// How many PRs wait on you, and how many of yours wait on someone else.
+/// Ignored PRs aren't counted; drafts aren't "awaiting approval".
+public struct ReviewCounts: Equatable, Sendable {
+    public var toReview: Int
+    public var mine: Int
+    public var mineAwaitingApproval: Int
+}
+
+public func reviewCounts(_ matches: [MatchedReviewPR]) -> ReviewCounts {
+    let live = matches.filter { !$0.isIgnored }
+    let mine = live.filter { $0.pr.isMine }
+    return ReviewCounts(
+        toReview: live.count - mine.count,
+        mine: mine.count,
+        mineAwaitingApproval: mine.filter { !$0.pr.isDraft && $0.pr.reviewDecision != "APPROVED" }.count
+    )
 }
 
 /// A compact rollup of a PR's status checks - `passing`/`total` mirrors
@@ -106,17 +130,20 @@ public struct LocalRepo: Equatable, Sendable {
     }
 }
 
-/// A PR matched to a repo shepherd already has cloned locally - the only
-/// kind Phase 1 can start a review session for (cloning a missing repo is
-/// Phase 2).
+/// A PR in the Review tab, with the local clone it matched - `nil` when the
+/// repo isn't cloned anywhere shepherd scans, in which case starting a
+/// review clones it first.
 public struct MatchedReviewPR: Identifiable, Equatable, Sendable {
     public var pr: ReviewPR
-    public var localPath: String
+    public var localPath: String?
+    public var isIgnored: Bool
     public var id: String { pr.id }
+    public var isCloned: Bool { localPath != nil }
 
-    public init(pr: ReviewPR, localPath: String) {
+    public init(pr: ReviewPR, localPath: String?, isIgnored: Bool = false) {
         self.pr = pr
         self.localPath = localPath
+        self.isIgnored = isIgnored
     }
 }
 
@@ -137,6 +164,13 @@ public func repoSlug(fromRemoteURL url: String) -> String? {
         return slug.isEmpty ? nil : String(slug)
     }
     return nil
+}
+
+/// Where a missing repo gets cloned: `<directory>/<repo name>`, in the
+/// first directory shepherd scans so the next scan picks it up.
+public func cloneDestination(forSlug slug: String, in directory: String) -> String {
+    let name = slug.split(separator: "/").last.map(String.init) ?? slug
+    return (directory as NSString).appendingPathComponent(name)
 }
 
 /// Case-insensitive match, since GitHub repo slugs aren't case-sensitive
@@ -215,6 +249,7 @@ private struct GHPRDetailWire: Decodable {
     let headRefName: String
     let author: Author
     let reviewDecision: String?
+    let isDraft: Bool?
     let statusCheckRollup: [CheckRollupEntryWire]?
     struct Author: Decodable {
         let isBot: Bool
@@ -227,10 +262,10 @@ private struct GHPRDetailWire: Decodable {
     }
 }
 
-/// Decodes `gh pr view <number> --repo <slug> --json headRefName,author,reviewDecision,statusCheckRollup`.
+/// Decodes `gh pr view <number> --repo <slug> --json headRefName,author,reviewDecision,isDraft,statusCheckRollup`.
 /// `author.is_bot` is snake_case in `gh`'s own output here, unlike the
 /// search endpoint's camelCase - confirmed live, not a typo.
-public func decodeReviewPRDetail(from json: Data) throws -> (headRefName: String, isBot: Bool, reviewDecision: String, checkSummary: CheckSummary?) {
+public func decodeReviewPRDetail(from json: Data) throws -> (headRefName: String, isBot: Bool, reviewDecision: String, checkSummary: CheckSummary?, isDraft: Bool) {
     let wire: GHPRDetailWire
     do {
         wire = try JSONDecoder().decode(GHPRDetailWire.self, from: json)
@@ -244,6 +279,7 @@ public func decodeReviewPRDetail(from json: Data) throws -> (headRefName: String
         headRefName: wire.headRefName,
         isBot: wire.author.isBot,
         reviewDecision: wire.reviewDecision ?? "",
-        checkSummary: summarizeChecks(entries)
+        checkSummary: summarizeChecks(entries),
+        isDraft: wire.isDraft ?? false
     )
 }

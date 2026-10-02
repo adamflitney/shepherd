@@ -17,6 +17,12 @@ enum GitHubReviewFetcher {
     /// so each result needs a second `gh pr view` call - run concurrently
     /// so a review queue of a dozen-plus PRs doesn't load one at a time.
     static func fetchReviewPRs() async throws -> [ReviewPR] {
+        async let toReview = fetchPRs(searchFlag: "--review-requested=@me", isMine: false)
+        async let mine = fetchPRs(searchFlag: "--author=@me", isMine: true)
+        return try await toReview + mine
+    }
+
+    private static func fetchPRs(searchFlag: String, isMine: Bool) async throws -> [ReviewPR] {
         guard let ghPath = resolvedGHPath else {
             throw FetchError(message: "Couldn't find the gh CLI on PATH.")
         }
@@ -25,7 +31,7 @@ enum GitHubReviewFetcher {
         // that a real review queue can exceed that, silently truncating
         // the list with no error. 100 comfortably covers a normal queue.
         let searchOutput = try await run(ghPath, [
-            "search", "prs", "--review-requested=@me", "--state", "open", "-L", "100",
+            "search", "prs", searchFlag, "--state", "open", "-L", "100",
             "--json", "number,title,repository,url,updatedAt",
         ])
         let results = try decodeReviewSearchResults(from: searchOutput)
@@ -35,7 +41,7 @@ enum GitHubReviewFetcher {
                 group.addTask {
                     let detailOutput = try await run(ghPath, [
                         "pr", "view", "\(result.number)", "--repo", result.repoSlug,
-                        "--json", "headRefName,author,reviewDecision,statusCheckRollup",
+                        "--json", "headRefName,author,reviewDecision,isDraft,statusCheckRollup",
                     ])
                     let detail = try decodeReviewPRDetail(from: detailOutput)
                     return ReviewPR(
@@ -47,7 +53,9 @@ enum GitHubReviewFetcher {
                         isBot: detail.isBot,
                         updatedAt: result.updatedAt,
                         reviewDecision: detail.reviewDecision,
-                        checkSummary: detail.checkSummary
+                        checkSummary: detail.checkSummary,
+                        isMine: isMine,
+                        isDraft: detail.isDraft
                     )
                 }
             }
@@ -55,6 +63,15 @@ enum GitHubReviewFetcher {
             for try await pr in group { prs.append(pr) }
             return prs
         }
+    }
+
+    /// Explicit user action only (the Review tab's clone-and-review) - never
+    /// run automatically.
+    static func cloneRepo(slug: String, to destination: String) async throws {
+        guard let ghPath = resolvedGHPath else {
+            throw FetchError(message: "Couldn't find the gh CLI on PATH.")
+        }
+        _ = try await run(ghPath, ["repo", "clone", slug, destination])
     }
 
     private static func run(_ executablePath: String, _ arguments: [String]) async throws -> Data {

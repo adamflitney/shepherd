@@ -20,6 +20,8 @@ public struct SessionsListView: View {
     let onLoadReviewPRs: () async throws -> [MatchedReviewPR]
     let onStartReviewSession: (MatchedReviewPR) async throws -> Void
     let onIgnoreReviewPR: (MatchedReviewPR) -> Void
+    let onRestoreReviewPR: (MatchedReviewPR) -> Void
+    let onOpenReviewPRInBrowser: (MatchedReviewPR) -> Void
 
     private enum Mode: Equatable {
         case sessions
@@ -70,7 +72,9 @@ public struct SessionsListView: View {
         onPeekSession: @escaping (SessionID) async throws -> String,
         onLoadReviewPRs: @escaping () async throws -> [MatchedReviewPR],
         onStartReviewSession: @escaping (MatchedReviewPR) async throws -> Void,
-        onIgnoreReviewPR: @escaping (MatchedReviewPR) -> Void
+        onIgnoreReviewPR: @escaping (MatchedReviewPR) -> Void,
+        onRestoreReviewPR: @escaping (MatchedReviewPR) -> Void,
+        onOpenReviewPRInBrowser: @escaping (MatchedReviewPR) -> Void
     ) {
         self.store = store
         self.onFocusSession = onFocusSession
@@ -83,6 +87,8 @@ public struct SessionsListView: View {
         self.onLoadReviewPRs = onLoadReviewPRs
         self.onStartReviewSession = onStartReviewSession
         self.onIgnoreReviewPR = onIgnoreReviewPR
+        self.onRestoreReviewPR = onRestoreReviewPR
+        self.onOpenReviewPRInBrowser = onOpenReviewPRInBrowser
     }
 
     /// All sessions, unfiltered, in the store's own urgency-then-group order.
@@ -118,6 +124,8 @@ public struct SessionsListView: View {
                 staleBanner
             }
             content
+                .frame(maxHeight: .infinity, alignment: .top)
+            shortcutHint
         }
         .frame(width: 360, height: 420)
         .background(.regularMaterial)
@@ -142,6 +150,34 @@ public struct SessionsListView: View {
             resetInlinePromptState()
             closePeek()
         }
+    }
+
+    private var shortcutHintText: String {
+        switch mode {
+        case .sessions:
+            peekingSessionID != nil ? "← back · esc back" : "⏎ open · → peek · ⇥ next tab · esc close"
+        case .createProject:
+            "⏎ new session · ⇥ next tab · esc back"
+        case .prompt:
+            "⏎ ask · ⌘⏎ continue in a session · ⇥ next tab · esc back"
+        case .review:
+            switch reviewView(forQuery: query).view {
+            case .toReview: "⏎ GitHub · ⌘⏎ session · ⌘⌫ ignore · esc back"
+            case .mine: "⏎ GitHub · ⌘⏎ session · ⌘⌫ ignore · esc back"
+            case .ignored: "⏎ GitHub · ⌘⏎ session · ⌘⌫ restore · esc back"
+            }
+        }
+    }
+
+    private var shortcutHint: some View {
+        Text(shortcutHintText)
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
     }
 
     private func resetInlinePromptState() {
@@ -285,7 +321,7 @@ public struct SessionsListView: View {
         case .sessions: "Switch to session..."
         case .createProject: "New session in project..."
         case .prompt: "Ask Claude anything..."
-        case .review: "Filter PRs..."
+        case .review: "Filter PRs (@ mine, % ignored)..."
         }
     }
 
@@ -509,8 +545,35 @@ public struct SessionsListView: View {
         }
     }
 
-    @ViewBuilder
     private var reviewList: some View {
+        VStack(spacing: 0) {
+            if !isLoadingReviewPRs, reviewLoadError == nil {
+                reviewCountsStrip
+            }
+            reviewListBody
+        }
+    }
+
+    private var reviewCountsStrip: some View {
+        let counts = reviewCounts(reviewPRs)
+        let current = reviewView(forQuery: query).view
+        func tab(_ title: String, view: ReviewView, prefix: String) -> some View {
+            Button(title) { query = prefix }
+                .buttonStyle(.plain)
+                .font(.caption.weight(current == view ? .semibold : .regular))
+                .foregroundStyle(current == view ? Color.accentColor : Color.secondary)
+        }
+        return HStack(spacing: 12) {
+            tab("\(counts.toReview) to review", view: .toReview, prefix: "")
+            tab("\(counts.mine) mine\(counts.mine > 0 ? " (\(counts.mineAwaitingApproval) awaiting approval)" : "")", view: .mine, prefix: "@")
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private var reviewListBody: some View {
         if isLoadingReviewPRs {
             VStack {
                 Spacer()
@@ -523,7 +586,7 @@ public struct SessionsListView: View {
         } else {
             let matches = displayedReviewPRs
             if matches.isEmpty {
-                emptyState(query.isEmpty ? "No PRs to review" : "No matches for \"\(query)\"")
+                emptyState(emptyReviewMessage)
             } else {
                 VStack(spacing: 0) {
                     if let reviewSessionError {
@@ -541,11 +604,13 @@ public struct SessionsListView: View {
                                         match: match,
                                         isSelected: index == selectedIndex,
                                         isStarting: startingReviewSessionID == match.id,
-                                        onIgnore: { ignoreReviewPR(match) }
+                                        onIgnore: { match.isIgnored ? restoreReviewPR(match) : ignoreReviewPR(match) },
+                                        onOpenInBrowser: { onOpenReviewPRInBrowser(match) },
+                                        onStartSession: { startReviewSession(match) }
                                     )
                                     .id(index)
                                     .contentShape(Rectangle())
-                                    .onTapGesture { startReviewSession(match) }
+                                    .onTapGesture { onOpenReviewPRInBrowser(match) }
                                 }
                             }
                             .padding(.vertical, 8)
@@ -554,6 +619,16 @@ public struct SessionsListView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var emptyReviewMessage: String {
+        let (view, text) = reviewView(forQuery: query)
+        if !text.isEmpty { return "No matches for \"\(text)\"" }
+        switch view {
+        case .toReview: return "No PRs to review"
+        case .mine: return "You have no open PRs"
+        case .ignored: return "No ignored PRs"
         }
     }
 
@@ -590,8 +665,19 @@ public struct SessionsListView: View {
     }
 
     private func ignoreReviewPR(_ match: MatchedReviewPR) {
-        reviewPRs.removeAll { $0.id == match.id }
+        setReviewPRIgnored(match, true)
         onIgnoreReviewPR(match)
+    }
+
+    private func restoreReviewPR(_ match: MatchedReviewPR) {
+        setReviewPRIgnored(match, false)
+        onRestoreReviewPR(match)
+    }
+
+    private func setReviewPRIgnored(_ match: MatchedReviewPR, _ isIgnored: Bool) {
+        guard let index = reviewPRs.firstIndex(where: { $0.id == match.id }) else { return }
+        reviewPRs[index].isIgnored = isIgnored
+        selectedIndex = max(0, min(selectedIndex, displayedReviewPRs.count - 1))
     }
 
     private func emptyState(_ message: String) -> some View {
@@ -651,6 +737,10 @@ public struct SessionsListView: View {
             case 36, 76:
                 if mode == .prompt, event.modifierFlags.contains(.command) {
                     promoteCurrentConversation() // cmd+return - "Continue in a session"
+                } else if mode == .review, event.modifierFlags.contains(.command) {
+                    if displayedReviewPRs.indices.contains(selectedIndex) {
+                        startReviewSession(displayedReviewPRs[selectedIndex]) // cmd+return - start a session
+                    }
                 } else {
                     activateSelected()
                 }
@@ -675,8 +765,14 @@ public struct SessionsListView: View {
                     return nil
                 }
                 return event
-            case 51: // delete/backspace - ignore the selected PR in the Review tab
-                if mode == .review, displayedReviewPRs.indices.contains(selectedIndex) {
+            case 51: // delete/backspace - ignore the selected PR in the Review tab (not while editing the filter); cmd+delete ignores, or brings back an ignored one, even with a filter typed
+                if mode == .review, event.modifierFlags.contains(.command),
+                   displayedReviewPRs.indices.contains(selectedIndex) {
+                    let match = displayedReviewPRs[selectedIndex]
+                    if match.isIgnored { restoreReviewPR(match) } else { ignoreReviewPR(match) }
+                    return nil
+                }
+                if mode == .review, query.isEmpty, displayedReviewPRs.indices.contains(selectedIndex) {
                     ignoreReviewPR(displayedReviewPRs[selectedIndex])
                     return nil
                 }
@@ -739,7 +835,7 @@ public struct SessionsListView: View {
         case .review:
             let matches = displayedReviewPRs
             guard matches.indices.contains(selectedIndex) else { return }
-            startReviewSession(matches[selectedIndex])
+            onOpenReviewPRInBrowser(matches[selectedIndex])
         }
     }
 
@@ -814,6 +910,8 @@ private struct ReviewPRRow: View {
     let isSelected: Bool
     let isStarting: Bool
     let onIgnore: () -> Void
+    let onOpenInBrowser: () -> Void
+    let onStartSession: () -> Void
 
     private var statusColor: Color {
         switch match.pr.reviewDecision {
@@ -829,13 +927,13 @@ private struct ReviewPRRow: View {
                 Text(match.pr.title)
                     .font(.body)
                     .lineLimit(1)
-                Text("\(match.pr.repoSlug) #\(match.pr.number)")
+                Text("\(match.pr.repoSlug) #\(match.pr.number)\(match.isCloned || match.pr.isMine ? "" : " · not cloned - ⌘Enter clones it")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    Text(reviewStatusLabel(match.pr.reviewDecision))
-                        .foregroundStyle(statusColor)
+                    Text(match.pr.isDraft ? "Draft" : reviewStatusLabel(match.pr.reviewDecision))
+                        .foregroundStyle(match.pr.isDraft ? Color.secondary : statusColor)
                     if let checks = match.pr.checkSummary {
                         Text("•")
                             .foregroundStyle(.secondary)
@@ -851,12 +949,24 @@ private struct ReviewPRRow: View {
             if isStarting {
                 ProgressView().controlSize(.small)
             } else {
-                Button(action: onIgnore) {
-                    Image(systemName: "eye.slash")
+                Button(action: onStartSession) {
+                    Image(systemName: "terminal")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Not reviewing this (Delete)")
+                .help(match.pr.isMine ? "Start a session (⌘Return)" : "Review in a session (⌘Return)")
+                Button(action: onOpenInBrowser) {
+                    Image(systemName: "arrow.up.right.square")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Open on GitHub (Return)")
+                Button(action: onIgnore) {
+                    Image(systemName: match.isIgnored ? "eye" : "eye.slash")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(match.isIgnored ? "Bring back (⌘Delete)" : "Not reviewing this (⌘Delete)")
             }
         }
         .padding(.horizontal, 12)

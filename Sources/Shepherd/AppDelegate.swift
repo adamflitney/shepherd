@@ -26,7 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ignore-filtered here - see `loadReviewPRs()`.
     private var cachedReviewPRs: [MatchedReviewPR] = []
     private var cachedReviewPRsError: String?
-    private var isRefreshingReviewPRs = false
+    private var reviewRefreshInFlight: Task<Void, Never>?
+    private var hasFetchedReviewPRs = false
     private var reviewRefreshTask: Task<Void, Never>?
     private let reviewRefreshIntervalNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
 
@@ -64,6 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onIgnoreReviewPR: { match in
                 IgnoredPRStore().ignore(match.pr.id)
+            },
+            onRestoreReviewPR: { match in
+                IgnoredPRStore().unignore(match.pr.id)
+            },
+            onOpenReviewPRInBrowser: { match in
+                if let url = URL(string: match.pr.url) { NSWorkspace.shared.open(url) }
             }
         )
 
@@ -282,16 +289,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Fetches PRs you're a requested reviewer on, matches each to an
-    /// already-scanned local clone (a repo with none found this way is
-    /// excluded entirely - Phase 1 doesn't clone), and applies the bot/
+    /// already-scanned local clone (none found means it's cloned on
+    /// demand when you start the review), and applies the bot/
     /// staleness filters (not the ignore filter - see `loadReviewPRs()`).
     /// `guard`ed against overlap: the periodic loop and an on-demand
     /// kick from `loadReviewPRs()` could otherwise both be mid-fetch at once.
     private func refreshReviewPRCache() async {
-        guard !isRefreshingReviewPRs else { return }
-        isRefreshingReviewPRs = true
-        defer { isRefreshingReviewPRs = false }
+        if let reviewRefreshInFlight {
+            await reviewRefreshInFlight.value
+            return
+        }
+        let task = Task { await fetchReviewPRCache() }
+        reviewRefreshInFlight = task
+        await task.value
+        reviewRefreshInFlight = nil
+    }
 
+    private func fetchReviewPRCache() async {
         do {
             let prs = try await GitHubReviewFetcher.fetchReviewPRs()
             let config = ShepherdConfig.load()
@@ -299,10 +313,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let localRepos = LocalRepoScanner.scan(projects)
             let options = ReviewFilterOptions(includeBots: config.review.includeBots, hideOlderThanDays: config.review.hideOlderThanDays)
             let filtered = filterReviewPRs(prs, ignored: [], options: options)
-            cachedReviewPRs = filtered.compactMap { pr in
-                matchingLocalRepo(forSlug: pr.repoSlug, in: localRepos).map { MatchedReviewPR(pr: pr, localPath: $0.path) }
+            cachedReviewPRs = filtered.map { pr in
+                MatchedReviewPR(pr: pr, localPath: matchingLocalRepo(forSlug: pr.repoSlug, in: localRepos)?.path)
             }
             cachedReviewPRsError = nil
+            hasFetchedReviewPRs = true
         } catch {
             cachedReviewPRsError = "\(error)"
         }
@@ -313,15 +328,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// a background refresh for next time. The ignore filter is applied
     /// here (not baked into the cache), so ignoring a PR takes effect on
     /// the very next open instead of waiting for the next scheduled
-    /// refresh. If the cache is still empty from a launch-time fetch that
-    /// hasn't completed yet, this can briefly show nothing rather than a
-    /// loading spinner - a one-time, launch-only trade-off for never
-    /// blocking on ordinary tab switches.
+    /// refresh (ignored PRs are returned flagged, for the `%` view). Until the first fetch has succeeded this waits for it (the
+    /// tab shows its spinner) instead of returning an empty list that
+    /// would never update.
     private func loadReviewPRs() async throws -> [MatchedReviewPR] {
-        Task { await refreshReviewPRCache() }
+        if hasFetchedReviewPRs {
+            Task { await refreshReviewPRCache() }
+        } else {
+            await refreshReviewPRCache()
+        }
         let ignored = IgnoredPRStore().load()
-        let visible = cachedReviewPRs.filter { !ignored.contains($0.pr.id) }
-        if visible.isEmpty, cachedReviewPRs.isEmpty, let cachedReviewPRsError {
+        let visible = cachedReviewPRs.map { match in
+            var match = match
+            match.isIgnored = ignored.contains(match.pr.id)
+            return match
+        }
+        if !hasFetchedReviewPRs, let cachedReviewPRsError {
             throw ReviewCacheError(message: cachedReviewPRsError)
         }
         return visible
@@ -332,8 +354,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `CreateSessionRequest`/`workspace.create` + `agent.start` path the
     /// project picker already uses, just pointed at the worktree instead.
     private func startReviewSession(_ match: MatchedReviewPR) async throws {
+        let repoPath = try await localClonePath(for: match)
         let worktreePath = try PRWorktree.ensureWorktree(
-            repoPath: match.localPath, repoSlug: match.pr.repoSlug, prNumber: match.pr.number
+            repoPath: repoPath, repoSlug: match.pr.repoSlug, prNumber: match.pr.number
         )
         let request = CreateSessionRequest(
             workingDirectory: worktreePath,
@@ -345,8 +368,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try await store.focus(id)
     }
 
+    private func localClonePath(for match: MatchedReviewPR) async throws -> String {
+        if let localPath = match.localPath { return localPath }
+        guard let directory = ShepherdConfig.load().resolvedDirectories.first else {
+            throw ReviewCacheError(message: "No project directory is configured to clone into.")
+        }
+        let destination = cloneDestination(forSlug: match.pr.repoSlug, in: directory)
+        if !FileManager.default.fileExists(atPath: destination) {
+            try await GitHubReviewFetcher.cloneRepo(slug: match.pr.repoSlug, to: destination)
+        }
+        return destination
+    }
+
     private func reviewPrompt(for pr: ReviewPR) -> String {
-        """
+        if pr.isMine {
+            return """
+            This is my own pull request: \(pr.title)
+            \(pr.url)
+
+            Summarize where it stands: any review comments I still need to address, and any failing checks and why.
+            """
+        }
+        return """
         Please review this pull request: \(pr.title)
         \(pr.url)
 

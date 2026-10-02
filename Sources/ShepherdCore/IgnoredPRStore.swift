@@ -2,8 +2,8 @@ import Foundation
 
 /// Persists explicitly-ignored PRs (the "not reviewing this" action) at
 /// `~/.config/shepherd/ignored-prs.json`, keyed by `ReviewPR.id`
-/// (`"owner/repo#number"`). No "unignore" UI in v1 - hand-editable, same
-/// precedent as `ShepherdConfig`'s `projects.exclude`.
+/// (`"owner/repo#number"`). Hand-editable, same precedent as
+/// `ShepherdConfig`'s `projects.exclude`.
 public struct IgnoredPRStore: Sendable {
     private let fileURL: URL
 
@@ -26,6 +26,12 @@ public struct IgnoredPRStore: Sendable {
     public func ignore(_ id: String) {
         var ids = load()
         ids.insert(id)
+        save(ids)
+    }
+
+    public func unignore(_ id: String) {
+        var ids = load()
+        ids.remove(id)
         save(ids)
     }
 
