@@ -37,7 +37,8 @@ let server = MobileAccessServer(
     options: .init(
         port: port,
         keepAwake: !arguments.contains("--no-keep-awake"),
-        onlyWhenAway: arguments.contains("--alerts-only-when-away")
+        onlyWhenAway: !arguments.contains("--alert-even-when-here"),
+        terminalAppName: ShepherdConfig.load().terminal.appName
     )
 )
 do {

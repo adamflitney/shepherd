@@ -85,12 +85,12 @@ public struct WebConfig: Codable, Equatable, Sendable {
     /// agents keep running and a blocked one can still be answered from the
     /// phone.
     public var keepAwake: Bool
-    /// Hold phone alerts back while you're actively at the Mac (the Mac's
-    /// own notifications already cover that), sending them once you've been
-    /// away from the keyboard for a couple of minutes.
+    /// Hold phone alerts back while you're looking at the terminal (the
+    /// Mac's own notifications already cover that). They're sent as soon as
+    /// you're in another app, or after a couple of minutes without input.
     public var alertsOnlyWhenAway: Bool
 
-    public init(enabled: Bool = false, port: Int = 8787, keepAwake: Bool = true, alertsOnlyWhenAway: Bool = false) {
+    public init(enabled: Bool = false, port: Int = 8787, keepAwake: Bool = true, alertsOnlyWhenAway: Bool = true) {
         self.enabled = enabled
         self.port = port
         self.keepAwake = keepAwake
@@ -102,7 +102,7 @@ public struct WebConfig: Codable, Equatable, Sendable {
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         port = try container.decodeIfPresent(Int.self, forKey: .port) ?? 8787
         keepAwake = try container.decodeIfPresent(Bool.self, forKey: .keepAwake) ?? true
-        alertsOnlyWhenAway = try container.decodeIfPresent(Bool.self, forKey: .alertsOnlyWhenAway) ?? false
+        alertsOnlyWhenAway = try container.decodeIfPresent(Bool.self, forKey: .alertsOnlyWhenAway) ?? true
     }
 }
 

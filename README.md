@@ -128,7 +128,7 @@ The server listens on this Mac's loopback address only, so nothing on your netwo
 
 - It only works while Shepherd is running — the window has a toggle to open it at login. If Shepherd quits, the phone shows an error until it's back.
 - By default Shepherd keeps the Mac awake while any session is working or waiting on you, so agents keep running and a blocked one can be answered from your phone. Closing a laptop's lid still sleeps it. You can turn this off in the window.
-- Phone alerts follow the same rules as the Mac's (a session blocking or finishing), plus one more: a session going from working to idle also alerts your phone, since Herdr reports a run you've already looked at as idle rather than done. The Mac's **Notifications** toggle doesn't affect the phone. **Only alert my phone when I'm away** holds alerts back while you're at the keyboard; a session still waiting when you step away is sent then.
+- Phone alerts follow the same rules as the Mac's (a session blocking or finishing), plus one more: a session going from working to idle also alerts your phone, since Herdr reports a run you've already looked at as idle rather than done. The Mac's **Notifications** toggle doesn't affect the phone. **Don't alert my phone while I'm looking at my terminal** (on by default) holds alerts back only while you're active *and* your terminal (the one chosen under **Terminal** in the menu) is the frontmost app. In any other app, or after a couple of minutes without keyboard or mouse input, alerts come through; a session still waiting when you switch away is sent then. Turn it off to always get them. It can't tell which Herdr pane you're looking at, only that the terminal is in front.
 - The Mobile Access window lists the phones that have alerts on, with when each was last seen and a **Remove** button — use it to clear an old phone or a deleted Home Screen app. Phones not seen for 90 days are dropped automatically (opening Shepherd on a dropped phone brings it back).
 - Turning mobile access off stops the server and removes the Tailscale share it created.
 - The address is part of the phone app's identity: if you rename the machine or tailnet, re-add it to the Home Screen and turn alerts on again.
@@ -158,7 +158,7 @@ Design notes, the security model in detail, and known gaps: [docs/mobile-access.
   "sessions": { "defaultDirectory": "~" },
   "review": { "includeBots": false, "hideOlderThanDays": null },
   "agent": { "kind": "claude" },
-  "web": { "enabled": false, "port": 8787, "keepAwake": true, "alertsOnlyWhenAway": false }
+  "web": { "enabled": false, "port": 8787, "keepAwake": true, "alertsOnlyWhenAway": true }
 }
 ```
 
@@ -181,7 +181,7 @@ You can edit this field directly, or change it from the app: right-click the men
 
 `agent.kind` is which agent CLI new sessions get started with — the project picker, Review-tab sessions, and the Ask tab's escalated/promoted sessions. Defaults to `"claude"`; set to `"opencode"` to use [OpenCode](https://opencode.ai) instead (via the right-click menu's **Agent** submenu, or by editing the field directly). **OpenCode support is experimental** — blocked-reason detail (needs permission vs. needs an answer) and idle todo-progress aren't wired up for it yet, so those sessions only ever show a plain "blocked"/"idle" badge. The Ask tab itself always answers via the Claude Code CLI regardless of this setting and is disabled when `"opencode"` is selected — see [Dependencies](#dependencies).
 
-`web` is the [mobile access](#mobile-access) server: `enabled` (off by default — turning it on is what opens the server), `port` (the local loopback port it listens on; config-only), `keepAwake`, and `alertsOnlyWhenAway`. All but `port` are also switches in the Mobile Access window.
+`web` is the [mobile access](#mobile-access) server: `enabled` (off by default — turning it on is what opens the server), `port` (the local loopback port it listens on; config-only), `keepAwake`, and `alertsOnlyWhenAway` (on by default). All but `port` are also switches in the Mobile Access window.
 
 ## Dependencies
 

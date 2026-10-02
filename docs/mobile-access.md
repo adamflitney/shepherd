@@ -101,8 +101,13 @@ is the whole story.
 - **Notifications.** One shared `notificationsToFire` (once per transition into blocked/done). The phone also
   gets working→idle (`notifyOnFinishedWork`): Herdr reports a finished run you have *seen* as `idle` and an
   unseen one as `done`, so the Mac (where you are) shouldn't ping on idle but a phone should. The Mac's
-  Notifications toggle doesn't silence the phone. Optional `alertsOnlyWhenAway` holds pushes while there is
-  recent keyboard/mouse input; blocked/done stay pending (retried every 20s), a finished run is dropped.
+  Notifications toggle doesn't silence the phone. `alertsOnlyWhenAway` (default **on**) holds pushes only while you are
+  "looking at the terminal": recent keyboard/mouse input (<120s) AND the configured `terminal.appName` is the
+  frontmost app (`NSWorkspace.frontmostApplication`, matched on display or bundle name, case-insensitive).
+  Active in another app, or idle, counts as away. Blocked/done stay pending (retried every 10s), a finished
+  run is dropped. Rejected: matching a hard-coded list of terminals (the app already has a configured
+  terminal). Gap: Herdr doesn't expose which pane has focus, so a terminal in front with the blocked session
+  in another tab is still treated as "looking". Existing configs with an explicit `false` keep it off.
   The first snapshot only seeds state, so a restart never announces sessions that were already waiting.
 - **Keep-awake.** A `PreventUserIdleSystemSleep` assertion while any session is working *or blocked*
   (60s release grace): a sleeping Mac stalls working agents and can't receive an answer to a blocked one.
@@ -202,7 +207,7 @@ is the whole story.
 ## Development
 
 - Server + client only: `swift run ShepherdWeb --fake --port 8788` (demo sessions, no Herdr needed), then
-  open `http://localhost:8788`. `--no-keep-awake` and `--alerts-only-when-away` mirror the settings.
+  open `http://localhost:8788`. `--no-keep-awake` and `--alert-even-when-here` mirror the settings.
 - The whole app: `swift run Shepherd -- --fake`; add `--show-mobile-access` to open the window at launch.
 - After editing `Public/`, rebuild (`swift build`) — the server serves the copied resource bundle.
 - Tests: `swift test`. `ShepherdWebTests` cover the push crypto (against RFC 8291 values), the access

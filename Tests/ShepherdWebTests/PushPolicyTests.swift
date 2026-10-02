@@ -16,12 +16,14 @@ private actor Outbox {
 private final class Clock: @unchecked Sendable {
     private let lock = NSLock()
     private var value: TimeInterval
+    private var front = true
     init(idle: TimeInterval) { value = idle }
+    var terminalInFront: Bool { get { lock.lock(); defer { lock.unlock() }; return front } set { lock.lock(); front = newValue; lock.unlock() } }
     var idle: TimeInterval { get { lock.lock(); defer { lock.unlock() }; return value } set { lock.lock(); value = newValue; lock.unlock() } }
 }
 
 private func notifier(_ outbox: Outbox, onlyWhenAway: Bool = false, clock: Clock = Clock(idle: 0)) -> PushNotifier {
-    PushNotifier(onlyWhenAway: onlyWhenAway, awayAfter: 120, idleSeconds: { clock.idle }) { await outbox.record($0) }
+    PushNotifier(onlyWhenAway: onlyWhenAway, awayAfter: 120, idleSeconds: { clock.idle }, terminalInFront: { clock.terminalInFront }) { await outbox.record($0) }
 }
 
 @Test func aSessionBlockingSendsOnePushAndNotTwice() async {
@@ -81,4 +83,43 @@ private func notifier(_ outbox: Outbox, onlyWhenAway: Bool = false, clock: Clock
     await n.seed(with: [session("a", .working)])
     await n.evaluate([session("a", .done)])
     #expect(await outbox.kinds == ["done"])
+}
+
+@Test func beingActiveInAnotherAppCountsAsAway() async {
+    let outbox = Outbox()
+    let clock = Clock(idle: 5)
+    clock.terminalInFront = false
+    let n = notifier(outbox, onlyWhenAway: true, clock: clock)
+    await n.seed(with: [session("a", .working)])
+    await n.evaluate([session("a", .blocked)])
+    #expect(await outbox.kinds == ["blocked"])
+}
+
+@Test func switchingAwayFromTheTerminalReleasesAHeldAlert() async {
+    let outbox = Outbox()
+    let clock = Clock(idle: 5)
+    let n = notifier(outbox, onlyWhenAway: true, clock: clock)
+    await n.seed(with: [session("a", .working)])
+    await n.evaluate([session("a", .blocked)])
+    #expect(await outbox.sent.isEmpty)
+
+    clock.terminalInFront = false
+    await n.evaluate([session("a", .blocked)])
+    #expect(await outbox.kinds == ["blocked"])
+}
+
+@Test func theTerminalInFrontButIdleStillCountsAsAway() async {
+    let outbox = Outbox()
+    let n = notifier(outbox, onlyWhenAway: true, clock: Clock(idle: 600))
+    await n.seed(with: [session("a", .working)])
+    await n.evaluate([session("a", .blocked)])
+    #expect(await outbox.kinds == ["blocked"])
+}
+
+@Test func withTheSwitchOffTheTerminalBeingInFrontNeverHoldsAnAlert() async {
+    let outbox = Outbox()
+    let n = notifier(outbox, onlyWhenAway: false, clock: Clock(idle: 5))
+    await n.seed(with: [session("a", .working)])
+    await n.evaluate([session("a", .blocked)])
+    #expect(await outbox.kinds == ["blocked"])
 }

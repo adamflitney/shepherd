@@ -165,7 +165,7 @@ import Foundation
     {"projects":{"directories":["~/dev"],"exclude":[]}}
     """
     let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: Data(json.utf8))
-    #expect(decoded.web == WebConfig(enabled: false, port: 8787, keepAwake: true, alertsOnlyWhenAway: false))
+    #expect(decoded.web == WebConfig(enabled: false, port: 8787, keepAwake: true, alertsOnlyWhenAway: true))
 }
 
 @Test func aPartialWebConfigFillsInTheRestFromDefaults() throws {

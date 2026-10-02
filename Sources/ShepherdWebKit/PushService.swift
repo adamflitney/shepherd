@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import CryptoKit
 import Foundation
@@ -246,13 +247,24 @@ func secondsSinceLastUserInput() -> TimeInterval {
     return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
 }
 
+/// Whether the app in front is the terminal Herdr runs in, matched by display
+/// name or bundle name (so "iTerm" finds iTerm2.app) and ignoring case.
+func terminalIsFrontmost(named name: String) -> Bool {
+    guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+    let wanted = name.lowercased()
+    let bundleName = app.bundleURL?.deletingPathExtension().lastPathComponent
+    return [app.localizedName, bundleName].contains { $0?.lowercased() == wanted }
+}
+
 /// Decides, session by session, when the phone gets a push, and sends it.
 /// The rules come from the shared `notificationsToFire` (the menu bar app's
 /// own policy) with `notifyOnFinishedWork` on - see there for why a phone
 /// also hears about a finished run.
 ///
-/// With `onlyWhenAway`, a push is held back while you're at the Mac (recent
-/// keyboard/mouse input). Held-back blocked/done stay pending - a session
+/// With `onlyWhenAway`, a push is held back while you're looking at the
+/// terminal (recent keyboard/mouse input and the terminal frontmost); in any
+/// other app, or after a couple of idle minutes, the phone is the only place
+/// you'd hear about it. Held-back blocked/done stay pending - a session
 /// still waiting when you walk away is exactly when you want the push - and
 /// are retried on a timer, since nothing else would wake us. A finished run
 /// is dropped instead: it's a one-off, and you were there when it happened.
@@ -262,17 +274,20 @@ actor PushNotifier {
     private let onlyWhenAway: Bool
     private let awayAfter: TimeInterval
     private let idleSeconds: @Sendable () -> TimeInterval
+    private let terminalInFront: @Sendable () -> Bool
     private let send: @Sendable (PushMessage) async -> Int
 
     init(
         onlyWhenAway: Bool,
         awayAfter: TimeInterval = 120,
         idleSeconds: @escaping @Sendable () -> TimeInterval = secondsSinceLastUserInput,
+        terminalInFront: @escaping @Sendable () -> Bool = { true },
         send: @escaping @Sendable (PushMessage) async -> Int
     ) {
         self.onlyWhenAway = onlyWhenAway
         self.awayAfter = awayAfter
         self.idleSeconds = idleSeconds
+        self.terminalInFront = terminalInFront
         self.send = send
     }
 
@@ -284,7 +299,7 @@ actor PushNotifier {
     }
 
     func evaluate(_ sessions: [Session]) async {
-        let away = !onlyWhenAway || idleSeconds() >= awayAfter
+        let away = !onlyWhenAway || idleSeconds() >= awayAfter || !terminalInFront()
         let result = notificationsToFire(
             for: sessions, lastNotifiedKind: lastNotified, previousKinds: lastKinds, notifyOnFinishedWork: true
         )
@@ -313,7 +328,7 @@ actor PushNotifier {
         if let initial = try? await backend.snapshot() { seed(with: initial.sessions) }
         let ticker: Task<Void, Never>? = onlyWhenAway ? Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(20))
+                try? await Task.sleep(for: .seconds(10))
                 if let snapshot = try? await backend.snapshot() { await self?.evaluate(snapshot.sessions) }
             }
         } : nil
