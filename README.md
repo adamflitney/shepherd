@@ -17,13 +17,15 @@ A native macOS menu-bar app for [Herdr](https://herdr.dev), a terminal workspace
 
 ## Screenshots
 
+The menu bar icon (a red badge here means a session is blocked and needs you):
+
 <img src="Resources/screenshots/menubar.png" alt="Menu bar icon showing worst-case attention state" height="32">
 
-The menu bar icon (a red badge here means a session is blocked and needs you):
+The quick switcher — jump to any session, or create a new one:
 
 <img src="Resources/screenshots/sessions.png" alt="Session switcher panel" width="360">
 
-The quick switcher — jump to any session, or create a new one:
+The project picker — start a new session in any of your projects:
 
 <img src="Resources/screenshots/create-project.png" alt="Project picker panel" width="360">
 
@@ -31,9 +33,11 @@ The inline quick-answer panel — ask a question without opening a terminal:
 
 <img src="Resources/screenshots/quick-answer.png" alt="Inline quick-answer panel with an answered question" width="360">
 
-<img src="Resources/screenshots/mobile-list.png" alt="Mobile session list" width="260"> <img src="Resources/screenshots/mobile-session.png" alt="Mobile full-screen session with answer buttons" width="260">
+### On your phone
 
-[Mobile access](#mobile-access) on your phone — the session list, and a blocked session with its choices as buttons:
+The [mobile access](#mobile-access) web page (not the menu bar app) — the session list, and a blocked session with its choices as buttons:
+
+<img src="Resources/screenshots/mobile-list.png" alt="Mobile session list" width="260"> <img src="Resources/screenshots/mobile-session.png" alt="Mobile full-screen session with answer buttons" width="260">
 
 *(All session/project names above are sanitized demo data, not real projects.)*
 
