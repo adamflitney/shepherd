@@ -118,7 +118,7 @@ Installing the Claude Code hooks (right-click menu → **Install Hooks…**) is 
 - **A full-screen session view** — the session's latest output (refreshed every couple of seconds, with terminal clutter tidied), its model and usage in the header, and a reply box pinned above the keyboard. **Aa** changes the text size.
 - **One-tap answers** — permission prompts and questions show their real options as buttons, including multiple-choice (tick, then Submit). Unnumbered dialogs can be driven with the arrow/Enter/Esc keys. A button built from the screen's text re-checks the screen first and refuses to send if it changed under you.
 - **+ New** — start a session in your default folder or any of your projects (the same ones the Create tab lists), with an optional first message.
-- **Push notifications** — when a session becomes blocked or finishes, even with the app closed.
+- **Push notifications** — when a session becomes blocked or finishes, even with the app closed. Tapping one opens that session.
 
 ### Security
 
@@ -129,6 +129,7 @@ The server listens on this Mac's loopback address only, so nothing on your netwo
 - It only works while Shepherd is running — the window has a toggle to open it at login. If Shepherd quits, the phone shows an error until it's back.
 - By default Shepherd keeps the Mac awake while any session is working or waiting on you, so agents keep running and a blocked one can be answered from your phone. Closing a laptop's lid still sleeps it. You can turn this off in the window.
 - Phone alerts follow the same rules as the Mac's (a session blocking or finishing), plus one more: a session going from working to idle also alerts your phone, since Herdr reports a run you've already looked at as idle rather than done. The Mac's **Notifications** toggle doesn't affect the phone. **Only alert my phone when I'm away** holds alerts back while you're at the keyboard; a session still waiting when you step away is sent then.
+- The Mobile Access window lists the phones that have alerts on, with when each was last seen and a **Remove** button — use it to clear an old phone or a deleted Home Screen app. Phones not seen for 90 days are dropped automatically (opening Shepherd on a dropped phone brings it back).
 - Turning mobile access off stops the server and removes the Tailscale share it created.
 - The address is part of the phone app's identity: if you rename the machine or tailnet, re-add it to the Home Screen and turn alerts on again.
 
@@ -138,6 +139,7 @@ The server listens on this Mac's loopback address only, so nothing on your netwo
 - **"Couldn't start on port …"** — something else is using the port (often the standalone `ShepherdWeb` service from `scripts/install-web.sh`). Stop it, or change `web.port` in the config.
 - **No "Enable alerts" button on the phone** — on iOS it only appears once the page is opened from the Home Screen, not from a Safari tab.
 - **A test notification reaches no phone** — open Shepherd on the phone and tap **Turn on alerts** first; check notifications are allowed for it in the phone's Settings.
+- **The window lists a phone you no longer use** — press **Remove** next to it. (Re-adding Shepherd to the Home Screen creates a new entry and leaves the old one behind until you remove it.)
 - **The page won't load on the phone** — check Tailscale is connected on both devices and that the address in the Mobile Access window opens.
 - **The page looks old after an update** — close the Home Screen app fully and reopen it (once more if it still looks stale).
 

@@ -15,8 +15,9 @@ public struct MobileAccessStatus: Equatable, Sendable {
     /// server through Tailscale.
     public var publishedURL: String?
     public var serverRunning = false
-    /// Phones that have turned on alerts.
-    public var phoneCount = 0
+    /// Phones that have turned on alerts, most recently seen first.
+    public var phones: [PhoneInfo] = []
+    public var phoneCount: Int { phones.count }
 
     public init() {}
 }
@@ -161,7 +162,7 @@ public actor MobileAccessServer {
     public func status() async -> MobileAccessStatus {
         var status = MobileAccessStatus()
         status.serverRunning = http != nil
-        status.phoneCount = await push?.subscriptionCount ?? 0
+        status.phones = await push?.phones() ?? []
         status.tailscaleInstalled = locateTailscaleCLI() != nil
         guard status.tailscaleInstalled, let ts = await tailscale.status(forceRefresh: true) else { return status }
         status.tailscaleConnected = ts.isRunning
@@ -211,6 +212,11 @@ public actor MobileAccessServer {
         guard let ts = await tailscale.status(forceRefresh: true), let dns = ts.dnsName,
               case .alreadyServing(let httpsPort) = await servePlan(dnsName: dns) else { return }
         _ = await tailscale.run(["serve", "--https=\(httpsPort)", "off"])
+    }
+
+    /// Forgets a phone (e.g. a stale entry from a deleted Home Screen app).
+    public func removePhone(id: String) async {
+        await push?.removePhone(id: id)
     }
 
     /// Sends a test notification to every phone with alerts on; returns how

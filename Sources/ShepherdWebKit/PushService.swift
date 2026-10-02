@@ -1,4 +1,5 @@
 import CoreGraphics
+import CryptoKit
 import Foundation
 import ShepherdCore
 import ShepherdUI
@@ -7,6 +8,73 @@ struct PushSubscription: Codable, Equatable, Sendable {
     let endpoint: String
     let p256dh: String
     let auth: String
+    /// What to call this phone in the UI, e.g. "iPhone" - derived from its
+    /// User-Agent when it subscribes (the string itself isn't kept).
+    var label: String
+    /// Last time the phone's page re-registered. Nothing server-side can tell
+    /// a dead subscription from a live one (the push service happily accepts
+    /// pushes to a deleted app's), so this - refreshed whenever the page is
+    /// opened - is the only evidence a phone still exists.
+    var lastSeen: Date
+
+    init(endpoint: String, p256dh: String, auth: String, label: String = "Phone", lastSeen: Date = Date()) {
+        self.endpoint = endpoint
+        self.p256dh = p256dh
+        self.auth = auth
+        self.label = label
+        self.lastSeen = lastSeen
+    }
+
+    // Subscriptions saved before these fields existed decode with defaults
+    // (and `lastSeen` = now), so an upgrade can't drop anyone.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        endpoint = try c.decode(String.self, forKey: .endpoint)
+        p256dh = try c.decode(String.self, forKey: .p256dh)
+        auth = try c.decode(String.self, forKey: .auth)
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? "Phone"
+        lastSeen = try c.decodeIfPresent(Date.self, forKey: .lastSeen) ?? Date()
+    }
+}
+
+/// A friendly device name for a User-Agent: "iPhone", "iPad", "Android
+/// phone", or "Mac (Safari)" and the like. Only the label is stored.
+func phoneLabel(userAgent: String?) -> String {
+    guard let ua = userAgent, !ua.isEmpty else { return "Phone" }
+    if ua.contains("iPhone") { return "iPhone" }
+    if ua.contains("iPad") { return "iPad" }
+    if ua.contains("Android") { return ua.contains("Mobile") ? "Android phone" : "Android tablet" }
+    let browser: String? = {
+        if ua.contains("Edg/") { return "Edge" }
+        if ua.contains("Firefox/") { return "Firefox" }
+        if ua.contains("Chrome/") { return "Chrome" }
+        if ua.contains("Safari/") { return "Safari" }
+        return nil
+    }()
+    let system = ua.contains("Macintosh") ? "Mac" : ua.contains("Windows") ? "Windows PC" : ua.contains("Linux") ? "Linux" : nil
+    switch (system, browser) {
+    case let (system?, browser?): return "\(system) (\(browser))"
+    case let (system?, nil): return system
+    case let (nil, browser?): return browser
+    default: return "Phone"
+    }
+}
+
+/// A phone with alerts on, as the Mobile Access window shows it.
+public struct PhoneInfo: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let label: String
+    public let lastSeen: Date
+
+    public init(id: String, label: String, lastSeen: Date) {
+        self.id = id
+        self.label = label
+        self.lastSeen = lastSeen
+    }
+}
+
+private func phoneID(for endpoint: String) -> String {
+    SHA256.hash(data: Data(endpoint.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
 }
 
 /// Everything the web push path needs: the VAPID identity, the phones
@@ -18,22 +86,44 @@ actor PushService {
     private let session: URLSession
     private var subscriptions: [PushSubscription]
 
-    init(directory: URL, subject: String, session: URLSession = .shared) throws {
+    /// A phone not seen for this long is dropped. Deliberately long: a phone
+    /// that only ever *receives* pushes never opens the page and so never
+    /// refreshes `lastSeen`, and dropping a live phone silently stops its
+    /// alerts, which is worse than keeping a dead one. Anything stale before
+    /// then can be removed by hand from the Mobile Access window.
+    static let staleAfter: TimeInterval = 90 * 24 * 3600
+
+    init(directory: URL, subject: String, session: URLSession = .shared, now: Date = Date()) throws {
         self.vapid = try VAPIDKeys.loadOrCreate(in: directory, subject: subject)
         self.storeURL = directory.appendingPathComponent("subscriptions.json")
         self.session = session
-        let saved = (try? Data(contentsOf: storeURL))
-            .flatMap { try? JSONDecoder().decode([PushSubscription].self, from: $0) }
-        self.subscriptions = saved ?? []
+        let data = try? Data(contentsOf: storeURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let saved = data.flatMap { try? decoder.decode([PushSubscription].self, from: $0) } ?? []
+        let kept = saved.filter { now.timeIntervalSince($0.lastSeen) <= Self.staleAfter }
+        self.subscriptions = kept
+        // Persist when an old file gained the new fields, or pruning removed any.
+        let lackedFields = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] }?
+            .contains { $0["lastSeen"] == nil } ?? false
+        if lackedFields || kept.count != saved.count { Self.write(kept, to: storeURL) }
     }
 
     nonisolated var publicKey: String { vapid.publicKeyBase64URL }
 
     var subscriptionCount: Int { subscriptions.count }
 
+    /// Phones with alerts on, most recently seen first.
+    func phones() -> [PhoneInfo] {
+        subscriptions
+            .sorted { $0.lastSeen > $1.lastSeen }
+            .map { PhoneInfo(id: phoneID(for: $0.endpoint), label: $0.label, lastSeen: $0.lastSeen) }
+    }
+
     func subscribe(_ subscription: PushSubscription) {
         // Same endpoint re-subscribing (the page re-syncs on every load)
-        // replaces rather than duplicates, or one phone would get N copies.
+        // replaces rather than duplicates, or one phone would get N copies -
+        // and refreshes its `lastSeen`.
         subscriptions.removeAll { $0.endpoint == subscription.endpoint }
         subscriptions.append(subscription)
         persist()
@@ -44,11 +134,26 @@ actor PushService {
         persist()
     }
 
+    func removePhone(id: String) {
+        subscriptions.removeAll { phoneID(for: $0.endpoint) == id }
+        persist()
+    }
+
+    /// Drops phones not seen within `staleAfter`; returns how many.
+    @discardableResult
+    func pruneStale(now: Date = Date()) -> Int {
+        let before = subscriptions.count
+        subscriptions.removeAll { now.timeIntervalSince($0.lastSeen) > Self.staleAfter }
+        if subscriptions.count != before { persist() }
+        return before - subscriptions.count
+    }
+
     /// Fans a payload out to every subscription. A subscription the push
     /// service reports gone (404/410) is dropped; any other failure is
     /// logged and left in place, since it may be transient.
     @discardableResult
     func send(_ payload: Data, urgency: String = "high", ttl: Int = 3600) async -> Int {
+        pruneStale()
         var delivered = 0
         for subscription in subscriptions {
             do {
@@ -91,9 +196,15 @@ actor PushService {
     }
 
     private func persist() {
-        try? FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(subscriptions) {
-            try? data.write(to: storeURL, options: .atomic)
+        Self.write(subscriptions, to: storeURL)
+    }
+
+    private static func write(_ subscriptions: [PushSubscription], to url: URL) {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(subscriptions) {
+            try? data.write(to: url, options: .atomic)
         }
     }
 }

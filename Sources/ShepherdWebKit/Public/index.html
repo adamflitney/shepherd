@@ -899,6 +899,20 @@ function showHint(key, text, actions = []) {
   box.hidden = false;
 }
 
+// Tell the server this phone is still here - it uses the last time it heard
+// to tell a live phone from a deleted app's leftover subscription. Also done
+// whenever the app returns to the foreground (which a notification tap does),
+// not just on load; throttled so flicking between apps doesn't spam it.
+let lastSubscriptionSync = 0;
+async function syncSubscription() {
+  if (!("PushManager" in window) || !("serviceWorker" in navigator) || Notification.permission !== "granted") return;
+  if (Date.now() - lastSubscriptionSync < 60000) return;
+  lastSubscriptionSync = Date.now();
+  const sub = await pushSubscription();
+  if (sub) postJSON("/api/push/subscribe", sub.toJSON()).catch(() => {});
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncSubscription(); });
+
 async function renderAlerts() {
   const box = $("alerts");
   box.innerHTML = "";
@@ -927,6 +941,7 @@ async function renderAlerts() {
   showHint(null);
   // The server's store is a file that can be lost or reset; re-sending the
   // subscription on every load keeps it in sync without a separate check.
+  lastSubscriptionSync = Date.now();
   postJSON("/api/push/subscribe", sub.toJSON()).catch(() => {});
   box.appendChild(el("button", { class: "subtle", onclick: () => disableAlerts() }, ["Alerts on"]));
   box.appendChild(el("button", { class: "subtle", onclick: () => api("/api/push/test", { method: "POST" }) }, ["Test"]));

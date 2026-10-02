@@ -121,20 +121,39 @@ struct MobileAccessView: View {
                     }
                 }
             }
+            Divider()
+            Text("Phones with alerts on").font(.subheadline.bold())
+            if model.status.phones.isEmpty {
+                Text("None yet - open Shepherd on your phone and tap Turn on alerts.")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(model.status.phones) { phone in
+                        HStack(spacing: 8) {
+                            Image(systemName: "iphone").foregroundStyle(.secondary)
+                            Text(phone.label)
+                            Text("last seen \(lastSeenText(phone.lastSeen))").font(.callout).foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Remove") { Task { await model.removePhone(id: phone.id) } }
+                        }
+                    }
+                    Text("A phone that no longer opens Shepherd - a deleted Home Screen app, or an old phone - stays on this list until you remove it, or after 90 days unseen.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             HStack(spacing: 12) {
                 Button("Send test notification") { Task { await model.sendTestNotification() } }
-                    .disabled(model.status.phoneCount == 0)
-                Text(model.testResult ?? phoneSummary).font(.callout).foregroundStyle(.secondary)
+                    .disabled(model.status.phones.isEmpty)
+                if let result = model.testResult {
+                    Text(result).font(.callout).foregroundStyle(.secondary)
+                }
             }
         }
     }
 
-    private var phoneSummary: String {
-        switch model.status.phoneCount {
-        case 0: "No phones have turned on alerts yet."
-        case 1: "1 phone has alerts on."
-        default: "\(model.status.phoneCount) phones have alerts on."
-        }
+    private func lastSeenText(_ date: Date) -> String {
+        if Date().timeIntervalSince(date) < 60 { return "just now" }
+        return RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date())
     }
 
     private func step(_ number: Int, _ text: String) -> some View {

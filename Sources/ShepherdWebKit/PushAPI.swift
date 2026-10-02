@@ -25,7 +25,10 @@ struct PushAPI {
                 return .json(try JSONEncoder().encode(PublicKeyWire(publicKey: push.publicKey)))
             case ("POST", "/api/push/subscribe"):
                 let body = try JSONDecoder().decode(SubscribeBody.self, from: request.body)
-                await push.subscribe(PushSubscription(endpoint: body.endpoint, p256dh: body.keys.p256dh, auth: body.keys.auth))
+                await push.subscribe(PushSubscription(
+                    endpoint: body.endpoint, p256dh: body.keys.p256dh, auth: body.keys.auth,
+                    label: phoneLabel(userAgent: request.headers["user-agent"])
+                ))
                 return .json(Data("{}".utf8))
             case ("POST", "/api/push/unsubscribe"):
                 let body = try JSONDecoder().decode(UnsubscribeBody.self, from: request.body)

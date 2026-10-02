@@ -115,10 +115,23 @@ is the whole story.
   screen. A button built from screen text re-peeks and compares before sending
   ("verify-before-send") and refuses if the screen changed. Direct taps stay one-tap; no confirm dialog.
 - **Sending.** Optimistic: the box clears and shows "Sending…"; the text is restored on failure.
+- **Tap-to-open.** A push carries the session id; the service worker either focuses the open window and
+  posts it `open-session`, or opens `/?session=<id>` when no window exists, and the page turns either into
+  the session's address. Verified on an iPhone (v0.7.1) with the Home Screen app both in the background and
+  fully closed: both land on that session's card.
 - **PWA.** iOS only offers push to a page added to the Home Screen. The service worker is network-first
   for the shell (cache-first caused stale pages) and never caches `/api/*` or the stream; it needs a
   secure context, which Tailscale's HTTPS provides. The origin is part of the app's identity: renaming the
   machine or tailnet means re-adding the Home Screen app and re-enabling alerts.
+- **Phones list.** Nothing server-side can tell a dead subscription from a live one (the push service
+  accepted pushes to a deleted Home Screen app's), so each subscription stores a `label` (from the
+  User-Agent, e.g. "iPhone"; the string itself isn't kept) and a `lastSeen` that the page refreshes on load
+  and whenever it returns to the foreground (which a notification tap does; throttled to once a minute).
+  The Mobile Access window lists phones with "last seen …" and a Remove button. Phones unseen for 90 days
+  are dropped automatically — deliberately long, because a phone that only *receives* pushes never opens
+  the page and so never refreshes `lastSeen`, and silently dropping a live phone (no more alerts) is worse
+  than keeping a dead one. Subscription files from before this existed load with `lastSeen` = first launch,
+  so an upgrade drops nobody.
 - **Push crypto.** VAPID key persisted at `~/.shepherd/web-push/vapid.key` (mode 0600; regenerating would
   orphan every subscription); subscriptions in `subscriptions.json`, pruned on 404/410. The VAPID `sub` is
   the project URL, not an email, since it goes to Apple/Google with every push.
@@ -163,8 +176,8 @@ is the whole story.
 
 - The release zip hasn't been installed on a clean Mac; Gatekeeper behaviour for an ad-hoc-signed,
   non-notarized app that opens a listener is untested.
-- Tapping a push notification to open that session's card hasn't been confirmed on a phone; the on-screen
-  keyboard behaviour of the full-screen session view was checked on a phone only by the user's own use.
+- The on-screen keyboard behaviour of the full-screen session view has only been checked on a phone through
+  normal use, not systematically.
 - The iOS "Add to Home Screen" hint (plain Safari tab) is only exercised on a desktop browser.
 - If the app quits or crashes the phone view goes down with it (the old LaunchAgent restarted itself);
   `tailscale serve`'s entry stays, so the phone shows a bad gateway until Shepherd is back.
@@ -172,8 +185,9 @@ is the whole story.
   and times out stalled reads, but has no rate limiting, and an old browser without `Sec-Fetch-*` metadata
   gets only the `Origin`/`Host` checks (so a page on another localhost *port* isn't caught there).
 - Only the Mac owner's Tailscale login is accepted (no shared-tailnet / multi-user Macs).
-- Stale push subscriptions (e.g. a deleted Home Screen app) are only pruned when the push service reports
-  404/410, so "phones with alerts" can overstate.
+- A live phone that never opens the app for 90+ days would be pruned and stop getting alerts until it
+  next opens Shepherd (which re-registers it). The window's Remove button is the only handling for stale
+  phones sooner than that.
 - Once everything is idle/done the Mac can sleep after 60s, and a follow-up can't be sent from the phone
   until it wakes. A blocked session left unanswered holds the sleep assertion with no time cap.
 

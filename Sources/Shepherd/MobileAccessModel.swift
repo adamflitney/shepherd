@@ -115,6 +115,11 @@ final class MobileAccessModel {
         await refresh()
     }
 
+    func removePhone(id: String) async {
+        await server?.removePhone(id: id)
+        await refresh()
+    }
+
     func sendTestNotification() async {
         guard let server else { return }
         let delivered = await server.sendTestNotification()
