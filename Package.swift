@@ -45,8 +45,7 @@ let package = Package(
         .executableTarget(
             name: "ShepherdWeb",
             dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdWebKit"],
-            path: "Sources/ShepherdWeb",
-            exclude: ["PLAN.md"]
+            path: "Sources/ShepherdWeb"
         ),
         .testTarget(
             name: "ShepherdCoreTests",
