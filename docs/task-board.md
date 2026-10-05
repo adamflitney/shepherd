@@ -147,12 +147,39 @@ sessions:
 | Ready | `status: ready` (nothing has started it yet) |
 | Needs you | `status: active` and any linked session is blocked or failed, or finished and unseen |
 | In progress | `status: active` and the above doesn't apply (working, idle, or no live session; a badge says which) |
-| Review | `status: review` |
+| Review | `status: review`, which is set by the agent or you, or automatically when the task's PR is marked ready |
 | Done | `status: done` (hidden by default, or shows only the last few) |
 
 **Untracked sessions.** A live session with no task appears as an untracked card in Needs you or In
 progress. One key promotes it to a task: shepherd creates the file with the session's title, project
 and id already filled in.
+
+**How PRs move cards.** When a task's branch has a draft PR, the card shows a PR badge and stays where
+it is. When the PR is marked ready (`gh pr ready`), shepherd sets `status: review`, so the card moves
+to Review. This follows the user's habit of opening PRs as drafts and marking them ready only after a
+self-review: marking it ready already means "ready for others". Only an `active` task moves this way;
+shepherd never moves a task out of `done` or `inbox`. The PR data comes from the same `gh` calls the
+Review tab already makes.
+
+### Linking sessions to tasks
+
+**A link belongs to the conversation, not the Herdr pane.**
+
+- **Starting from the board.** `task.start` creates the session, and shepherd links it as soon as Herdr
+  reports the session id.
+- **An agent linking itself.** `crook task link 42` reads `CLAUDE_CODE_SESSION_ID`. Claude Code sets
+  this for every command an agent runs, and it's the same id shepherd's `SessionID` and the hook state
+  files use, so neither the agent nor the skill has to pass it. `HERDR_PANE_ID` is also available if
+  the pane is ever needed.
+- **After `/clear`.** The conversation is wiped and the session id changes, so the link does **not**
+  follow. The old id stops being live, and the task shows "no live session" in In progress. To pick
+  the task back up in that pane, the user says "continue task 42". The agent runs `crook task show 42`,
+  reads the plan and log, and links itself. This is why task files must stay self-sufficient.
+- **Resume and compaction.** These keep the conversation's context, so the link should survive them.
+  Compaction keeps the session id. Whether resuming can produce a new id still needs checking (see
+  Open questions). If it can, shepherd carries the link over. Claude Code's `SessionStart` hook
+  reports why a session started (startup, resume, clear or compact), so shepherd can tell these cases
+  apart.
 
 ### Local socket API (in the app)
 
@@ -201,25 +228,29 @@ transport is a Unix socket, and the app is the daemon.
 The same executable as the board, with subcommands:
 
 ```
-<cli> board                       # the TUI
-<cli> task new "title" [--project .] [--objective …] [--status ready]
-<cli> task list [--project .] [--status …] [--json]
-<cli> task show 42
-<cli> task link 42 [--session <id>]   # attach this session
-<cli> task plan 42 < plan.md          # replace the Plan section
-<cli> task log 42 "message"
-<cli> task status 42 review
+crook board                       # the TUI
+crook task new "title" [--project .] [--objective …] [--status ready]
+crook task list [--project .] [--status …] [--json]
+crook task show 42
+crook task link 42 [--session <id>]   # attach this session
+crook task plan 42 < plan.md          # replace the Plan section
+crook task log 42 "message"
+crook task status 42 review
 ```
+
+**The name.** The tool is called `crook`, after the shepherd's staff. It can't be `shepherd`: the
+app's executable is `Shepherd`, and macOS file systems are usually case-insensitive, so the two would
+clash. It's also deliberately not named after tasks, because warden's triage mode is meant to live
+in the same tool later.
 
 - **The bundled skill** replaces `agent-sessions`. It tells agents when to create, link, log and
   move tasks, and it uses the CLI rather than MCP calls.
 - **Installing it:** next to the hooks from the existing "Install Hooks…" menu item, which already
   edits `~/.claude/settings.json` through `HookSettings`.
-- **Which CLI is used** (shepherd's or the agent's own) is an open question, below.
 
 ### Migration from Obsidian
 
-A one-off `<cli> task import <dir>` reads the `Agent Tasks/` notes:
+A one-off `crook task import <dir>` reads the `Agent Tasks/` notes:
 - `active` → `active`.
 - `blocked` → `active`. `blocked` was being used for "paused" as well as "stuck", so the import keeps
   the note's log and puts it in In progress.
@@ -284,27 +315,23 @@ ideas move into shepherd rather than the other way round.
   fixed-layout board is small enough to write against the raw terminal.
 - **Swift TUI libraries were rejected.** TermKit (last pushed 2026-02) would be a dependency, and
   SwiftTUI hasn't been updated since 2024.
+- **Links following the Herdr pane was rejected.** It was proposed so a link would survive
+  `/clear`, but `/clear` wipes the conversation, and starting something unrelated in a cleared pane
+  is common. The old task would wrongly follow that new work.
+- **A PR badge only, never moving the card, was rejected.** It's safe, but it leaves the Review step
+  as manual bookkeeping, even though marking a PR ready already signals it.
+- **Any open PR moving the card to Review was rejected.** The user's PRs start as drafts, so cards
+  would land in Review while the agent is still iterating.
 - **The phone HTTP API as the TUI's transport was rejected.** It sits behind the Tailscale identity
   check by design, so a local socket protected by file permissions is simpler and doesn't weaken
   that check.
 
 ## Open questions
 
-- **CLI name.** The app's executable is `Shepherd`, and macOS file systems are usually
-  case-insensitive, so a `shepherd` binary in the same build folder or `bin` path would clash. Options
-  are `shep`, `shepherdctl`, or making the app executable dispatch subcommands itself. How it gets
-  onto `PATH` also needs deciding: a symlink created by an "Install command-line tool…" menu item?
-- **Linking sessions to tasks.**
-  - **From the board:** when a session is started with `task.start`, shepherd knows the new session's
-    id once Herdr reports it.
-  - **When an agent links itself** with `task link`, the CLI needs the current Claude session id. The
-    skill can pass it from context, which is what `agent-sessions` does today. Is there an environment
-    variable or hook-provided value that's more reliable?
-  - **Herdr environment variables:** could `agent.start` set a variable like `SHEPHERD_TASK=42` in the
-    pane?
-- **When cards move to Review.** Should an open PR on the task's branch move the card there
-  automatically, or only show a badge and leave the move to the agent or user? Leaning towards a
-  badge only, so the board never moves a card behind your back.
+- **Getting `crook` onto `PATH`.** Perhaps a symlink created by an "Install command-line tool…" menu
+  item, next to "Install Hooks…".
+- **Verify during the build: does resuming a conversation keep its session id?** If resuming can
+  produce a new id, shepherd needs to carry the link over (see "Linking sessions to tasks").
 - **How a task with several sessions shows.** When one session is working and another blocked, the
   card goes to Needs you (the worst state wins, the same rule as the menu bar icon). Does the card
   need to show each session?
