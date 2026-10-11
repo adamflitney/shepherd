@@ -283,6 +283,43 @@ struct AttentionTests {
         #expect(third != first)
     }
 
+    @Test func aSessionThatStaysSilentAfterItsFirstMessageIsPresumedToBeWaitingOnFolderTrust() async throws {
+        let rig = Rig()
+        let backend = rig.backend()
+        let id = try await backend.createSession(req(prompt: "do the thing"))
+        #expect(try await backend.snapshot().sessions[0].attention.kind == .unknown)  // too soon to say
+
+        rig.clock.advance(ghosttyStartupGrace + 1)
+        let stuck = try await backend.snapshot().sessions[0].attention
+        #expect(stuck.kind == .blocked)
+        #expect(stuck.blocker == .needsAnswer)
+        #expect(stuck.options == ["No, exit", "Yes, I trust this folder"])
+        // answering "2" is arrow-down + Enter, which is what the trust menu needs
+        try await backend.respond(id, keys: ["2"])
+        #expect(Array(rig.scripting.calls.suffix(2)) == [.sendKey("arrowDown", modifiers: [], terminal: "term-1"), .sendKey("enter", modifiers: [], terminal: "term-1")])
+
+        // the first hook ends the presumption
+        try rig.writeHook(session: id.rawValue, state: "working", at: rig.clock.now)
+        #expect(try await backend.snapshot().sessions[0].attention.kind == .working)
+    }
+
+    @Test func aSessionStartedWithoutAMessageIsNotPresumedStuck() async throws {
+        let rig = Rig()
+        let backend = rig.backend()
+        _ = try await backend.createSession(req())
+        rig.clock.advance(ghosttyStartupGrace + 60)
+        #expect(try await backend.snapshot().sessions[0].attention.kind == .unknown)
+    }
+
+    @Test func recordsWrittenBeforeTheTrustCheckExistedStillLoad() throws {
+        let rig = Rig()
+        let old = #"[{"sessionID":"abc","agent":"claude","workingDirectory":"/w","title":"t","createdAt":"2026-10-11T10:00:00Z"}]"#
+        try old.write(to: rig.recordsURL, atomically: true, encoding: .utf8)
+        let loaded = GhosttyRecordStore(url: rig.recordsURL).load()
+        #expect(loaded.count == 1)
+        #expect(!loaded[0].startedWithPrompt)
+    }
+
     @Test func aSessionWhoseProcessHasEndedDisappears() async throws {
         let rig = Rig()
         let (backend, id) = try await started(rig)
@@ -316,6 +353,16 @@ struct DrivingTests {
             .inputText("run the tests", terminal: "term-1"),
             .sendKey("enter", modifiers: [], terminal: "term-1"),
         ])
+    }
+
+    @Test func aMultiSelectQuestionIsAnsweredByTogglingNotByPickingMenuOptions() async throws {
+        let rig = Rig()
+        let (backend, id) = try await started(rig)
+        try rig.writeHook(session: id.rawValue, state: "asked-a-question",
+                          detail: ["question": "Which?", "options": ["Apple", "Banana", "Cherry"], "multi_select": true], at: rig.clock.now.addingTimeInterval(5))
+        try await backend.respond(id, keys: ["1", "3", "enter"])
+        let keys = rig.scripting.calls.dropFirst().compactMap { call -> String? in if case .sendKey(let k, _, _) = call { return k } else { return nil } }
+        #expect(keys == ["enter", "arrowDown", "arrowDown", "enter", "arrowDown", "arrowDown", "enter", "enter"])
     }
 
     @Test func respondTranslatesKeysIncludingDigitsThatPickMenuOptions() async throws {
@@ -381,6 +428,7 @@ struct HelperTests {
                 switch a.kind {
                 case .key(let n, let m): return ([n] + m).joined(separator: "+")
                 case .text(let t): return "text:\(t)"
+                case .pause: return "pause"
                 }
             }
         }
@@ -392,6 +440,27 @@ struct HelperTests {
         #expect(names(["shift+tab"]) == ["tab+shift"])
         #expect(names(["y"]) == ["text:y"])
         #expect(names(["-"]) == ["text:-"])
+    }
+
+    @Test func multiSelectDigitsToggleOptionsAndEnterSubmits() {
+        func names(_ keys: [String], n: Int) -> [String] {
+            GhosttyKeyMap.multiSelectActions(for: keys, optionCount: n).map { a in
+                switch a.kind {
+                case .key(let k, _): return k
+                case .text(let t): return "text:\(t)"
+                case .pause: return "pause"
+                }
+            }
+        }
+        // toggle 1 (already there), move to 3 and toggle it, move on to Submit (index n+1 = 4), open the
+        // review, wait for it, confirm
+        #expect(names(["1", "3", "enter"], n: 3) == ["enter", "arrowDown", "arrowDown", "enter", "arrowDown", "arrowDown", "enter", "pause", "enter"])
+        // order does not matter, and the cursor moves back up when it has to
+        #expect(names(["3", "1"], n: 3) == ["arrowDown", "arrowDown", "enter", "arrowUp", "arrowUp", "enter"])
+        // nothing chosen: straight to Submit
+        #expect(names(["enter"], n: 2) == ["arrowDown", "arrowDown", "arrowDown", "enter", "pause", "enter"])
+        // a digit outside the options is not a toggle
+        #expect(names(["9"], n: 3) == ["text:9"])
     }
 
     @Test func parsesTerminalListings() throws {

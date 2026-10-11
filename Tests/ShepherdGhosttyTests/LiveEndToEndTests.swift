@@ -69,18 +69,20 @@ struct LiveEndToEndTests {
         print("started \(id.rawValue.prefix(8)) in \(Date().timeIntervalSince(started))s")
         #expect(tasks.get(task.id)?.sessions == [id.rawValue])
 
-        // 2. a brand-new directory shows Claude's one-time trust prompt, which no hook reports
+        // 2. a brand-new directory shows Claude's one-time trust prompt, which no hook reports: the
+        // backend presumes it after a few silent seconds and offers the menu's real choices
         var answeredTrust = false
         try await waitFor("the first answer to finish", timeout: 120) {
             let s = try await session()
-            if !answeredTrust, Date().timeIntervalSince(started) > 8, s?.attention.kind == .unknown {
-                print("attention still unknown after 8s: answering the trust prompt for the scratch directory")
-                try await backend.respond(id, keys: ["down", "enter"])
+            if let s, s.attention.kind != .unknown { print("  attention: \(s.attention.kind) \(s.attention.summary ?? "")") }
+            if !answeredTrust, s?.attention.kind == .blocked, s?.attention.options == ["No, exit", "Yes, I trust this folder"] {
+                print("trust prompt detected; answering 2 (Yes) for the scratch directory")
+                try await backend.respond(id, keys: ["2"])
                 answeredTrust = true
             }
-            if let s, s.attention.kind != .unknown { print("  attention: \(s.attention.kind) \(s.attention.summary ?? "")") }
-            return s?.attention.kind == .done
+            return answeredTrust && s?.attention.kind == .done
         }
+        #expect(answeredTrust, "the trust prompt should have been detected")
         let first = try await backend.peek(id)
         print("peek after first turn:\n\(first)\n")
         #expect(first.contains("PINEAPPLE-77"), "the SessionStart hook should have injected the task context, and peek should see the reply")
@@ -102,6 +104,18 @@ struct LiveEndToEndTests {
         let second = try await backend.peek(id)
         print("peek after the answer:\n\(second)\n")
         #expect(second.lowercased().contains("blue"), "option 2 (Blue) should have been picked")
+
+        // 3b. what do digits do in a multi-select question? (observation, the phone page sends them)
+        try await backend.prompt(id, text: "Use the AskUserQuestion tool with multiSelect true to ask which of these I want: Apple, Banana, Cherry. Then tell me exactly which ones I chose.")
+        try await waitFor("the multi-select question to block", timeout: 90) { try await session()?.attention.kind == .blocked }
+        let multi = try await session()?.attention
+        print("multi-select: options=\(multi?.options ?? []) multiple=\(multi?.optionsAllowMultiple ?? false)")
+        try await backend.respond(id, keys: ["1", "3", "enter"])
+        try await waitFor("the session to finish after the multi-select", timeout: 90) { try await session()?.attention.kind == .done }
+        let multiResult = try await backend.peek(id)
+        print("peek after multi-select:\n\(multiResult)\n")
+        #expect(multiResult.contains("Apple") && multiResult.contains("Cherry"), "options 1 and 3 should have been toggled")
+        #expect(multiResult.lowercased().contains("didn't choose banana") || multiResult.lowercased().contains("not banana") || !multiResult.lowercased().contains("chose banana"), "option 2 should not be chosen")
 
         // 4. closing ends the process and the tab
         try await backend.close(id)

@@ -15,9 +15,13 @@ public struct GhosttySessionRecord: Codable, Sendable, Equatable {
     /// measured from here.
     public var lastSeenAt: Date?
     public var endedAt: Date?
+    /// Started with a first message. Such a session that has said nothing through its hooks after a few
+    /// seconds is stuck before submitting it, almost always on Claude's one-time folder-trust prompt.
+    public var startedWithPrompt: Bool
 
     public init(sessionID: String, taskID: Int? = nil, agent: String = "claude", workingDirectory: String, title: String,
-                ref: GhosttyTerminalRef? = nil, createdAt: Date = Date(), lastSeenAt: Date? = nil, endedAt: Date? = nil) {
+                ref: GhosttyTerminalRef? = nil, createdAt: Date = Date(), lastSeenAt: Date? = nil, endedAt: Date? = nil,
+                startedWithPrompt: Bool = false) {
         self.sessionID = sessionID
         self.taskID = taskID
         self.agent = agent
@@ -27,6 +31,22 @@ public struct GhosttySessionRecord: Codable, Sendable, Equatable {
         self.createdAt = createdAt
         self.lastSeenAt = lastSeenAt
         self.endedAt = endedAt
+        self.startedWithPrompt = startedWithPrompt
+    }
+
+    // Records written before `startedWithPrompt` existed still load.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionID = try c.decode(String.self, forKey: .sessionID)
+        taskID = try c.decodeIfPresent(Int.self, forKey: .taskID)
+        agent = try c.decodeIfPresent(String.self, forKey: .agent) ?? "claude"
+        workingDirectory = try c.decode(String.self, forKey: .workingDirectory)
+        title = try c.decode(String.self, forKey: .title)
+        ref = try c.decodeIfPresent(GhosttyTerminalRef.self, forKey: .ref)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        lastSeenAt = try c.decodeIfPresent(Date.self, forKey: .lastSeenAt)
+        endedAt = try c.decodeIfPresent(Date.self, forKey: .endedAt)
+        startedWithPrompt = try c.decodeIfPresent(Bool.self, forKey: .startedWithPrompt) ?? false
     }
 }
 

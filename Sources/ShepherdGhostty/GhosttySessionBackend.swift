@@ -139,7 +139,7 @@ public actor GhosttySessionBackend: SessionBackend {
         let title = request.title ?? task.map { "#\($0.id) \($0.title)" } ?? URL(fileURLWithPath: cwd).lastPathComponent
         records[sessionID] = GhosttySessionRecord(
             sessionID: sessionID, taskID: task?.id, agent: request.agent.rawValue, workingDirectory: cwd,
-            title: title, ref: ref, createdAt: now(), lastSeenAt: now())
+            title: title, ref: ref, createdAt: now(), lastSeenAt: now(), startedWithPrompt: prompt != nil)
         persist()
         await refresh(full: false)
         republish()
@@ -186,11 +186,22 @@ public actor GhosttySessionBackend: SessionBackend {
     public func respond(_ id: SessionID, keys: [String]) async throws {
         let record = try record(for: id)
         let ref = try terminal(of: record)
+        // What the question looks like decides what a digit means: a multi-select checklist is not the
+        // numbered menu a single-choice question is.
+        let attention = currentSnapshot().sessions.first { $0.id.rawValue == record.sessionID }?.attention
+        let actions: [GhosttyKeyAction]
+        if let attention, attention.kind == .blocked, attention.blocker == .needsAnswer,
+           attention.optionsAllowMultiple, let options = attention.options {
+            actions = GhosttyKeyMap.multiSelectActions(for: keys, optionCount: options.count)
+        } else {
+            actions = GhosttyKeyMap.actions(for: keys)
+        }
         do {
-            for action in GhosttyKeyMap.actions(for: keys) {
+            for action in actions {
                 switch action.kind {
                 case .key(let name, let modifiers): try await scripting.sendKey(name, modifiers: modifiers, terminalID: ref.terminalID)
                 case .text(let text): try await scripting.inputText(text, terminalID: ref.terminalID)
+                case .pause(let nanoseconds): if pace.betweenKeys > 0 { try? await Task.sleep(nanoseconds: nanoseconds) }
                 }
                 if pace.betweenKeys > 0 { try? await Task.sleep(nanoseconds: pace.betweenKeys) }
             }
@@ -314,6 +325,9 @@ public actor GhosttySessionBackend: SessionBackend {
             let seenAt = r.lastSeenAt ?? r.createdAt
             let unseen = !isFocused && (hook?.updatedAt ?? .distantPast) > seenAt
             var attention = ghosttyAttention(hook: hook, unseenFinish: unseen)
+            if hook == nil, r.startedWithPrompt, now().timeIntervalSince(r.createdAt) > ghosttyStartupGrace {
+                attention = folderTrustAttention()
+            }
             attention.since = since(for: r.sessionID, attention: attention, fallback: hook?.updatedAt ?? r.createdAt)
 
             let task = r.taskID.flatMap { taskStore.get($0) }

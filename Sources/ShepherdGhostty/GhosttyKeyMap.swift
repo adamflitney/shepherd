@@ -7,6 +7,8 @@ public struct GhosttyKeyAction: Equatable, Sendable {
         /// Printable text. Ghostty's `send key` produces no text for plain letters and digits, so
         /// these go in as pasted input instead.
         case text(String)
+        /// Wait (nanoseconds) for the screen to change before the next key.
+        case pause(UInt64)
     }
     public let kind: Kind
 }
@@ -54,5 +56,46 @@ public enum GhosttyKeyMap {
                 + [.init(kind: .key(name: "enter", modifiers: []))]
         }
         return [.init(kind: .text(key))]
+    }
+
+    private static func key(_ name: String) -> GhosttyKeyAction { .init(kind: .key(name: name, modifiers: [])) }
+
+    /// Answers for a multi-select `AskUserQuestion`, which Claude Code draws as a checklist:
+    /// `1. [ ] Apple` ... `n. [ ] ...`, then "Type something", then a "Submit" row. Enter toggles the
+    /// option under the cursor (a digit sent through Ghostty would only be pasted text), arrows move
+    /// it, and Enter on "Submit" opens a review whose first choice, "Submit answers", Enter confirms.
+    ///
+    /// So a digit means "move to that option and toggle it", and a bare "enter" means "I am done":
+    /// go to Submit, open the review, confirm. The cursor starts on option 1.
+    public static func multiSelectActions(for keys: [String], optionCount n: Int) -> [GhosttyKeyAction] {
+        var out: [GhosttyKeyAction] = []
+        var cursor = 0
+        func move(to target: Int) {
+            let name = target > cursor ? "arrowDown" : "arrowUp"
+            out += Array(repeating: key(name), count: abs(target - cursor))
+            cursor = target
+        }
+        for k in keys {
+            if let d = Int(k), k.count == 1, (1...max(1, n)).contains(d) {
+                move(to: d - 1)
+                out.append(key("enter"))
+            } else if ["enter", "return"].contains(k.lowercased()) {
+                move(to: n + 1)  // past the options and "Type something"
+                out.append(key("enter"))
+                out.append(.init(kind: .pause(350_000_000)))  // the review screen replaces the list
+                out.append(key("enter"))
+            } else if k.count == 1, Int(k) != nil {
+                out.append(.init(kind: .text(k)))  // a digit with no option behind it
+            } else {
+                let actions = actions(for: k)
+                out += actions
+                for a in actions {
+                    if case .key(let name, _) = a.kind {
+                        if name == "arrowDown" { cursor += 1 } else if name == "arrowUp" { cursor = max(0, cursor - 1) }
+                    }
+                }
+            }
+        }
+        return out
     }
 }
