@@ -6,3 +6,4 @@
 /*.zip
 node_modules/
 packages/web/dist/
+__pycache__/
