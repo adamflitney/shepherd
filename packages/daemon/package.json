@@ -1,0 +1,25 @@
+{
+  "name": "@shepherd/daemon",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/fix-node-pty.mjs"
+  },
+  "dependencies": {
+    "@shepherd/tasks": "workspace:*",
+    "@xterm/addon-serialize": "^0.13.0",
+    "@xterm/headless": "^5.5.0",
+    "node-pty": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "bin": {
+    "shepctl": "./src/cli.ts"
+  }
+}
