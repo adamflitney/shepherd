@@ -51,6 +51,9 @@ public struct CreateSessionRequest: Hashable, Sendable {
     public var resumeSessionID: String?
     public var title: String?
     public var placement: Placement
+    /// The shepherd task this session works on. A backend that supports tasks links the session to it
+    /// before the agent starts and passes it to the agent as `SHEPHERD_TASK_ID`.
+    public var taskID: Int?
 
     public init(
         workingDirectory: URL,
@@ -58,7 +61,8 @@ public struct CreateSessionRequest: Hashable, Sendable {
         initialPrompt: String? = nil,
         resumeSessionID: String? = nil,
         title: String? = nil,
-        placement: Placement = .standalone
+        placement: Placement = .standalone,
+        taskID: Int? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.agent = agent
@@ -66,6 +70,7 @@ public struct CreateSessionRequest: Hashable, Sendable {
         self.resumeSessionID = resumeSessionID
         self.title = title
         self.placement = placement
+        self.taskID = taskID
     }
 }
 

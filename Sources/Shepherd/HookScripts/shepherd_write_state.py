@@ -165,6 +165,10 @@ def write_state(session_id, state, detail):
         "state": state,
         "detail": detail,
     }
+    # Claude Code's session id changes on /clear; the id shepherd launched the session under does not.
+    shepherd_session_id = os.environ.get("SHEPHERD_SESSION_ID")
+    if shepherd_session_id:
+        doc["shepherd_session_id"] = shepherd_session_id
     fd, tmp_path = tempfile.mkstemp(dir=STATE_DIR, prefix=".tmp-", suffix=".json")
     try:
         with os.fdopen(fd, "w") as f:

@@ -1,0 +1,53 @@
+import Foundation
+
+/// A readable look at the end of a Claude Code conversation, read from its transcript file. Ghostty's
+/// scripting cannot read the screen, and the transcript says more than the screen does anyway.
+public enum TranscriptPeek {
+    /// Claude Code keeps each project's transcripts under a directory named after the project's path
+    /// with every non-alphanumeric character replaced by "-".
+    public static func transcriptURL(workingDirectory: String, sessionID: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        let encoded = String(workingDirectory.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
+        return home.appendingPathComponent(".claude/projects/\(encoded)/\(sessionID).jsonl")
+    }
+
+    /// The last few exchanges as plain text, newest last, at most `maxCharacters` long.
+    public static func recentText(at url: URL, maxMessages: Int = 6, maxCharacters: Int = 4000) -> String {
+        // only the tail matters, so do not read a multi-megabyte transcript in full
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        let window: UInt64 = 256 * 1024
+        try? handle.seek(toOffset: size > window ? size - window : 0)
+        let data = (try? handle.readToEnd()) ?? Data()
+        var lines = String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true)
+        if size > window, !lines.isEmpty { lines.removeFirst() }  // a partial first line
+
+        var messages: [String] = []
+        for line in lines {
+            guard let obj = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+                  let type = obj["type"] as? String, type == "user" || type == "assistant",
+                  let message = obj["message"] as? [String: Any],
+                  let text = plainText(message["content"]), !text.isEmpty else { continue }
+            messages.append(type == "user" ? "› \(text)" : text)
+        }
+        var out = messages.suffix(maxMessages).joined(separator: "\n\n")
+        if out.count > maxCharacters { out = "…" + out.suffix(maxCharacters - 1) }
+        return out
+    }
+
+    /// Text blocks only: tool calls and results are noise in a peek. Returns nil for a message that
+    /// is nothing but tool traffic.
+    private static func plainText(_ content: Any?) -> String? {
+        if let s = content as? String { return clean(s) }
+        guard let blocks = content as? [[String: Any]] else { return nil }
+        let texts = blocks.compactMap { b -> String? in
+            guard (b["type"] as? String) == "text", let t = b["text"] as? String else { return nil }
+            return t
+        }
+        return texts.isEmpty ? nil : clean(texts.joined(separator: "\n"))
+    }
+
+    private static func clean(_ s: String) -> String {
+        s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}

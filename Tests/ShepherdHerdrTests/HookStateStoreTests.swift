@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import ShepherdCore
 @testable import ShepherdHerdr
 
 private func withTempStateDir(_ body: (URL) throws -> Void) rethrows {

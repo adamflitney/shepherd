@@ -27,6 +27,13 @@ let package = Package(
             dependencies: ["ShepherdCore"],
             path: "Sources/ShepherdHerdr"
         ),
+        // Ghostty-as-the-terminal backend: AppleScript driver, session records, hook-driven attention.
+        // Depends on Core only (and Tasks for task-linked sessions).
+        .target(
+            name: "ShepherdGhostty",
+            dependencies: ["ShepherdCore", "ShepherdTasks"],
+            path: "Sources/ShepherdGhostty"
+        ),
         // @Observable view models + SwiftUI views. Depends on Core ONLY — this boundary
         // is what keeps UI decoupled from Herdr's wire format.
         .target(
@@ -62,6 +69,11 @@ let package = Package(
             name: "ShepherdTasksTests",
             dependencies: ["ShepherdTasks"],
             path: "Tests/ShepherdTasksTests"
+        ),
+        .testTarget(
+            name: "ShepherdGhosttyTests",
+            dependencies: ["ShepherdGhostty", "ShepherdCore", "ShepherdTasks"],
+            path: "Tests/ShepherdGhosttyTests"
         ),
         .testTarget(
             name: "ShepherdCoreTests",
