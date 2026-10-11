@@ -1,5 +1,10 @@
 #!/usr/bin/env node
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DaemonClient } from "./client.ts";
+import { installedEvents, installHooks, stripHooks } from "./hooks.ts";
 import { runDaemon } from "./daemon.ts";
 import { socketPath } from "./paths.ts";
 import type { SessionInfo } from "./session.ts";
@@ -11,8 +16,24 @@ const USAGE = `shepctl <command>
   new [--task <n>] [--cwd <dir>] [prompt...]
   attach <id>                    interactive terminal (Ctrl-] to detach)
   peek <id>                      what is on screen right now
+  send <id> <text...>            type text and press Enter
+  key <id> <key>...              enter esc tab up down left right space ctrl-c
   kill <id>
+  hooks install|uninstall|status [--file <settings.json>]
+                                 register shepherd's Claude Code hooks (default ~/.claude/settings.json)
 `;
+
+const KEYS: Record<string, string> = {
+  enter: "\r",
+  esc: "\x1b",
+  tab: "\t",
+  up: "\x1b[A",
+  down: "\x1b[B",
+  right: "\x1b[C",
+  left: "\x1b[D",
+  space: " ",
+  "ctrl-c": "\x03",
+};
 
 function fail(msg: string): never {
   process.stderr.write(`shepctl: ${msg}\n`);
@@ -63,16 +84,56 @@ async function attach(c: DaemonClient, id: string): Promise<void> {
   await new Promise(() => {});
 }
 
+function hooksCommand(args: string[]): void {
+  const [sub, ...rest] = args;
+  const fileFlag = rest.indexOf("--file");
+  const file = fileFlag >= 0 ? rest[fileFlag + 1] : join(homedir(), ".claude", "settings.json");
+  if (!file) fail("--file needs a path");
+  let settings: Record<string, unknown> = {};
+  if (existsSync(file)) {
+    try {
+      settings = JSON.parse(readFileSync(file, "utf8"));
+    } catch {
+      fail(`${file} is not valid JSON; fix it first`);
+    }
+  }
+  if (sub === "status") {
+    const events = installedEvents(settings);
+    process.stdout.write(events.length ? `installed for: ${events.join(", ")}\n` : "not installed\n");
+    return;
+  }
+  if (sub !== "install" && sub !== "uninstall") fail("hooks install|uninstall|status");
+  const here = dirname(fileURLToPath(import.meta.url));
+  const tasksCli = join(here, "..", "..", "tasks", "src", "cli.ts");
+  const next =
+    sub === "install"
+      ? installHooks(settings, { event: `node "${join(here, "hook-cli.ts")}"`, sessionStart: `node "${tasksCli}" hook session-start` })
+      : stripHooks(settings);
+  if (JSON.stringify(next) === JSON.stringify(settings)) {
+    process.stdout.write("no changes\n");
+    return;
+  }
+  mkdirSync(dirname(file), { recursive: true });
+  const backup = `${file}.shepherd-backup`;
+  if (existsSync(file) && !existsSync(backup)) copyFileSync(file, backup); // keep the first, original copy
+  writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
+  process.stdout.write(`${sub === "install" ? "installed into" : "removed from"} ${file}${existsSync(backup) ? ` (original kept as ${backup})` : ""}\n`);
+}
+
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
   switch (cmd) {
     case "daemon":
       return runDaemon();
+    case "hooks":
+      return hooksCommand(args);
     case "list": {
       const c = await connect();
       const { sessions } = await c.request<{ sessions: SessionInfo[] }>("session.list");
       for (const s of sessions) {
-        process.stdout.write(`${s.id.slice(0, 8)}  ${s.status.padEnd(7)} ${s.taskId ? `#${s.taskId}`.padEnd(5) : "     "} ${s.title}\n`);
+        const a = s.attention;
+        const why = a.summary ? `  (${a.summary})` : "";
+        process.stdout.write(`${s.id.slice(0, 8)}  ${a.kind.padEnd(8)} ${s.status === "exited" ? "exited " : "       "} ${s.taskId ? `#${s.taskId}`.padEnd(5) : "     "} ${s.title}${why}\n`);
       }
       return c.close();
     }
@@ -105,6 +166,21 @@ async function main(): Promise<void> {
       const c = await connect();
       const { text } = await c.request<{ text: string }>("session.peek", { id: await resolveId(c, args[0]) });
       process.stdout.write(`${text}\n`);
+      return c.close();
+    }
+    case "send":
+    case "key": {
+      const c = await connect();
+      const id = await resolveId(c, args[0]);
+      if (cmd === "send") {
+        // Claude Code treats text and Enter that arrive in one chunk as a paste, so the newline
+        // does not submit. Send the Enter separately, after a pause.
+        await c.request("session.input", { id, data: args.slice(1).join(" ") });
+        await new Promise((r) => setTimeout(r, 250));
+        await c.request("session.input", { id, data: "\r" });
+      } else {
+        await c.request("session.input", { id, data: args.slice(1).map((k) => KEYS[k] ?? fail(`unknown key "${k}"`)).join("") });
+      }
       return c.close();
     }
     case "kill": {

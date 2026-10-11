@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import { TaskStore } from "@shepherd/tasks";
 import { claudeAgent, type AgentSpec } from "./agent.ts";
+import type { HookPayload } from "./attention.ts";
 import { Session, type SessionInfo } from "./session.ts";
 
 export interface CreateRequest {
@@ -119,6 +120,24 @@ export class SessionManager {
     session.onChange(() => this.emit({ type: "session.updated", session: session.info }));
     this.emit({ type: "session.created", session: session.info });
     return session.info;
+  }
+
+  /**
+   * Routes a hook payload to the session it belongs to. The payload's session id is the
+   * conversation's current id; after /clear that is a new id, so `shepherdSessionId` (from the
+   * SHEPHERD_SESSION_ID the agent was started with) identifies the session and teaches us the alias.
+   * Returns false for sessions we don't own (a claude running elsewhere).
+   */
+  handleHook(payload: HookPayload, shepherdSessionId?: string): boolean {
+    const id = payload.session_id;
+    let session = id ? [...this.sessions.values()].find((s) => s.claudeIds.has(id)) : undefined;
+    if (!session && shepherdSessionId) {
+      session = this.sessions.get(shepherdSessionId);
+      if (session && id) session.claudeIds.add(id);
+    }
+    if (!session) return false;
+    session.applyHook(payload);
+    return true;
   }
 
   private isLive(id: string): boolean {

@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import net from "node:net";
+import type { HookPayload } from "./attention.ts";
 import { SessionManager } from "./manager.ts";
 import type { EventMessage, Request, Response } from "./protocol.ts";
 
@@ -91,6 +92,8 @@ export class DaemonServer {
       case "events.subscribe":
         conn.subscribed = true;
         return { sessions: m.list() };
+      case "hook.event":
+        return { handled: m.handleHook((p.payload ?? {}) as HookPayload, typeof p.shepherdSessionId === "string" ? p.shepherdSessionId : undefined) };
       case "session.list":
         return { sessions: m.list() };
       case "session.create":
@@ -99,10 +102,14 @@ export class DaemonServer {
         const s = m.get(id());
         conn.attached.get(s.id)?.();
         const sessionId = s.id;
+        s.viewerAttached();
         // snapshot and listener are set up in the same tick, so no output is lost or repeated
         const snapshot = s.snapshot();
-        const stop = s.onData((data) => send(conn.socket, { event: "session.data", id: sessionId, data }));
-        conn.attached.set(sessionId, stop);
+        const unlisten = s.onData((data) => send(conn.socket, { event: "session.data", id: sessionId, data }));
+        conn.attached.set(sessionId, () => {
+          unlisten();
+          s.viewerDetached();
+        });
         return { snapshot, session: s.info };
       }
       case "session.detach":

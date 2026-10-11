@@ -20,6 +20,7 @@
     "vitest": "^2.1.0"
   },
   "bin": {
-    "shepctl": "./src/cli.ts"
+    "shepctl": "./src/cli.ts",
+    "shepherd-hook": "./src/hook-cli.ts"
   }
 }

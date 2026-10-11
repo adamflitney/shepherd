@@ -1,6 +1,7 @@
 import serializeAddon from "@xterm/addon-serialize";
 import xtermHeadless, { type Terminal as XTerminal } from "@xterm/headless";
 import pty from "node-pty";
+import { attentionOf, reduceHookEvent, type Attention, type HookPayload, type HookState } from "./attention.ts";
 
 // These are CommonJS packages: Node's ESM loader only exposes their default export, so the named
 // exports have to be read off it (Vitest hides this, plain Node does not).
@@ -17,6 +18,7 @@ export interface SessionInfo {
   title: string;
   status: SessionStatus;
   exitCode?: number;
+  attention: Attention;
   cols: number;
   rows: number;
   createdAt: number;
@@ -53,7 +55,14 @@ export class Session {
   exitCode: number | undefined;
   readonly createdAt = Date.now();
   lastOutputAt = Date.now();
+  /** Every id Claude Code has used for this conversation (it changes on /clear). */
+  readonly claudeIds = new Set<string>();
+  /** Clients currently attached; someone watching means a finish is not "unseen". */
+  viewers = 0;
 
+  private hook: HookState | undefined;
+  private unseenFinish = false;
+  private attention: Attention = { kind: "unknown", since: Date.now() };
   private proc: pty.IPty;
   private term: XTerminal;
   private serializer = new SerializeAddon();
@@ -62,6 +71,7 @@ export class Session {
 
   constructor(o: SessionOptions) {
     this.id = o.id;
+    this.claudeIds.add(o.id);
     this.taskId = o.taskId;
     this.cwd = o.cwd;
     this.command = o.command;
@@ -87,6 +97,8 @@ export class Session {
       this.term.write("", () => {
         this.status = "exited";
         this.exitCode = exitCode;
+        if (this.viewers === 0) this.unseenFinish = true;
+        this.recomputeAttention();
         this.emitChange();
       });
     });
@@ -101,6 +113,7 @@ export class Session {
       title: this.title,
       status: this.status,
       exitCode: this.exitCode,
+      attention: this.attention,
       cols: this.term.cols,
       rows: this.term.rows,
       createdAt: this.createdAt,
@@ -123,7 +136,49 @@ export class Session {
   }
 
   write(data: string): void {
+    this.markSeen();
     if (this.status === "running") this.proc.write(data);
+  }
+
+  /** Feed one Claude Code hook payload for this session. */
+  applyHook(payload: HookPayload): void {
+    const result = reduceHookEvent(payload, this.hook);
+    if (result.kind === "ignore") return;
+    if (result.kind === "end") {
+      this.hook = undefined;
+      this.unseenFinish = false;
+    } else {
+      const was = this.hook?.state;
+      this.hook = result.state;
+      const finished = result.state.state === "idle" || result.state.state === "stalled";
+      if (was === "working" && finished && this.viewers === 0) this.unseenFinish = true;
+      if (result.state.state === "working") this.unseenFinish = false;
+    }
+    this.recomputeAttention();
+  }
+
+  /** Someone looked at, or typed into, the session. */
+  markSeen(): void {
+    if (!this.unseenFinish) return;
+    this.unseenFinish = false;
+    this.recomputeAttention();
+  }
+
+  viewerAttached(): void {
+    this.viewers++;
+    this.markSeen();
+  }
+
+  viewerDetached(): void {
+    this.viewers = Math.max(0, this.viewers - 1);
+  }
+
+  private recomputeAttention(): void {
+    const next = attentionOf({ exited: this.status === "exited", exitCode: this.exitCode, hook: this.hook, unseenFinish: this.unseenFinish });
+    const { since: _since, ...prev } = this.attention;
+    if (JSON.stringify(next) === JSON.stringify(prev)) return;
+    this.attention = { ...next, since: Date.now() };
+    this.emitChange();
   }
 
   resize(cols: number, rows: number): void {
