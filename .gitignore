@@ -4,3 +4,4 @@
 .DS_Store
 /*.app
 /*.zip
+node_modules/
