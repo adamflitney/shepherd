@@ -51,7 +51,7 @@ public actor GhosttySessionBackend: SessionBackend {
         probe: any ProcessProbe = PSProcessProbe(),
         agentsWindow: any AgentsWindowStoring = FileAgentsWindowStore(),
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
-        claudeCommand: String = "claude",
+        claudeCommand: String = ClaudeLocator.find(),
         pace: Pace = Pace(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {

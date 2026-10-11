@@ -1,5 +1,6 @@
 import AppKit
 import ShepherdCore
+import ShepherdGhostty
 import ShepherdHerdr
 
 // Headless hook install/uninstall, for scripting or a terminal-triggered
@@ -36,6 +37,11 @@ MainActor.assumeIsolated {
     var onTerminalAppNameChanged: ((String) -> Void)?
     if CommandLine.arguments.contains("--fake") {
         backend = FakeSessionBackend(sessions: DemoSessions.all)
+    } else if CommandLine.arguments.contains("--ghostty") || ProcessInfo.processInfo.environment["SHEPHERD_BACKEND"] == "ghostty" {
+        // Agents run in ordinary Ghostty tabs and are driven through Ghostty's AppleScript interface.
+        let ghosttyBackend = GhosttySessionBackend()
+        Task { await ghosttyBackend.startListening() }
+        backend = ghosttyBackend
     } else {
         let herdrBackend = HerdrSessionBackend(
             requestClient: RequestClient(transport: UnixSocketTransport()),

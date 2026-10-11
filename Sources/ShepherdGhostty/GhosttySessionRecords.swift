@@ -104,24 +104,12 @@ public struct PSProcessProbe: ProcessProbe {
     public init() {}
 
     private func processTable() async -> [(pid: Int32, command: String)] {
-        await withCheckedContinuation { (continuation: CheckedContinuation<[(pid: Int32, command: String)], Never>) in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/ps")
-            process.arguments = ["-axo", "pid=,command="]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            process.terminationHandler = { _ in
-                let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                let me = ProcessInfo.processInfo.processIdentifier
-                let rows = out.split(separator: "\n").compactMap { line -> (pid: Int32, command: String)? in
-                    let trimmed = line.drop(while: { $0 == " " })
-                    guard let pid = Int32(trimmed.prefix(while: { $0.isNumber })), pid != me else { return nil }
-                    return (pid, String(trimmed))
-                }
-                continuation.resume(returning: rows)
-            }
-            do { try process.run() } catch { continuation.resume(returning: []) }
+        guard let result = try? await ProcessRunner.run("/bin/ps", ["-axo", "pid=,command="]), result.status == 0 else { return [] }
+        let me = ProcessInfo.processInfo.processIdentifier
+        return result.stdout.split(separator: "\n").compactMap { line -> (pid: Int32, command: String)? in
+            let trimmed = line.drop(while: { $0 == " " })
+            guard let pid = Int32(trimmed.prefix(while: { $0.isNumber })), pid != me else { return nil }
+            return (pid, String(trimmed))
         }
     }
 

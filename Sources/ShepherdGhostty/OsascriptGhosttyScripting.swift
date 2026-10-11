@@ -150,33 +150,16 @@ public struct OsascriptGhosttyScripting: GhosttyScripting {
     }
 
     private static func execute(_ script: String) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-"]
-            let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
-            process.standardInput = stdin
-            process.standardOutput = stdout
-            process.standardError = stderr
-            process.terminationHandler = { p in
-                let out = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                let err = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                if p.terminationStatus == 0 {
-                    continuation.resume(returning: out)
-                } else if err.contains("-600") || err.contains("isn’t running") || err.contains("isn't running") {
-                    continuation.resume(throwing: GhosttyError.notRunning)
-                } else {
-                    continuation.resume(throwing: GhosttyError.scriptFailed(err.trimmed))
-                }
-            }
-            do {
-                try process.run()
-                stdin.fileHandleForWriting.write(Data(script.utf8))
-                try? stdin.fileHandleForWriting.close()
-            } catch {
-                continuation.resume(throwing: GhosttyError.scriptFailed("\(error)"))
-            }
+        let result: ProcessRunner.Result
+        do {
+            result = try await ProcessRunner.run("/usr/bin/osascript", ["-"], stdin: script)
+        } catch {
+            throw GhosttyError.scriptFailed("\(error)")
         }
+        if result.status == 0 { return result.stdout }
+        let err = result.stderr
+        if err.contains("-600") || err.contains("isn’t running") || err.contains("isn't running") { throw GhosttyError.notRunning }
+        throw GhosttyError.scriptFailed(err.trimmed)
     }
 }
 

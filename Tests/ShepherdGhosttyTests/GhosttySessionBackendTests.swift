@@ -386,3 +386,44 @@ struct HelperTests {
         #expect(url.path == "/h/.claude/projects/-Users-a-b-dev-my-app/abc.jsonl")
     }
 }
+
+@Suite("ClaudeLocator")
+struct ClaudeLocatorTests {
+    @Test func prefersTheFirstExecutableOnPathThenFallsBackToTheUsualPlaces() {
+        let home = URL(fileURLWithPath: "/h")
+        #expect(ClaudeLocator.find(pathEnvironment: "/a:/b", home: home, isExecutable: { $0 == "/b/claude" }) == "/b/claude")
+        #expect(ClaudeLocator.find(pathEnvironment: "/a", home: home, isExecutable: { $0 == "/h/.local/bin/claude" }) == "/h/.local/bin/claude")
+        #expect(ClaudeLocator.find(pathEnvironment: "", home: home, isExecutable: { _ in false }) == "claude")
+    }
+}
+
+@Suite("Subprocesses")
+struct SubprocessTests {
+    @Test func drainsOutputBiggerThanAPipeWithoutStalling() async throws {
+        // 300 KB on stdout and 200 KB on stderr: more than a pipe holds, as a full `ps` listing is
+        let r = try await ProcessRunner.run("/bin/sh", ["-c", "head -c 300000 /dev/zero | tr '\\0' a; head -c 200000 /dev/zero | tr '\\0' b >&2"])
+        #expect(r.status == 0)
+        #expect(r.stdout.count == 300_000)
+        #expect(r.stderr.count == 200_000)
+    }
+
+    @Test func passesStdinAndReportsFailure() async throws {
+        let r = try await ProcessRunner.run("/bin/sh", ["-c", "cat; exit 3"], stdin: "hello")
+        #expect(r.stdout == "hello")
+        #expect(r.status == 3)
+    }
+
+    @Test func theRealProbeSeesAProcessByItsSessionIdAndCanEndIt() async throws {
+        let id = UUID().uuidString.lowercased()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 30; true", id]  // the id is in the command line, as `claude --session-id <id>` has it; "; true" stops sh from exec-ing sleep and dropping it
+        try process.run()
+        defer { process.terminate() }
+        let probe = PSProcessProbe()
+        #expect(await probe.aliveSessions(among: [id, "00000000-nope"]) == [id])
+        await probe.terminate(sessionID: id)
+        process.waitUntilExit()
+        #expect(await probe.aliveSessions(among: [id]).isEmpty)
+    }
+}
