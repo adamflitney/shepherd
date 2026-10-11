@@ -36,11 +36,14 @@ Measured by `pnpm spike` against a daemon with two sessions:
 | Same, with the dashboard open on a live terminal | **~217 MB** (GPU process grows to ~113, dashboard renderer ~32) |
 | Daemon (separate process, Node) | ~56 MB |
 
+**Swift comparison (measured 2026-10-11, same method):** the released `Shepherd.app` v0.8.2 (ad-hoc signed,
+downloaded from GitHub Releases, run on this Mac with Herdr not installed, so it sat idle with its panel preloaded)
+has a physical footprint of **21 MB**, steady over 30 s. So Electron is about **4x** at idle (~90 MB) and about **10x**
+with the dashboard open (~217 MB). Not measured: the Swift app with live Herdr sessions, which will add a little.
+
 **Correction:** an earlier run of the spike reported "406 MB" from Electron's `workingSetSize`, which counts shared
-framework pages and overstates what the app costs. The physical-footprint figures above are the fair ones. The
-**Swift app has not been measured**: this Mac's Command Line Tools can't build it (SwiftPM's manifest library is out
-of sync with the compiler). Compare on a machine that can run it, with
-`footprint -p $(pgrep -x Shepherd)` against `pnpm start`.
+framework pages and overstates the cost; ignore it. (RSS is similarly misleading: the Swift app's RSS is 90 MB but
+its footprint is 21 MB.)
 
 ## Still needs a human (not safe to automate)
 
