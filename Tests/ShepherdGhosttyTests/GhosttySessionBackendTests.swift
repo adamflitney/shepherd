@@ -427,3 +427,36 @@ struct SubprocessTests {
         #expect(await probe.aliveSessions(among: [id]).isEmpty)
     }
 }
+
+@Suite("Peek timing")
+struct PeekTimingTests {
+    @Test func peekWaitsForTheReplyThatTheStopHookOutranAndGivesUpIfItNeverComes() async throws {
+        let rig = Rig()
+        let clock = rig.clock
+        let backend = GhosttySessionBackend(
+            scripting: rig.scripting, taskStore: rig.tasks, recordStore: GhosttyRecordStore(url: rig.recordsURL),
+            hookStates: HookStateStore(directory: rig.stateDir, now: { clock.now }, staleAfter: .infinity),
+            probe: rig.probe, agentsWindow: rig.windows, home: rig.home, claudeCommand: "claude",
+            pace: .init(afterText: 0, betweenKeys: 0, afterTerminate: 0, transcriptSettle: 50_000_000), now: { clock.now })
+        let id = try await backend.createSession(req())
+        let user: [String: Any] = ["type": "user", "message": ["role": "user", "content": "hello"]]
+        let reply: [String: Any] = ["type": "assistant", "message": ["role": "assistant", "content": [["type": "text", "text": "Hi there."]]]]
+        try rig.writeTranscript(session: id.rawValue, cwd: "/work/app", lines: [user])
+
+        // the reply lands 120 ms into the wait, as it does in life
+        let url = TranscriptPeek.transcriptURL(workingDirectory: "/work/app", sessionID: id.rawValue, home: rig.home)
+        let both = try [user, reply].map { String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self) }.joined(separator: "\n")
+        let late = Task {
+            try await Task.sleep(nanoseconds: 120_000_000)
+            try both.write(to: url, atomically: true, encoding: .utf8)
+        }
+        #expect(try await backend.peek(id) == "› hello\n\nHi there.")
+        try await late.value
+
+        // and a reply that never comes costs a bounded wait, not a hang
+        try rig.writeTranscript(session: id.rawValue, cwd: "/work/app", lines: [user])
+        let started = Date()
+        #expect(try await backend.peek(id) == "› hello")
+        #expect(Date().timeIntervalSince(started) < 2)
+    }
+}

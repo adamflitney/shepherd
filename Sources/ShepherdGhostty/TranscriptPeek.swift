@@ -10,10 +10,22 @@ public enum TranscriptPeek {
         return home.appendingPathComponent(".claude/projects/\(encoded)/\(sessionID).jsonl")
     }
 
+    public struct Message: Equatable, Sendable {
+        public let isUser: Bool
+        public let text: String
+    }
+
     /// The last few exchanges as plain text, newest last, at most `maxCharacters` long.
     public static func recentText(at url: URL, maxMessages: Int = 6, maxCharacters: Int = 4000) -> String {
-        // only the tail matters, so do not read a multi-megabyte transcript in full
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
+        var out = recentMessages(at: url).suffix(maxMessages).map { $0.isUser ? "› \($0.text)" : $0.text }.joined(separator: "\n\n")
+        if out.count > maxCharacters { out = "…" + out.suffix(maxCharacters - 1) }
+        return out
+    }
+
+    /// The text messages of a transcript, oldest first. Only the tail of the file is read, so a
+    /// multi-megabyte transcript costs the same as a short one.
+    public static func recentMessages(at url: URL) -> [Message] {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
         defer { try? handle.close() }
         let size = (try? handle.seekToEnd()) ?? 0
         let window: UInt64 = 256 * 1024
@@ -22,17 +34,15 @@ public enum TranscriptPeek {
         var lines = String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true)
         if size > window, !lines.isEmpty { lines.removeFirst() }  // a partial first line
 
-        var messages: [String] = []
+        var messages: [Message] = []
         for line in lines {
             guard let obj = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
                   let type = obj["type"] as? String, type == "user" || type == "assistant",
                   let message = obj["message"] as? [String: Any],
                   let text = plainText(message["content"]), !text.isEmpty else { continue }
-            messages.append(type == "user" ? "› \(text)" : text)
+            messages.append(Message(isUser: type == "user", text: text))
         }
-        var out = messages.suffix(maxMessages).joined(separator: "\n\n")
-        if out.count > maxCharacters { out = "…" + out.suffix(maxCharacters - 1) }
-        return out
+        return messages
     }
 
     /// Text blocks only: tool calls and results are noise in a peek. Returns nil for a message that

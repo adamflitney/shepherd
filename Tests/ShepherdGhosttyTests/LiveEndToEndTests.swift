@@ -83,7 +83,7 @@ struct LiveEndToEndTests {
         }
         let first = try await backend.peek(id)
         print("peek after first turn:\n\(first)\n")
-        #expect(first.contains("PINEAPPLE-77"), "the SessionStart hook should have injected the task context")
+        #expect(first.contains("PINEAPPLE-77"), "the SessionStart hook should have injected the task context, and peek should see the reply")
         print("title: \(try await session()?.title ?? "nil")")
 
         // 3. a blocked question, answered by number through the arrow keys

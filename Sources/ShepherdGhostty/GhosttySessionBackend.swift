@@ -25,12 +25,14 @@ public actor GhosttySessionBackend: SessionBackend {
         public var afterText: UInt64
         public var betweenKeys: UInt64
         public var afterTerminate: UInt64
-        public init(afterText: UInt64 = 200_000_000, betweenKeys: UInt64 = 80_000_000, afterTerminate: UInt64 = 800_000_000) {
+        public var transcriptSettle: UInt64
+        public init(afterText: UInt64 = 200_000_000, betweenKeys: UInt64 = 80_000_000, afterTerminate: UInt64 = 800_000_000, transcriptSettle: UInt64 = 300_000_000) {
             self.afterText = afterText
             self.betweenKeys = betweenKeys
             self.afterTerminate = afterTerminate
+            self.transcriptSettle = transcriptSettle
         }
-        public static let none = Pace(afterText: 0, betweenKeys: 0, afterTerminate: 0)
+        public static let none = Pace(afterText: 0, betweenKeys: 0, afterTerminate: 0, transcriptSettle: 0)
     }
 
     private var records: [String: GhosttySessionRecord]
@@ -185,6 +187,14 @@ public actor GhosttySessionBackend: SessionBackend {
     public func peek(_ id: SessionID) async throws -> String {
         let record = try record(for: id)
         let url = TranscriptPeek.transcriptURL(workingDirectory: record.workingDirectory, sessionID: record.sessionID, home: home)
+        // The Stop hook fires a moment before Claude Code has written the last reply to the transcript,
+        // so a session that has just finished can look like it ended on the user's message. Give the
+        // write a chance to land, unless the agent is plainly still working on a reply.
+        if pace.transcriptSettle > 0, !isWorking(record) {
+            for _ in 0..<4 where TranscriptPeek.recentMessages(at: url).last?.isUser == true {
+                try? await Task.sleep(nanoseconds: pace.transcriptSettle)
+            }
+        }
         let text = TranscriptPeek.recentText(at: url)
         return text.isEmpty ? "(nothing said yet)" : text
     }
@@ -338,6 +348,10 @@ public actor GhosttySessionBackend: SessionBackend {
     private func terminal(of r: GhosttySessionRecord) throws -> GhosttyTerminalRef {
         guard let ref = r.ref else { throw BackendError.unavailable("the session has no terminal") }
         return ref
+    }
+
+    private func isWorking(_ r: GhosttySessionRecord) -> Bool {
+        published[r.sessionID]?.attention.kind == .working
     }
 
     private func markSeen(_ sessionID: String) {
