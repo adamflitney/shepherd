@@ -2,15 +2,16 @@
 
 # shepherd
 
-A native macOS menu-bar app for [Herdr](https://herdr.dev), a terminal workspace manager for AI coding agents. Herdr shows you which of your agent sessions need attention, but only while you're looking at a terminal. shepherd answers "which of my agents need me?" at a glance from the menu bar, and lets you switch to, create, or quickly ask something of a session without ever opening a terminal — and, from your phone, answer a blocked agent without being at your Mac at all.
+A native macOS menu-bar app for running AI coding agents in [Ghostty](https://ghostty.org) tabs and keeping track of them. It answers "which of my agents need me?" at a glance from the menu bar, groups sessions by **task** instead of by directory, and lets you switch to, start, answer or quickly ask something of a session without first focusing a terminal — and, from your phone, answer a blocked agent without being at your Mac at all. The terminals are ordinary Ghostty tabs: shepherd adds nothing between you and them.
 
 ## What it does
 
 - **Menu bar dashboard** — the icon shows your worst-case attention state across all sessions (blocked/done/working/idle/unknown) at a glance. Click it to see the full list.
+- **Tasks** — a tab for what you're working on, not which directory you're in. Each task is a markdown file; its sessions are linked to it, so "the session I was using for X" is one keystroke away and a task can outlive any number of sessions. Enter starts (or resumes) a task's session, or goes to it if one is live; ⌘Enter turns what you typed into a new task; ⌘Delete marks one done. Agents keep their task current with the `crook` CLI. See [Tasks](#tasks).
 - **Quick switcher** — press a global hotkey (Hyper+W by default, configurable) from any app to pop up a searchable panel and jump straight to a session, fully keyboard-driven.
 - **Project picker** — from the same panel, fuzzy-search your projects (frecency-ranked) and start a new session in one, instead of hunting for the right directory.
 - **Inline quick-answer** — type a question directly into the panel and get an answer without switching to a terminal at all. If the question turns out to need real work, shepherd spawns a real session for it automatically and sends your question in. The conversation stays put if you switch to another tab and back; click the bubble icon in the search bar, or press Hyper+N, to start a fresh one.
-- **Peek** — press → on a selected session to see what's currently on its screen before deciding whether to switch to it.
+- **Peek** — press → on a selected session to see what it last said (read from its transcript) before deciding whether to switch to it.
 - **Review** — a fourth tab lists PRs you're a requested reviewer on (via `gh`), each with its review status and check counts (matching GitHub's own PR list), that match a repo you already have cloned locally. Picking one creates an isolated git worktree for that PR's branch and starts a session in it, so an agent can review it or answer questions about it without touching whatever's already checked out in your normal clone. Bot-authored PRs (Dependabot/Renovate, etc.) are excluded by default; not reviewing one yourself? Press Delete or click the eye-slash icon to dismiss it for good. A PR in a repo you haven't cloned still shows up, marked "not cloned" — starting a review on it clones it first (via `gh repo clone`) into the first `projects.directories` entry, then starts the review; it's never cloned automatically. Keyboard: ↑/↓ to move, Enter to open the PR on GitHub, ⌘Enter to start a session on it (the terminal and arrow icons on each row do the same; a click opens GitHub), ⌘Delete to dismiss it (plain Delete too, with the filter empty); each tab's shortcuts are listed in a faint line at the bottom of the panel. The strip above the list counts PRs to review and your own open PRs (and how many of yours await approval); start the filter with `@` to switch to your own PRs (⌘Enter starts a session on one to work through its review comments and checks), or with `%` or `*` to list dismissed PRs; ⌘Delete (or the eye icon) brings one back.
 - **Notifications** — get notified when a session becomes blocked or finishes, so you don't have to keep the panel open to watch for it. Toggle on/off from the menu bar.
 - **Mobile access** — answer blocked sessions, read what an agent said, reply, and start new sessions from your phone, with push notifications when an agent needs you. Needs [Tailscale](https://tailscale.com) (see [Mobile access](#mobile-access)).
@@ -59,7 +60,7 @@ The [mobile access](#mobile-access) web page (not the menu bar app) — the sess
 | 🟢 checkmark | **Done** — the agent finished and is waiting for you to look |
 | 🔵 bolt | **Working** — the agent is actively running |
 | ⚪️ moon | **Idle** — nothing pending, not currently doing anything |
-| ⚪️ question mark | **Unknown** — Herdr hasn't reported a status yet |
+| ⚪️ question mark | **Unknown** — no hook has reported for this session yet (hooks not installed, or it hasn't started working) |
 
 **Row icons**, on the right of each session:
 
@@ -86,7 +87,8 @@ The [mobile access](#mobile-access) web page (not the menu bar app) — the sess
 
 Right-click the menu bar icon for:
 
-- **Install Hooks…** / **Uninstall Hooks…** — installs Claude Code hooks that let shepherd distinguish *why* a session is blocked (a plain question vs. a permission prompt) and show todo progress while idle, richer than what Herdr's socket alone reports.
+- **Install Hooks…** / **Uninstall Hooks…** — installs the Claude Code hooks that tell shepherd what each session is doing — working, finished, or blocked and *why* (a plain question, a permission prompt) — plus todo progress, and registers the task-context hook and `crook` (see [Tasks](#tasks)). With the Ghostty backend these hooks are the only source of state, so install them first.
+- **Use Front Ghostty Window for Agents** — makes Ghostty's front window the one new sessions open in (see [How agents run](#how-agents-run)).
 - **Change Hotkey…** — set the quick-switcher's global hotkey (see [Configuration](#configuration)).
 - **Terminal** — a submenu to pick which terminal app shepherd raises after switching to a session (Ghostty, Terminal, or iTerm2), applied immediately.
 - **Agent** — a submenu to pick which agent CLI new sessions get started with (Claude Code or OpenCode), applied immediately.
@@ -144,7 +146,7 @@ The server listens on this Mac's loopback address only, so nothing on your netwo
 
 - It only works while Shepherd is running — the window has a toggle to open it at login. If Shepherd quits, the phone shows an error until it's back.
 - By default Shepherd keeps the Mac awake while any session is working or waiting on you, so agents keep running and a blocked one can be answered from your phone. Closing a laptop's lid still sleeps it. You can turn this off in the window.
-- Phone alerts follow the same rules as the Mac's (a session blocking or finishing), plus one more: a session going from working to idle also alerts your phone, since Herdr reports a run you've already looked at as idle rather than done. The Mac's **Notifications** toggle doesn't affect the phone. **Don't alert my phone while I'm at my Mac** (on by default) holds alerts back while you're using the keyboard or mouse, in any app, since the Mac's own notifications are enough then. After a couple of minutes without input alerts come through; a session still waiting when you walk away is sent then. Turn it off to always get them.
+- Phone alerts follow the same rules as the Mac's (a session blocking or finishing), plus one more: a session going from working to idle also alerts your phone, since a run you've already looked at is idle rather than done. The Mac's **Notifications** toggle doesn't affect the phone. **Don't alert my phone while I'm at my Mac** (on by default) holds alerts back while you're using the keyboard or mouse, in any app, since the Mac's own notifications are enough then. After a couple of minutes without input alerts come through; a session still waiting when you walk away is sent then. Turn it off to always get them.
 - The Mobile Access window lists the phones that have alerts on, with when each was last seen and a **Remove** button — use it to clear an old phone or a deleted Home Screen app. Phones not seen for 90 days are dropped automatically (opening Shepherd on a dropped phone brings it back).
 - Turning mobile access off stops the server and removes the Tailscale share it created.
 - The address is part of the phone app's identity: if you rename the machine or tailnet, re-add it to the Home Screen and turn alerts on again.
@@ -161,6 +163,41 @@ The server listens on this Mac's loopback address only, so nothing on your netwo
 
 Design notes, the security model in detail, and known gaps: [docs/mobile-access.md](docs/mobile-access.md).
 
+## How agents run
+
+Sessions are ordinary tabs in a Ghostty window; shepherd starts and drives them through Ghostty's AppleScript interface (Ghostty 1.3+). Because Ghostty can neither read its screen nor report events, shepherd learns what it needs another way:
+
+- **What an agent is doing** comes from Claude Code's hooks (**Install Hooks…** in the menu), which write small state files. *Done* means "finished while you weren't looking": it clears when you focus or type into the session.
+- **What it said** (Peek, the phone view) comes from the session's transcript.
+- **Whether it's still running** comes from the process table. Close a tab yourself and the session simply disappears from the list.
+
+Ghostty can't place a window on a particular monitor, so new sessions open as tabs in one **agents window**: put a Ghostty window where you want it (say, on your second monitor), then right-click the menu bar icon → **Use Front Ghostty Window for Agents**. Without one, the first session opens a new window and later ones join it.
+
+Two things to know:
+
+- **First session in a new directory.** Claude Code asks "do you trust this folder?", and no hook reports that. A session started with a first message that stays silent for a few seconds shows as *blocked* with the menu's real choices (answer from the panel, the phone, or the tab itself).
+- **Questions with several choices** are answered the way you would by hand: shepherd moves the cursor, toggles, opens the review and confirms. (Ghostty's `send key` can't type digits, so this is done with arrow keys and Enter.)
+
+The older [Herdr](https://herdr.dev) backend still exists behind `"backend": {"kind": "herdr"}` (or `--herdr`) and is slated for removal.
+
+## Tasks
+
+A task is a file in `~/.shepherd/tasks/` (`0042-board-view.md`): frontmatter (`title`, `objective`, `project_path`, `status`, `sessions`, …), a `## Plan` checklist and a dated `## Log`. Statuses are `inbox`, `ready`, `active`, `review` and `done`. Edit them by hand if you like; unknown fields and sections are kept as written.
+
+- **Starting a task's session** (Tasks tab → Enter) links the session to the task *before* the agent runs, passes `SHEPHERD_TASK_ID`, and, if the task already has a conversation on disk, resumes it (`claude --resume`) instead of starting over.
+- **The agent is told about its task.** **Install Hooks…** registers a `SessionStart` hook that injects the task's plan and recent log into the session, including after `/clear` and on resume, so a fresh session can pick the work up from the file alone.
+- **`crook`** is the CLI agents use to keep a task current. Install Hooks copies it to `~/.shepherd/bin/crook` and tells the agent its path. You can use it too:
+
+```bash
+crook task new "Fix the build" --objective "CI is red since the lockfile change" --project ~/dev/api
+crook task list
+crook task show 3
+crook task plan 3 add "bump the lockfile"      # also: check <n> / uncheck <n>
+crook task log 3 "root cause was a stale cache"
+crook task status 3 review
+crook task find --session <id>                  # which task a session belongs to
+```
+
 ## Configuration
 
 `~/.config/shepherd/config.json` (created with defaults on first launch):
@@ -174,7 +211,8 @@ Design notes, the security model in detail, and known gaps: [docs/mobile-access.
   "sessions": { "defaultDirectory": "~" },
   "review": { "includeBots": false, "hideOlderThanDays": null },
   "agent": { "kind": "claude" },
-  "web": { "enabled": false, "port": 8787, "keepAwake": true, "alertsOnlyWhenAway": true }
+  "web": { "enabled": false, "port": 8787, "keepAwake": true, "alertsOnlyWhenAway": true },
+  "backend": { "kind": "ghostty" }
 }
 ```
 
@@ -189,6 +227,8 @@ You can edit this field directly, or change it from the app: right-click the men
 
 `notifications.enabled` toggles whether shepherd posts a notification on blocked/done transitions — also available as a checkbox in the same right-click menu (**Notifications**). Turning it off doesn't revoke the OS-level permission, so re-enabling it later never needs a fresh authorization prompt.
 
+`backend.kind` is where agents run: `"ghostty"` (the default, see [How agents run](#how-agents-run)) or `"herdr"` (legacy). `--herdr` / `--ghostty` on the command line, or `SHEPHERD_BACKEND`, override it. The next three settings apply to the Herdr backend only.
+
 `terminal.appName` is which app shepherd brings to the front (via AppleScript `activate`) after switching to a session — defaults to `"Ghostty"`. Rather than editing this by hand (iTerm2's actual AppleScript name is `"iTerm"`, not `"iTerm2"` — it's literally `iTerm.app` under the hood, easy to get wrong as free text), pick it from the right-click menu's **Terminal** submenu, which only offers verified-correct names and applies immediately, no restart. Only AppleScript-scriptable terminals are supported (Ghostty, Terminal, iTerm2); GPU terminals like Alacritty, kitty, and WezTerm aren't.
 
 `sessions.defaultDirectory` is where the inline quick-answer panel's escalated/promoted sessions get created — defaults to `"~"`. Set it to `"~/dev"` (or wherever your projects live) for better context/memory of prior work, either by editing the field directly or via the right-click menu's **Change Default Directory…** (a native folder picker), which applies immediately, no restart.
@@ -202,12 +242,12 @@ You can edit this field directly, or change it from the app: right-click the men
 ## Dependencies
 
 - **macOS 14+**
-- **[Herdr](https://herdr.dev)** — shepherd talks to Herdr's local socket API; it has no functionality without a running Herdr instance.
-- **[Claude Code CLI](https://claude.com/claude-code)** (`claude`) on your `PATH` — used both for the sessions Herdr manages and for shepherd's own inline quick-answer feature.
-- **[OpenCode](https://opencode.ai)** (`opencode`) on your `PATH`, with `herdr integration install opencode` run at least once — only needed if you set `agent.kind` to `"opencode"` (experimental, see [Configuration](#configuration)).
+- **[Ghostty](https://ghostty.org) 1.3+** — agents run in its tabs, driven through its AppleScript interface. (The first time shepherd controls it, macOS asks to allow that.)
+- **[Claude Code CLI](https://claude.com/claude-code)** (`claude`) — for the sessions shepherd starts and for its inline quick-answer feature. shepherd looks for it in your `PATH`, then `~/.local/bin`, `~/.claude/local`, and Homebrew's prefix.
+- **[OpenCode](https://opencode.ai)** — only with the legacy Herdr backend and `agent.kind` set to `"opencode"` (experimental, see [Configuration](#configuration)). The Ghostty backend runs Claude Code only.
 - **[GitHub CLI](https://cli.github.com)** (`gh`), authenticated, on your `PATH` — used by the Review tab. Optional otherwise.
 - **[Tailscale](https://tailscale.com)** — only needed for [mobile access](#mobile-access). Optional otherwise.
-- **Swift 6 toolchain** (Xcode 16+) to build from source. No third-party Swift package dependencies.
+- **Swift 6 toolchain** (Xcode 16+, or just the Command Line Tools) to build from source. No third-party Swift package dependencies.
 
 ## Getting started
 
@@ -221,10 +261,11 @@ This builds a release binary, assembles `Shepherd.app` (including the phone view
 
 **First run**, in this order:
 
-1. Make sure Herdr is running, then open Shepherd — a small icon appears in the menu bar.
-2. Right-click the icon → **Install Hooks…** (richer blocked-reason detail, and the question/choice text the phone view shows).
+1. Open Shepherd — a small icon appears in the menu bar. (Ghostty starts when the first session does.)
+2. Right-click the icon → **Install Hooks…**. This is what tells shepherd whether an agent is working, finished or blocked (and on what), and it installs `crook` and the task-context hook. Without it every session shows as "unknown".
 3. Optional: right-click → **Launch at Login**.
-4. Optional: right-click → **Mobile Access…** to set up the [phone view](#mobile-access).
+4. Optional: right-click → **Use Front Ghostty Window for Agents** once you've put a Ghostty window where you want your agents.
+5. Optional: right-click → **Mobile Access…** to set up the [phone view](#mobile-access).
 
 Then press **Hyper+W** (Cmd+Ctrl+Opt+Shift+W) for the quick switcher; change it under **Change Hotkey…**.
 
@@ -232,8 +273,10 @@ Then press **Hyper+W** (Cmd+Ctrl+Opt+Shift+W) for the quick switcher; change it 
 
 ```bash
 swift build
-swift test                       # one live-integration test depends on a real Herdr's state and can fail on its own
-swift run Shepherd -- --fake     # the menu bar app against seeded demo data, no Herdr required
+scripts/test.sh                  # swift test; on a Command Line Tools-only machine SwiftPM can't find Swift Testing unaided, this passes the paths
+SHEPHERD_LIVE_GHOSTTY=1 scripts/test.sh --filter LiveGhosttyTests    # opt-in: drives the real Ghostty (opens windows it creates itself)
+SHEPHERD_LIVE_E2E=1 scripts/test.sh --filter LiveEndToEndTests       # opt-in: real Ghostty + Claude Code + hooks + crook in a scratch directory
+swift run Shepherd -- --fake     # the menu bar app against seeded demo data, no Ghostty required
 swift run Shepherd -- --fake --demo-panel=review --demo-query=@   # open the panel on a tab (sessions|create|ask|review) with a filter typed, for screenshots
 ```
 
@@ -241,8 +284,11 @@ Package layout — dependencies point downward, and there are no third-party Swi
 
 | Target | What it is |
 |---|---|
-| `ShepherdCore` | Domain model, the `SessionBackend` protocol, config. Knows nothing about Herdr or AppKit. |
-| `ShepherdHerdr` | The Herdr socket adapter and Claude Code hook-state parsing. |
+| `ShepherdCore` | Domain model, the `SessionBackend` protocol, config, Claude Code hook-state parsing. Knows nothing about Ghostty, Herdr or AppKit. |
+| `ShepherdTasks` | Task files, the store, the SessionStart hook logic. Foundation only. |
+| `crook` | The task CLI agents use (executable over `ShepherdTasks`). |
+| `ShepherdGhostty` | The Ghostty backend: AppleScript driver, session records, hook-driven attention. |
+| `ShepherdHerdr` | The legacy Herdr socket adapter. |
 | `ShepherdUI` | View models and SwiftUI views, plus the shared notification policy. Depends only on Core. |
 | `ShepherdWebKit` | The phone view's server (HTTP, API, push, Tailscale setup) and its web client in `Public/`. |
 | `Shepherd` | The menu bar app. Hosts the server and the Mobile Access window. |
