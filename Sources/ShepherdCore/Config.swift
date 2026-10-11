@@ -72,6 +72,18 @@ public struct AgentConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// Where agents run: `ghostty` (ordinary Ghostty tabs, driven by AppleScript) or `herdr` (the legacy
+/// Herdr backend, kept until it is removed). A raw string so an unknown value degrades to the default.
+public struct BackendConfig: Codable, Equatable, Sendable {
+    public var kind: String
+
+    public init(kind: String = "ghostty") {
+        self.kind = kind
+    }
+
+    public var isHerdr: Bool { kind.lowercased() == "herdr" }
+}
+
 /// The phone-facing web view (Mobile Access). Off by default: it opens a
 /// server, and turning that on should be a deliberate choice. Every field
 /// decodes independently with a default, so config files written before a
@@ -128,6 +140,7 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
     public var review: ReviewConfig
     public var agent: AgentConfig
     public var web: WebConfig
+    public var backend: BackendConfig
 
     public init(
         projects: ProjectsConfig,
@@ -137,7 +150,8 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
         sessions: SessionsConfig = SessionsConfig(defaultDirectory: "~"),
         review: ReviewConfig = ReviewConfig(),
         agent: AgentConfig = AgentConfig(),
-        web: WebConfig = WebConfig()
+        web: WebConfig = WebConfig(),
+        backend: BackendConfig = BackendConfig()
     ) {
         self.projects = projects
         self.hotkey = hotkey
@@ -147,6 +161,7 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
         self.review = review
         self.agent = agent
         self.web = web
+        self.backend = backend
     }
 
     // Custom decode so existing config files written before `hotkey`/
@@ -171,6 +186,8 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
             ?? AgentConfig()
         web = try container.decodeIfPresent(WebConfig.self, forKey: .web)
             ?? WebConfig()
+        backend = try container.decodeIfPresent(BackendConfig.self, forKey: .backend)
+            ?? BackendConfig()
     }
 
     public static let `default` = ShepherdConfig(
@@ -181,7 +198,8 @@ public struct ShepherdConfig: Codable, Equatable, Sendable {
         sessions: SessionsConfig(defaultDirectory: "~"),
         review: ReviewConfig(),
         agent: AgentConfig(),
-        web: WebConfig()
+        web: WebConfig(),
+        backend: BackendConfig()
     )
 }
 

@@ -179,7 +179,7 @@ public struct TaskFile: Sendable {
 
 /// Text injected into a session that works on this task: header, the whole Plan, and as much of the
 /// most recent Log as fits in `max` characters.
-public func taskContext(_ t: TaskFile, max: Int = 9000) -> String {
+public func taskContext(_ t: TaskFile, max: Int = 9000, crook: String = "crook") -> String {
     var head: [String] = ["You are working on shepherd task #\(t.id): \(t.title)"]
     if let o = t.objective { head.append("Objective: \(o)") }
     var status = "Status: \(t.status.rawValue)"
@@ -187,7 +187,7 @@ public func taskContext(_ t: TaskFile, max: Int = 9000) -> String {
     if let b = t.branch { status += " | Branch: \(b)" }
     if let pr = t.pr { status += " | PR: \(pr)" }
     head.append(status)
-    head.append("Keep the task current with the `crook` CLI: `crook task plan <id> add|check|uncheck`, `crook task log <id> <text>`, `crook task status <id> <status>`.")
+    head.append("Keep the task current with the crook CLI: `\(crook) task plan <id> add|check|uncheck`, `\(crook) task log <id> <text>`, `\(crook) task status <id> <status>`.")
 
     let plan = t.section("Plan")
     let log = t.section("Log")

@@ -161,6 +161,32 @@ struct StartingTests {
     }
 }
 
+@Suite("GhosttySessionBackend: configuration")
+struct ConfigurationTests {
+    @Test func tellsTheAgentWhereCrookIsWhenItIsInstalled() async throws {
+        let rig = Rig()
+        let clock = rig.clock
+        let backend = GhosttySessionBackend(
+            scripting: rig.scripting, taskStore: rig.tasks, recordStore: GhosttyRecordStore(url: rig.recordsURL),
+            hookStates: HookStateStore(directory: rig.stateDir, now: { clock.now }, staleAfter: .infinity),
+            probe: rig.probe, agentsWindow: rig.windows, home: rig.home, claudeCommand: "claude",
+            crookPath: "/h/.shepherd/bin/crook", pace: .none, now: { clock.now })
+        let id = try await backend.createSession(req())
+        #expect(try #require(openCall(rig)).env == ["SHEPHERD_SESSION_ID": id.rawValue, "SHEPHERD_CROOK": "/h/.shepherd/bin/crook"])
+    }
+
+    @Test func useFrontmostWindowPointsNewSessionsAtGhosttysFrontWindow() async throws {
+        let rig = Rig()
+        let backend = rig.backend()
+        #expect(try await backend.useFrontmostWindowForAgents() == "win-1")  // what the fake reports as the front window
+        #expect(rig.windows.get() == "win-1")
+        rig.windows.set("somewhere-else")
+        _ = try await backend.useFrontmostWindowForAgents()
+        _ = try await backend.createSession(req())
+        #expect(try #require(openCall(rig)).windowID == "win-1")
+    }
+}
+
 @Suite("GhosttySessionBackend: attention from hooks")
 struct AttentionTests {
     private func started(_ rig: Rig) async throws -> (GhosttySessionBackend, String) {

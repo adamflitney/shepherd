@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Applies a newly-picked terminal app to the live Herdr backend. `nil`
     /// under `--fake`, since there's no real terminal to activate.
     private let onTerminalAppNameChanged: ((String) -> Void)?
+    /// Set when agents run in Ghostty: makes its front window the agents window, and returns where it
+    /// ended up (or throws).
+    private let useFrontGhosttyWindow: (() async throws -> Void)?
     private var store: SessionsStore!
     private var panel: PanelWindow!
     private var statusItemController: StatusItemController!
@@ -31,9 +34,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var reviewRefreshTask: Task<Void, Never>?
     private let reviewRefreshIntervalNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
 
-    init(backend: any SessionBackend, onTerminalAppNameChanged: ((String) -> Void)? = nil) {
+    init(
+        backend: any SessionBackend,
+        onTerminalAppNameChanged: ((String) -> Void)? = nil,
+        useFrontGhosttyWindow: (() async throws -> Void)? = nil
+    ) {
         self.backend = backend
         self.onTerminalAppNameChanged = onTerminalAppNameChanged
+        self.useFrontGhosttyWindow = useFrontGhosttyWindow
         super.init()
     }
 
@@ -117,6 +125,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItemController.currentTerminalAppName = { ShepherdConfig.load().terminal.appName }
         statusItemController.onSelectTerminal = { [weak self] appName in self?.changeTerminal(to: appName) }
+        if let useFrontGhosttyWindow {
+            statusItemController.onUseFrontGhosttyWindow = {
+                Task { @MainActor in
+                    let alert = NSAlert()
+                    do {
+                        try await useFrontGhosttyWindow()
+                        alert.messageText = "Agent tabs will open in that window"
+                        alert.informativeText = "New sessions start as tabs in Ghostty's front window. Put the window where you want it."
+                    } catch {
+                        alert.alertStyle = .warning
+                        alert.messageText = "Couldn't use that window"
+                        alert.informativeText = "\(error)"
+                    }
+                    alert.runModal()
+                }
+            }
+        }
 
         statusItemController.currentAgentKind = { ShepherdConfig.load().agent.kind }
         statusItemController.onSelectAgentKind = { kind in

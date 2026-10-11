@@ -184,3 +184,13 @@ import Foundation
     let decoded = try JSONDecoder().decode(ShepherdConfig.self, from: JSONEncoder().encode(cfg))
     #expect(decoded.web == WebConfig(enabled: true, port: 9000, keepAwake: false, alertsOnlyWhenAway: true))
 }
+
+@Test func theBackendDefaultsToGhosttyAndOldConfigFilesStillLoad() throws {
+    // a config file written before `backend` existed
+    let old = #"{"projects":{"directories":["~/dev"],"exclude":[]}}"#.data(using: .utf8)!
+    let config = try JSONDecoder().decode(ShepherdConfig.self, from: old)
+    #expect(config.backend == BackendConfig(kind: "ghostty"))
+    #expect(!config.backend.isHerdr)
+    #expect(BackendConfig(kind: "Herdr").isHerdr)
+    #expect(!BackendConfig(kind: "anything-else").isHerdr)
+}

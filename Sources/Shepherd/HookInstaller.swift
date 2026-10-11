@@ -48,7 +48,28 @@ enum HookInstaller {
         }
 
         let existing = readSettings() ?? .object([:])
-        try writeSettings(insertShepherdHooks(existing, hooksDirectory: hooksDirectory.path))
+        try writeSettings(insertShepherdHooks(existing, hooksDirectory: hooksDirectory.path, crookPath: installCrook()))
+    }
+
+    /// Where agents and the SessionStart hook find `crook`: a stable path outside the app bundle, so
+    /// the hook keeps working if the app is moved or updated.
+    static let crookURL = URL(fileURLWithPath: NSString(string: "~/.shepherd/bin/crook").expandingTildeInPath)
+
+    /// Copies the `crook` that ships next to the app's executable to `~/.shepherd/bin`. Returns its
+    /// path, or nil when there is none to copy (the task hook is then simply not registered).
+    private static func installCrook() -> String? {
+        guard let source = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("crook"),
+              FileManager.default.isExecutableFile(atPath: source.path) else { return nil }
+        do {
+            try FileManager.default.createDirectory(at: crookURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: crookURL)
+            try FileManager.default.copyItem(at: source, to: crookURL)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: crookURL.path)
+            return crookURL.path
+        } catch {
+            NSLog("Shepherd could not install crook: \(error)")
+            return nil
+        }
     }
 
     static func uninstall() throws {

@@ -34,6 +34,8 @@ final class StatusItemController: NSObject {
     /// and applies a newly-picked one.
     var currentAgentKind: (() -> String)?
     var onSelectAgentKind: ((String) -> Void)?
+    /// Set only when agents run in Ghostty: points shepherd at Ghostty's front window.
+    var onUseFrontGhosttyWindow: (() -> Void)?
 
     /// (menu label, actual AppleScript app name) - kept apart because
     /// iTerm2's real AppleScript name is "iTerm" (it's literally iTerm.app
@@ -86,6 +88,11 @@ final class StatusItemController: NSObject {
         menu.addItem(changeHotkeyItem)
         menu.addItem(terminalMenuItem())
         menu.addItem(agentMenuItem())
+        if onUseFrontGhosttyWindow != nil {
+            let windowItem = NSMenuItem(title: "Use Front Ghostty Window for Agents", action: #selector(useFrontGhosttyWindow), keyEquivalent: "")
+            windowItem.target = self
+            menu.addItem(windowItem)
+        }
         let changeDefaultDirectoryItem = NSMenuItem(
             title: "Change Default Directory…", action: #selector(promptForDefaultSessionDirectory), keyEquivalent: ""
         )
@@ -108,6 +115,10 @@ final class StatusItemController: NSObject {
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
+    }
+
+    @objc private func useFrontGhosttyWindow() {
+        onUseFrontGhosttyWindow?()
     }
 
     @objc private func showMobileAccess() {

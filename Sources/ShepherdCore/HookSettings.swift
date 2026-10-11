@@ -9,7 +9,12 @@ public let shepherdHookMarkers = ["shepherd-log-event.sh", "shepherd-write-state
 
 private func isShepherdCommand(_ hook: JSONValue) -> Bool {
     guard case .object(let fields) = hook, case .string(let command)? = fields["command"] else { return false }
-    return shepherdHookMarkers.contains { command.contains($0) }
+    return shepherdHookMarkers.contains { command.contains($0) } || isCrookSessionStartCommand(command)
+}
+
+/// The task-context hook: `'<path>/crook' hook session-start`.
+private func isCrookSessionStartCommand(_ command: String) -> Bool {
+    command.contains("crook") && command.contains("hook session-start")
 }
 
 /// Removes every hook entry that references a Shepherd script, dropping an
@@ -73,7 +78,7 @@ private let shepherdHookSpecs: [ShepherdHookSpec] = [
 /// Adds Shepherd's own hook registrations, idempotently (strips any existing
 /// ones first, so calling this twice never duplicates entries) and without
 /// disturbing any other tool's entries already present for the same event.
-public func insertShepherdHooks(_ settings: JSONValue, hooksDirectory: String) -> JSONValue {
+public func insertShepherdHooks(_ settings: JSONValue, hooksDirectory: String, crookPath: String? = nil) -> JSONValue {
     guard case .object(var root) = stripShepherdHooks(settings) else { return settings }
 
     var hooksByEvent: [String: JSONValue]
@@ -98,6 +103,20 @@ public func insertShepherdHooks(_ settings: JSONValue, hooksDirectory: String) -
             hooksByEvent[spec.event] = .array(entries)
         } else {
             hooksByEvent[spec.event] = .array([newEntry])
+        }
+    }
+
+    // Injects the linked task's plan and log into a session as it starts (see `crook hook session-start`).
+    if let crookPath {
+        let entry = JSONValue.object([
+            "matcher": .string("startup|resume|clear|compact"),
+            "hooks": .array([.object(["type": .string("command"), "command": .string("'\(crookPath)' hook session-start")])]),
+        ])
+        if case .array(var entries)? = hooksByEvent["SessionStart"] {
+            entries.append(entry)
+            hooksByEvent["SessionStart"] = .array(entries)
+        } else {
+            hooksByEvent["SessionStart"] = .array([entry])
         }
     }
 

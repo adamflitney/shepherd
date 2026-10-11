@@ -35,13 +35,20 @@ MainActor.assumeIsolated {
 
     let backend: any SessionBackend
     var onTerminalAppNameChanged: ((String) -> Void)?
-    if CommandLine.arguments.contains("--fake") {
+    var useFrontGhosttyWindow: (() async throws -> Void)?
+    let args = CommandLine.arguments
+    let useHerdr = args.contains("--herdr")
+        || ProcessInfo.processInfo.environment["SHEPHERD_BACKEND"] == "herdr"
+        || (!args.contains("--ghostty") && ShepherdConfig.load().backend.isHerdr)
+    if args.contains("--fake") {
         backend = FakeSessionBackend(sessions: DemoSessions.all)
-    } else if CommandLine.arguments.contains("--ghostty") || ProcessInfo.processInfo.environment["SHEPHERD_BACKEND"] == "ghostty" {
+    } else if !useHerdr {
         // Agents run in ordinary Ghostty tabs and are driven through Ghostty's AppleScript interface.
-        let ghosttyBackend = GhosttySessionBackend()
+        let crook = HookInstaller.crookURL.path
+        let ghosttyBackend = GhosttySessionBackend(crookPath: FileManager.default.isExecutableFile(atPath: crook) ? crook : nil)
         Task { await ghosttyBackend.startListening() }
         backend = ghosttyBackend
+        useFrontGhosttyWindow = { _ = try await ghosttyBackend.useFrontmostWindowForAgents() }
     } else {
         let herdrBackend = HerdrSessionBackend(
             requestClient: RequestClient(transport: UnixSocketTransport()),
@@ -58,7 +65,11 @@ MainActor.assumeIsolated {
         }
     }
 
-    let delegate = AppDelegate(backend: backend, onTerminalAppNameChanged: onTerminalAppNameChanged)
+    let delegate = AppDelegate(
+        backend: backend,
+        onTerminalAppNameChanged: onTerminalAppNameChanged,
+        useFrontGhosttyWindow: useFrontGhosttyWindow
+    )
     app.delegate = delegate
     app.run()
 }

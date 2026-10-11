@@ -49,3 +49,16 @@ struct SessionStartHookTests {
         #expect(sessionStartHookOutput(SessionStartInput(sessionID: "s"), env: ["SHEPHERD_TASK_ID": "99"], store: makeStore()) == nil)
     }
 }
+
+@Suite("Task context for the agent")
+struct TaskContextCrookTests {
+    @Test func theContextNamesTheCrookPathItWasGiven() throws {
+        let store = TaskStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("crook-ctx-\(UUID().uuidString)"))
+        try store.create(NewTask(title: "T"))
+        try store.update(1) { $0.linkSession("s1") }
+        let plain = sessionStartHookOutput(SessionStartInput(sessionID: "s1"), env: [:], store: store) ?? ""
+        #expect(plain.contains("`crook task plan"))
+        let withPath = sessionStartHookOutput(SessionStartInput(sessionID: "s1"), env: ["SHEPHERD_CROOK": "/Users/a b/.shepherd/bin/crook"], store: store) ?? ""
+        #expect(withPath.contains("'/Users/a b/.shepherd/bin/crook' task plan"))
+    }
+}

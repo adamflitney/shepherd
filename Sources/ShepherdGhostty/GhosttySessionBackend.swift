@@ -17,6 +17,7 @@ public actor GhosttySessionBackend: SessionBackend {
     private let agentsWindow: any AgentsWindowStoring
     private let home: URL
     private let claudeCommand: String
+    private let crookPath: String?
     private let now: @Sendable () -> Date
     private let pace: Pace
 
@@ -54,6 +55,7 @@ public actor GhosttySessionBackend: SessionBackend {
         agentsWindow: any AgentsWindowStoring = FileAgentsWindowStore(),
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         claudeCommand: String = ClaudeLocator.find(),
+        crookPath: String? = nil,
         pace: Pace = Pace(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -65,6 +67,7 @@ public actor GhosttySessionBackend: SessionBackend {
         self.agentsWindow = agentsWindow
         self.home = home
         self.claudeCommand = claudeCommand
+        self.crookPath = crookPath
         self.pace = pace
         self.now = now
         self.records = Dictionary(recordStore.load().filter { $0.endedAt == nil }.map { ($0.sessionID, $0) }, uniquingKeysWith: { a, _ in a })
@@ -121,6 +124,7 @@ public actor GhosttySessionBackend: SessionBackend {
         if let prompt { command += " " + shellQuote(prompt) }
 
         var env = ["SHEPHERD_SESSION_ID": sessionID]
+        if let crookPath { env["SHEPHERD_CROOK"] = crookPath }  // lets the task context name an absolute path
         if let task { env["SHEPHERD_TASK_ID"] = String(task.id) }
         if let task, !resuming { _ = try? taskStore.update(task.id) { $0.linkSession(sessionID) } }
 
@@ -140,6 +144,19 @@ public actor GhosttySessionBackend: SessionBackend {
         await refresh(full: false)
         republish()
         return SessionID(rawValue: sessionID)
+    }
+
+    /// Makes Ghostty's front window the one agent tabs open in. Ghostty cannot place a window on a given
+    /// monitor, so the user puts a window where they want it and points shepherd at it.
+    @discardableResult
+    public func useFrontmostWindowForAgents() async throws -> String {
+        do {
+            guard let id = try await scripting.frontWindowID() else { throw BackendError.unavailable("Ghostty has no window open") }
+            agentsWindow.set(id)
+            return id
+        } catch let e as GhosttyError {
+            throw backendError(e)
+        }
     }
 
     public func close(_ id: SessionID) async throws {

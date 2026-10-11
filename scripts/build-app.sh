@@ -16,6 +16,8 @@ mkdir -p "${BUNDLE}/Contents/MacOS"
 mkdir -p "${BUNDLE}/Contents/Resources"
 
 cp ".build/release/${APP_NAME}" "${BUNDLE}/Contents/MacOS/"
+# `crook`, the task CLI: Install Hooks copies it to ~/.shepherd/bin so agents and the SessionStart hook can run it
+cp ".build/release/crook"       "${BUNDLE}/Contents/MacOS/"
 cp "Resources/Info.plist"       "${BUNDLE}/Contents/"
 [ -f "Resources/AppIcon.icns" ] && cp "Resources/AppIcon.icns" "${BUNDLE}/Contents/Resources/"
 

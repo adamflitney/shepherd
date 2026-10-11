@@ -30,9 +30,14 @@ public func sessionStartHookOutput(_ input: SessionStartInput, env: [String: Str
     let payload: [String: Any] = [
         "hookSpecificOutput": [
             "hookEventName": "SessionStart",
-            "additionalContext": taskContext(task),
+            "additionalContext": taskContext(task, crook: env["SHEPHERD_CROOK"].map { shellQuoted($0) } ?? "crook"),
         ]
     ]
     guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.withoutEscapingSlashes]) else { return nil }
     return String(data: data, encoding: .utf8)
+}
+
+/// A path as one shell word, for the command lines the context tells the agent to run.
+private func shellQuoted(_ s: String) -> String {
+    s.allSatisfy { $0.isLetter || $0.isNumber || "/._-".contains($0) } ? s : "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
