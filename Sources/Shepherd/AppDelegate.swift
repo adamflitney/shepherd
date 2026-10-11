@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import os
 import ShepherdCore
+import ShepherdTasks
 import ShepherdUI
 
 @MainActor
@@ -92,6 +93,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onOpenReviewPRInBrowser: { match in
                 if let url = URL(string: match.pr.url) { NSWorkspace.shared.open(url) }
+            },
+            onLoadTasks: { TaskStore().list().map(TaskSummary.init) },
+            onStartTask: { [weak self] task in
+                guard let self else { return }
+                try await self.startTask(task)
+            },
+            onCreateTask: { [weak self] title in
+                guard let self else { return }
+                try await self.createTask(title: title)
+            },
+            onFinishTask: { task in
+                _ = try? TaskStore().update(task.id) { $0.setStatus(.done) }
             },
             demoStart: Self.demoStartFromArguments()
         )
@@ -252,6 +265,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await store.focus(id)
         }
         panel.hide()
+    }
+
+    /// Goes to a task's live session if it has one; otherwise starts (or resumes) one in the task's
+    /// project, and moves the task out of the inbox.
+    private func startTask(_ task: TaskSummary) async throws {
+        if let live = store.sections.flatMap(\.sessions).first(where: { $0.group?.id == task.groupID }) {
+            try await store.focus(live.id)
+            return
+        }
+        let config = ShepherdConfig.load()
+        let directory = task.projectPath ?? config.resolvedDefaultSessionDirectory
+        let id = try await store.createSession(CreateSessionRequest(
+            workingDirectory: URL(fileURLWithPath: directory),
+            agent: config.resolvedAgentKind,
+            taskID: task.id
+        ))
+        if task.status == "inbox" || task.status == "ready" {
+            _ = try? TaskStore().update(task.id) { $0.setStatus(.active) }
+        }
+        try? await store.focus(id)
+    }
+
+    /// A task captured from the panel lands in the inbox, in the focused session's project when there
+    /// is one (otherwise the default directory), so it can be started later.
+    private func createTask(title: String) async throws {
+        let config = ShepherdConfig.load()
+        let focused = store.sections.flatMap(\.sessions).first(where: { $0.isFocused })?.workingDirectory?.path
+        try TaskStore().create(NewTask(title: title, projectPath: focused ?? config.resolvedDefaultSessionDirectory))
     }
 
     private func createSession(_ request: CreateSessionRequest) {
@@ -445,4 +486,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 private struct ReviewCacheError: Error, CustomStringConvertible {
     let message: String
     var description: String { message }
+}
+
+extension TaskSummary {
+    init(_ task: TaskFile) {
+        self.init(
+            id: task.id, title: task.title, objective: task.objective, projectPath: task.projectPath,
+            status: task.status.rawValue, progressDone: task.progress.done, progressTotal: task.progress.total,
+            sessionIDs: task.sessions)
+    }
 }

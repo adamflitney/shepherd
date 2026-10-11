@@ -44,7 +44,7 @@ let package = Package(
         // App entry point: backend selection, NSStatusItem, panel window.
         .executableTarget(
             name: "Shepherd",
-            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdGhostty", "ShepherdUI", "ShepherdWebKit"],
+            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdGhostty", "ShepherdTasks", "ShepherdUI", "ShepherdWebKit"],
             path: "Sources/Shepherd",
             resources: [.copy("HookScripts")]
         ),

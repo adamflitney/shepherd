@@ -32,6 +32,10 @@ final class PanelWindow: NSPanel {
         onIgnoreReviewPR: @escaping (MatchedReviewPR) -> Void,
         onRestoreReviewPR: @escaping (MatchedReviewPR) -> Void,
         onOpenReviewPRInBrowser: @escaping (MatchedReviewPR) -> Void,
+        onLoadTasks: @escaping () async -> [TaskSummary] = { [] },
+        onStartTask: @escaping (TaskSummary) async throws -> Void = { _ in },
+        onCreateTask: @escaping (String) async throws -> Void = { _ in },
+        onFinishTask: @escaping (TaskSummary) -> Void = { _ in },
         demoStart: PanelDemoStart? = nil
     ) {
         let box = ClosureBox()
@@ -51,6 +55,10 @@ final class PanelWindow: NSPanel {
             onIgnoreReviewPR: onIgnoreReviewPR,
             onRestoreReviewPR: onRestoreReviewPR,
             onOpenReviewPRInBrowser: onOpenReviewPRInBrowser,
+            onLoadTasks: onLoadTasks,
+            onStartTask: onStartTask,
+            onCreateTask: onCreateTask,
+            onFinishTask: onFinishTask,
             demoStart: demoStart
         )
         hostingController = NSHostingController(rootView: view)

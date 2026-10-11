@@ -22,9 +22,14 @@ public struct SessionsListView: View {
     let onIgnoreReviewPR: (MatchedReviewPR) -> Void
     let onRestoreReviewPR: (MatchedReviewPR) -> Void
     let onOpenReviewPRInBrowser: (MatchedReviewPR) -> Void
+    let onLoadTasks: () async -> [TaskSummary]
+    let onStartTask: (TaskSummary) async throws -> Void
+    let onCreateTask: (String) async throws -> Void
+    let onFinishTask: (TaskSummary) -> Void
 
     private enum Mode: Equatable {
         case sessions
+        case tasks
         case createProject
         case prompt
         case review
@@ -64,6 +69,11 @@ public struct SessionsListView: View {
     @State private var startingReviewSessionID: String?
     @State private var reviewSessionError: String?
 
+    @State private var tasks: [TaskSummary] = []
+    @State private var isLoadingTasks = false
+    @State private var startingTaskID: Int?
+    @State private var taskError: String?
+
     public init(
         store: SessionsStore,
         onFocusSession: @escaping (SessionID) -> Void,
@@ -78,6 +88,10 @@ public struct SessionsListView: View {
         onIgnoreReviewPR: @escaping (MatchedReviewPR) -> Void,
         onRestoreReviewPR: @escaping (MatchedReviewPR) -> Void,
         onOpenReviewPRInBrowser: @escaping (MatchedReviewPR) -> Void,
+        onLoadTasks: @escaping () async -> [TaskSummary] = { [] },
+        onStartTask: @escaping (TaskSummary) async throws -> Void = { _ in },
+        onCreateTask: @escaping (String) async throws -> Void = { _ in },
+        onFinishTask: @escaping (TaskSummary) -> Void = { _ in },
         demoStart: PanelDemoStart? = nil
     ) {
         self.demoStart = demoStart
@@ -94,6 +108,10 @@ public struct SessionsListView: View {
         self.onIgnoreReviewPR = onIgnoreReviewPR
         self.onRestoreReviewPR = onRestoreReviewPR
         self.onOpenReviewPRInBrowser = onOpenReviewPRInBrowser
+        self.onLoadTasks = onLoadTasks
+        self.onStartTask = onStartTask
+        self.onCreateTask = onCreateTask
+        self.onFinishTask = onFinishTask
     }
 
     /// All sessions, unfiltered, in the store's own urgency-then-group order.
@@ -117,6 +135,11 @@ public struct SessionsListView: View {
     /// further fuzzy-filtered by `query` the same way the other two lists work.
     private var displayedReviewPRs: [MatchedReviewPR] {
         filterReviewPRList(reviewPRs, query: query)
+    }
+
+    /// Open tasks, active work first, fuzzy-filtered by `query`.
+    private var displayedTasks: [TaskSummary] {
+        filterTasks(tasks, query: query)
     }
 
     public var body: some View {
@@ -162,6 +185,8 @@ public struct SessionsListView: View {
         switch mode {
         case .sessions:
             peekingSessionID != nil ? "← back · esc back" : "⏎ open · → peek · ⇥ next tab · esc close"
+        case .tasks:
+            "⏎ start/open · ⌘⏎ new task · ⌘⌫ done · ⇥ next tab · esc back"
         case .createProject:
             "⏎ new session · ⇥ next tab · esc back"
         case .prompt:
@@ -193,6 +218,7 @@ public struct SessionsListView: View {
         didApplyDemoStart = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             switch demoStart.tab {
+            case "tasks": setMode(.tasks)
             case "create": setMode(.createProject)
             case "ask": setMode(.prompt)
             case "review": setMode(.review)
@@ -231,7 +257,8 @@ public struct SessionsListView: View {
 
     private var headerIconName: String {
         switch mode {
-        case .sessions: "plus.circle"
+        case .sessions: "checklist"
+        case .tasks: "plus.circle"
         case .createProject: "bubble.left.and.text.bubble.right"
         case .prompt: "checklist"
         case .review: "xmark.circle"
@@ -240,7 +267,8 @@ public struct SessionsListView: View {
 
     private var headerHelpText: String {
         switch mode {
-        case .sessions: "New session in a project (Tab)"
+        case .sessions: "Tasks (Tab)"
+        case .tasks: "New session in a project (Tab)"
         case .createProject: askTabAvailable ? "Ask Claude directly (Tab)" : "Review a PR (Tab)"
         case .prompt: "Review a PR (Tab)"
         case .review: "Back to sessions (Tab/Esc)"
@@ -262,6 +290,7 @@ public struct SessionsListView: View {
     private var modeTabBar: some View {
         HStack(spacing: 4) {
             modeTab("Switch", mode: .sessions)
+            modeTab("Tasks", mode: .tasks)
             modeTab("Create", mode: .createProject)
             modeTab("Ask", mode: .prompt, enabled: askTabAvailable)
             modeTab("Review", mode: .review)
@@ -297,7 +326,8 @@ public struct SessionsListView: View {
     /// from any sub-mode without completing the cycle.
     private func advanceMode() {
         switch mode {
-        case .sessions: setMode(.createProject)
+        case .sessions: setMode(.tasks)
+        case .tasks: setMode(.createProject)
         case .createProject: setMode(askTabAvailable ? .prompt : .review)
         case .prompt: setMode(.review)
         case .review: setMode(.sessions)
@@ -317,6 +347,9 @@ public struct SessionsListView: View {
         mode = newMode
         if newMode == .createProject {
             loadProjects()
+        }
+        if newMode == .tasks {
+            loadTasks()
         }
         if newMode == .review {
             loadReviewPRs()
@@ -345,6 +378,7 @@ public struct SessionsListView: View {
     private var searchBarPlaceholder: String {
         switch mode {
         case .sessions: "Switch to session..."
+        case .tasks: "Find a task, or type a title and press ⌘⏎..."
         case .createProject: "New session in project..."
         case .prompt: "Ask Claude anything..."
         case .review: "Filter PRs (@ mine, % ignored)..."
@@ -429,6 +463,8 @@ public struct SessionsListView: View {
             } else {
                 sessionList
             }
+        case .tasks:
+            taskList
         case .createProject:
             projectList
         case .prompt:
@@ -546,6 +582,99 @@ public struct SessionsListView: View {
                 .onChange(of: selectedIndex) { proxy.scrollTo(selectedIndex) }
             }
         }
+    }
+
+    @ViewBuilder
+    private var taskList: some View {
+        if isLoadingTasks && tasks.isEmpty {
+            VStack {
+                Spacer()
+                ProgressView().controlSize(.small)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+        } else {
+            let matches = displayedTasks
+            if matches.isEmpty {
+                emptyState(query.isEmpty ? "No open tasks. Type a title and press ⌘⏎ to add one" : "No match. ⌘⏎ adds \"\(query)\" as a task")
+            } else {
+                VStack(spacing: 0) {
+                    if let taskError {
+                        Text(taskError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 6)
+                    }
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(Array(matches.enumerated()), id: \.element.id) { index, task in
+                                    TaskRow(
+                                        task: task,
+                                        session: flatSessions.first { $0.group?.id == task.groupID },
+                                        isSelected: index == selectedIndex,
+                                        isStarting: startingTaskID == task.id
+                                    )
+                                    .id(index)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { startTask(task) }
+                                }
+                            }
+                            .padding(.vertical, 8)
+                        }
+                        .onChange(of: selectedIndex) { proxy.scrollTo(selectedIndex) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadTasks() {
+        isLoadingTasks = true
+        taskError = nil
+        Task {
+            tasks = await onLoadTasks()
+            isLoadingTasks = false
+        }
+    }
+
+    private func startTask(_ task: TaskSummary) {
+        guard startingTaskID == nil else { return }
+        startingTaskID = task.id
+        taskError = nil
+        Task {
+            do {
+                try await onStartTask(task)
+                onDismiss()
+            } catch {
+                taskError = "Couldn't start task #\(task.id): \(error)"
+            }
+            startingTaskID = nil
+        }
+    }
+
+    /// ⌘⏎: whatever is typed becomes a new task (in the inbox), without leaving the keyboard.
+    private func createTask() {
+        let title = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        taskError = nil
+        Task {
+            do {
+                try await onCreateTask(title)
+                query = ""
+                tasks = await onLoadTasks()
+                selectedIndex = 0
+            } catch {
+                taskError = "Couldn't add the task: \(error)"
+            }
+        }
+    }
+
+    private func finishTask(_ task: TaskSummary) {
+        onFinishTask(task)
+        if let i = tasks.firstIndex(where: { $0.id == task.id }) { tasks[i].status = "done" }
+        selectedIndex = max(0, min(selectedIndex, displayedTasks.count - 1))
     }
 
     @ViewBuilder
@@ -764,6 +893,8 @@ public struct SessionsListView: View {
             case 36, 76:
                 if mode == .prompt, event.modifierFlags.contains(.command) {
                     promoteCurrentConversation() // cmd+return - "Continue in a session"
+                } else if mode == .tasks, event.modifierFlags.contains(.command) {
+                    createTask() // cmd+return - the typed text becomes a new task
                 } else if mode == .review, event.modifierFlags.contains(.command) {
                     if displayedReviewPRs.indices.contains(selectedIndex) {
                         startReviewSession(displayedReviewPRs[selectedIndex]) // cmd+return - start a session
@@ -789,6 +920,12 @@ public struct SessionsListView: View {
             case 45: // n - hyper+n starts a fresh inline conversation
                 if mode == .prompt, event.modifierFlags.contains([.command, .control, .option, .shift]) {
                     startNewInlinePrompt()
+                    return nil
+                }
+                return event
+            case 51 where mode == .tasks: // cmd+delete marks the selected task done
+                if event.modifierFlags.contains(.command), displayedTasks.indices.contains(selectedIndex) {
+                    finishTask(displayedTasks[selectedIndex])
                     return nil
                 }
                 return event
@@ -836,6 +973,7 @@ public struct SessionsListView: View {
     private var displayedCount: Int {
         switch mode {
         case .sessions: displayedSessions.count
+        case .tasks: displayedTasks.count
         case .createProject: displayedProjects.count
         case .prompt: 0
         case .review: displayedReviewPRs.count
@@ -853,6 +991,10 @@ public struct SessionsListView: View {
             let sessions = displayedSessions
             guard sessions.indices.contains(selectedIndex) else { return }
             onFocusSession(sessions[selectedIndex].id)
+        case .tasks:
+            let matches = displayedTasks
+            guard matches.indices.contains(selectedIndex) else { return }
+            startTask(matches[selectedIndex])
         case .createProject:
             let projects = displayedProjects
             guard projects.indices.contains(selectedIndex) else { return }
@@ -994,6 +1136,62 @@ private struct ReviewPRRow: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help(match.isIgnored ? "Bring back (⌘⌫)" : "Not reviewing this (⌘⌫)")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+private struct TaskRow: View {
+    let task: TaskSummary
+    let session: Session?
+    let isSelected: Bool
+    let isStarting: Bool
+
+    private var dotColor: Color {
+        switch session?.attention.kind {
+        case .blocked: .red
+        case .done: .green
+        case .working: .blue
+        case .idle: .gray
+        default: .clear
+        }
+    }
+
+    private var detail: String {
+        var parts: [String] = [task.status]
+        if task.progressTotal > 0 { parts.append("\(task.progressDone)/\(task.progressTotal)") }
+        if let path = task.projectPath { parts.append((path as NSString).lastPathComponent) }
+        if let session, session.attention.kind == .blocked, let why = session.attention.summary { parts.append(why) }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(dotColor)
+                .overlay(Circle().stroke(Color.secondary.opacity(session == nil ? 0.25 : 0), lineWidth: 1))
+                .frame(width: 8, height: 8)
+                .help(session.map { "Live session: \($0.attention.kind.rawValue)" } ?? "No live session")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("#\(task.id) \(task.title)")
+                    .font(.body)
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(session?.attention.kind == .blocked ? Color.red : Color.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if isStarting {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: session == nil ? "play.circle" : "arrow.right.circle")
+                    .foregroundStyle(.secondary)
+                    .help(session == nil ? "Start or resume (⏎)" : "Go to its session (⏎)")
             }
         }
         .padding(.horizontal, 12)
