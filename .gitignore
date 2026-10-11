@@ -4,3 +4,5 @@
 .DS_Store
 /*.app
 /*.zip
+node_modules/
+packages/web/dist/

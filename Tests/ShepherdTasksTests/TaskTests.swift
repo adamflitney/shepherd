@@ -1,0 +1,128 @@
+import Foundation
+import Testing
+@testable import ShepherdTasks
+
+/// 2026-10-11 09:30:00 in the current time zone, so formatted stamps are stable wherever this runs.
+private let now: Date = {
+    var c = DateComponents()
+    c.year = 2026; c.month = 10; c.day = 11; c.hour = 9; c.minute = 30; c.second = 0
+    return Calendar.current.date(from: c)!
+}()
+
+@Suite("TaskFile")
+struct TaskFileTests {
+    @Test func appendsLogEntriesUnderLogAndCreatesTheSectionIfMissing() {
+        var t = TaskFile.parse("---\nid: 1\ntitle: T\n---\n\n## Plan\n- [ ] a\n")
+        t.appendLog("started", now: now)
+        #expect(t.serialize() == "---\nid: 1\ntitle: T\nupdated: 2026-10-11T09:30:00\n---\n\n## Plan\n- [ ] a\n\n## Log\n- 2026-10-11 09:30: started\n")
+        t.appendLog("more", now: now)
+        #expect(t.serialize().contains("- 2026-10-11 09:30: started\n- 2026-10-11 09:30: more\n"))
+    }
+
+    @Test func keepsTextAfterTheLogSectionsLastEntryInOrder() {
+        var t = TaskFile.parse("---\nid: 1\n---\n## Log\n- old\n\n## Notes\nkeep\n")
+        t.appendLog("new", now: now)
+        #expect(t.body == "## Log\n- old\n- 2026-10-11 09:30: new\n\n## Notes\nkeep\n")
+    }
+
+    @Test func linksSessionsOnceAndUnlinksThem() {
+        var t = TaskFile.parse("---\nid: 1\nsessions: [a]\n---\n")
+        t.linkSession("b")
+        t.linkSession("b")
+        #expect(t.sessions == ["a", "b"])
+        t.unlinkSession("a")
+        #expect(t.sessions == ["b"])
+    }
+
+    @Test func addsAndChecksPlanItems() throws {
+        var t = TaskFile.parse("---\nid: 1\n---\n")
+        t.addPlanItem("first")
+        t.addPlanItem("second")
+        try t.setPlanItem(2, done: true)
+        #expect(t.body == "## Plan\n- [ ] first\n- [x] second\n")
+        #expect(t.progress == PlanProgress(done: 1, total: 2))
+        try t.setPlanItem(2, done: false)
+        #expect(t.progress == PlanProgress(done: 0, total: 2))
+        #expect(throws: TaskError("no plan item 9")) { try t.setPlanItem(9, done: true) }
+    }
+
+    @Test func aNewTaskHasEmptyPlanAndLogSections() {
+        let t = TaskFile.create(id: 7, title: "Do it: now", objective: "ship", projectPath: "/p", now: now)
+        #expect(t.id == 7)
+        #expect(t.title == "Do it: now")  // survives the quoting
+        #expect(t.status == .inbox)
+        #expect(t.body == "## Plan\n\n## Log\n")
+    }
+
+    @Test func contextKeepsThePlanAndTheNewestLogLinesWithinTheLimit() {
+        var t = TaskFile.create(id: 1, title: "Big", now: now)
+        t.addPlanItem("the plan")
+        for i in 0..<500 { t.appendLog("entry number \(i)", now: now) }
+        let text = taskContext(t, max: 2000)
+        #expect(text.count <= 2000)
+        #expect(text.contains("the plan"))
+        #expect(text.contains("entry number 499"))
+        #expect(!text.contains("entry number 0\n"))
+        #expect(text.contains("(most recent)"))
+    }
+}
+
+@Suite("TaskStore")
+struct TaskStoreTests {
+    private func makeStore() -> TaskStore {
+        TaskStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("crook-\(UUID().uuidString)"))
+    }
+
+    @Test func createsTasksWithSequentialIdsAndSluggedFilenames() throws {
+        let store = makeStore()
+        let a = try store.create(NewTask(title: "Board TUI!", projectPath: "/p"), now: now)
+        let b = try store.create(NewTask(title: "Second one"), now: now)
+        #expect((a.id, b.id) == (1, 2))
+        let names = try FileManager.default.contentsOfDirectory(atPath: store.directory.path).sorted()
+        #expect(names == ["0001-board-tui.md", "0002-second-one.md"])
+    }
+
+    @Test func getsByIdAndListsInOrderSkippingNonTaskFiles() throws {
+        let store = makeStore()
+        try store.create(NewTask(title: "a"), now: now)
+        try store.create(NewTask(title: "b"), now: now)
+        try "hi".write(to: store.directory.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        #expect(store.list().map(\.title) == ["a", "b"])
+        #expect(store.get(2)?.title == "b")
+        #expect(store.get(9) == nil)
+    }
+
+    @Test func updateRereadsTheFileSoConcurrentEditsToOtherFieldsSurvive() throws {
+        let store = makeStore()
+        let t = try store.create(NewTask(title: "a"), now: now)
+        let file = store.directory.appendingPathComponent("0001-a.md")
+        try store.update(t.id, now: now) { $0.linkSession("s1") }
+        // someone hand-edits the file between our read and write
+        let edited = try String(contentsOf: file, encoding: .utf8).replacingOccurrences(of: "title: a", with: "title: a\nnew_field: x")
+        try edited.write(to: file, atomically: true, encoding: .utf8)
+        try store.update(t.id, now: now) { $0.setStatus(.active) }
+        let text = try String(contentsOf: file, encoding: .utf8)
+        #expect(text.contains("new_field: x"))
+        #expect(text.contains("status: active"))
+        #expect(text.contains("sessions: [s1]"))
+    }
+
+    @Test func findsTasksByLinkedSessionId() throws {
+        let store = makeStore()
+        try store.create(NewTask(title: "a"), now: now)
+        let b = try store.create(NewTask(title: "b"), now: now)
+        try store.update(b.id, now: now) { $0.linkSession("sess-9") }
+        #expect(store.findBySession("sess-9")?.id == 2)
+        #expect(store.findBySession("nope") == nil)
+    }
+
+    @Test func updatingAMissingTaskThrows() {
+        #expect(throws: TaskError("no task 3")) { try makeStore().update(3) { _ in } }
+    }
+
+    @Test func slugsAreShortLowercaseAndNeverEmpty() {
+        #expect(slug("Board TUI!") == "board-tui")
+        #expect(slug("!!!") == "task")
+        #expect(slug(String(repeating: "word ", count: 20)).count <= 40)
+    }
+}

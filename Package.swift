@@ -10,6 +10,17 @@ let package = Package(
             name: "ShepherdCore",
             path: "Sources/ShepherdCore"
         ),
+        // Task files (markdown + frontmatter), the store, and the SessionStart hook logic. Foundation only.
+        .target(
+            name: "ShepherdTasks",
+            path: "Sources/ShepherdTasks"
+        ),
+        // `crook`: the CLI agents use to keep their task's plan and log current.
+        .executableTarget(
+            name: "crook",
+            dependencies: ["ShepherdTasks"],
+            path: "Sources/crook"
+        ),
         // Herdr-socket adapter: framing, wire DTOs, reducer, transport. Depends on Core.
         .target(
             name: "ShepherdHerdr",
@@ -46,6 +57,11 @@ let package = Package(
             name: "ShepherdWeb",
             dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdWebKit"],
             path: "Sources/ShepherdWeb"
+        ),
+        .testTarget(
+            name: "ShepherdTasksTests",
+            dependencies: ["ShepherdTasks"],
+            path: "Tests/ShepherdTasksTests"
         ),
         .testTarget(
             name: "ShepherdCoreTests",
