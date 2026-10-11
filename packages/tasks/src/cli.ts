@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { readFileSync } from "node:fs";
+import { sessionStart } from "./hook.ts";
 import { TaskStore } from "./store.ts";
-import { STATUSES, type Status, type Task } from "./task.ts";
+import { STATUSES, taskContext, type Status, type Task } from "./task.ts";
 
 const USAGE = `crook task <command>
 
@@ -13,6 +15,8 @@ const USAGE = `crook task <command>
   log <id> <text>
   plan <id> add <text> | check <n> | uncheck <n>
   find --session <id>            (prints the linked task id, exit 1 if none)
+  context <id>                   (the text a SessionStart hook injects)
+crook hook session-start         (reads the hook JSON on stdin)
 `;
 
 function fail(msg: string): never {
@@ -46,6 +50,18 @@ function toJSON(t: Task) {
   };
 }
 
+function runHook(name: string | undefined, store: TaskStore): void {
+  if (name !== "session-start") fail(`unknown hook "${name ?? ""}"`);
+  let input = {};
+  try {
+    input = JSON.parse(readFileSync(0, "utf8"));
+  } catch {
+    return; // a hook must never break the session
+  }
+  const out = sessionStart(input, process.env, store);
+  if (out) process.stdout.write(`${JSON.stringify(out)}\n`);
+}
+
 function main(argv: string[]): void {
   const store = new TaskStore();
   const { values, positionals } = parseArgs({
@@ -62,6 +78,7 @@ function main(argv: string[]): void {
     },
   });
   if (positionals[0] === "task") positionals.shift();
+  if (positionals[0] === "hook") return runHook(positionals[1], store);
   const [cmd, ...rest] = positionals;
   if (!cmd || values.help) {
     process.stdout.write(USAGE);
@@ -112,6 +129,11 @@ function main(argv: string[]): void {
       if (sub === "add" && args.length) store.update(id, (t) => t.addPlanItem(args.join(" ")));
       else if ((sub === "check" || sub === "uncheck") && args[0]) store.update(id, (t) => t.setPlanItem(taskId(args[0]), sub === "check"));
       else fail("plan <id> add <text> | check <n> | uncheck <n>");
+      return;
+    }
+    case "context": {
+      const t = store.get(taskId(rest[0])) ?? fail(`no task ${rest[0]}`);
+      process.stdout.write(`${taskContext(t)}\n`);
       return;
     }
     case "find": {

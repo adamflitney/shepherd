@@ -175,3 +175,37 @@ function findSection(lines: string[], name: string): { start: number; end: numbe
   }
   return { start, end };
 }
+
+/**
+ * Text injected into a session that works on this task: header, the whole Plan, and as much of
+ * the most recent Log as fits in `max` characters.
+ */
+export function taskContext(t: Task, max = 9000): string {
+  const head = [
+    `You are working on shepherd task #${t.id}: ${t.title}`,
+    t.objective && `Objective: ${t.objective}`,
+    `Status: ${t.status}${t.projectPath ? ` | Project: ${t.projectPath}` : ""}${t.branch ? ` | Branch: ${t.branch}` : ""}${t.pr ? ` | PR: ${t.pr}` : ""}`,
+    "Keep the task current with the `crook` CLI: `crook task plan <id> add|check|uncheck`, `crook task log <id> <text>`, `crook task status <id> <status>`.",
+  ].filter(Boolean) as string[];
+
+  const lines = t.body.split("\n");
+  const section = (name: string) => {
+    const r = findSection(lines, name);
+    return r ? lines.slice(r.start + 1, r.end).filter((l) => l.trim() !== "") : [];
+  };
+  const plan = section("Plan");
+  const log = section("Log");
+
+  let out = head.join("\n");
+  if (plan.length) out += `\n\n## Plan\n${plan.join("\n")}`;
+  const room = max - out.length - 20;
+  const kept: string[] = [];
+  let used = 0;
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (used + log[i]!.length + 1 > room) break;
+    kept.unshift(log[i]!);
+    used += log[i]!.length + 1;
+  }
+  if (kept.length) out += `\n\n## Log${kept.length < log.length ? " (most recent)" : ""}\n${kept.join("\n")}`;
+  return out.length > max ? `${out.slice(0, max - 1)}…` : out;
+}
