@@ -1,0 +1,17 @@
+{
+  "name": "@shepherd/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "spike": "SHEPHERD_SPIKE=1 electron ."
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0"
+  }
+}

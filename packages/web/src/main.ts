@@ -214,6 +214,8 @@ rpc.onOpen = async () => {
   const { sessions: list } = await rpc.request<{ sessions: SessionInfo[] }>("events.subscribe");
   sessions.clear();
   for (const s of list) sessions.set(s.id, s);
+  const wanted = params.get("select");
+  if (!selected && wanted && sessions.has(wanted)) selected = wanted;
   if (!selected) {
     const last = safe.get("shepherd.last");
     const first = (last && sessions.has(last) ? last : undefined) ?? sortedSessions()[0]?.id;
@@ -296,6 +298,12 @@ window.addEventListener(
   },
   true,
 );
+
+// the desktop shell asks an already-open dashboard to switch session
+window.addEventListener("shepherd-select", (e) => {
+  const id = (e as CustomEvent<string>).detail;
+  if (sessions.has(id)) void select(id);
+});
 
 renderList();
 renderBar();
