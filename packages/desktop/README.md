@@ -32,7 +32,15 @@ Measured by `pnpm spike` against a daemon with two sessions:
 | Filter by typing, Esc hides, re-show clears the query | yes |
 | Enter opens the dashboard on the chosen session, with its terminal rendered | yes |
 | Picking again while the dashboard is open switches session in place | yes |
-| Memory (working set, 4 processes, panel loaded + menu bar) | **~406 MB**, noticeably more than a native app |
+| Memory, physical footprint (`footprint`, what Activity Monitor shows), idle: panel preloaded + menu bar | **~90 MB** (main 39, GPU 21, network 8, panel renderer 22) |
+| Same, with the dashboard open on a live terminal | **~217 MB** (GPU process grows to ~113, dashboard renderer ~32) |
+| Daemon (separate process, Node) | ~56 MB |
+
+**Correction:** an earlier run of the spike reported "406 MB" from Electron's `workingSetSize`, which counts shared
+framework pages and overstates what the app costs. The physical-footprint figures above are the fair ones. The
+**Swift app has not been measured**: this Mac's Command Line Tools can't build it (SwiftPM's manifest library is out
+of sync with the compiler). Compare on a machine that can run it, with
+`footprint -p $(pgrep -x Shepherd)` against `pnpm start`.
 
 ## Still needs a human (not safe to automate)
 
