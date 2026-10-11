@@ -5,3 +5,4 @@
 /*.app
 /*.zip
 node_modules/
+packages/web/dist/

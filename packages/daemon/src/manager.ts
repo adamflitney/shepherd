@@ -44,6 +44,15 @@ const SESSION_SCOPED_ENV = [
   "CLAUDE_CODE_SESSION_ID",
 ];
 
+/**
+ * SHEPHERD_AGENT_COMMAND runs something other than claude (for example `bash`) so the daemon and
+ * its clients can be developed and tested without spending tokens. It gets no arguments.
+ */
+function agentFromEnv(env: NodeJS.ProcessEnv): AgentSpec | undefined {
+  const command = env.SHEPHERD_AGENT_COMMAND;
+  return command ? { command, args: () => [], canResume: () => false } : undefined;
+}
+
 const DEFAULT_TASK_PROMPT = "Start on the task described in your session context.";
 
 export class SessionManager {
@@ -55,7 +64,7 @@ export class SessionManager {
 
   constructor(o: ManagerOptions = {}) {
     this.store = o.store ?? new TaskStore();
-    this.agent = o.agent ?? claudeAgent;
+    this.agent = o.agent ?? agentFromEnv(o.env ?? process.env) ?? claudeAgent;
     this.env = o.env ?? process.env;
   }
 

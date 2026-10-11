@@ -4,3 +4,5 @@ export { DaemonClient } from "./client.ts";
 export { SessionManager, type CreateRequest, type ManagerEvent } from "./manager.ts";
 export { DaemonServer } from "./server.ts";
 export { Session, type SessionInfo } from "./session.ts";
+export { Client, ClientHub } from "./hub.ts";
+export { loadOrCreateToken, WebServer, type WebOptions } from "./web.ts";

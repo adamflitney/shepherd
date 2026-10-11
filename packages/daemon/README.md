@@ -11,6 +11,27 @@ later with a screen snapshot, peek, or stream raw bytes.
     node src/cli.ts list | peek <id> | attach <id> | kill <id>   # ids can be prefixes; Ctrl-] detaches
     node src/cli.ts send <id> <text> | key <id> enter|esc|down|...   # drive a session without attaching
 
+## Browser client
+
+    pnpm --filter @shepherd/web build     # once; the daemon serves packages/web/dist if it exists
+    node src/cli.ts daemon                # also listens on 127.0.0.1:7330 (SHEPHERD_WEB_PORT)
+    node src/cli.ts web                   # prints the link; open it
+
+The link carries a secret in the `#fragment` (`~/.shepherd/web-token`, mode 0600), which the page keeps in
+localStorage and strips from the address bar. The browser speaks the same JSON protocol as the unix
+socket over a WebSocket (`/ws?token=...`), so everything `shepctl` can do, a tab can do.
+
+Because any web page can send requests to localhost, the WebSocket requires **all** of: an accepted `Host`
+header (blocks DNS rebinding), an `Origin` matching that host (blocks cross-site hijacking), and the token.
+Extra hostnames (e.g. a Tailscale name) go in `SHEPHERD_ALLOWED_HOSTS`. Static files are served with a
+strict CSP, and session titles (which come from the terminal) are always rendered as text.
+
+The terminal emulator is `xterm.js` by default. `?term=ghostty` switches to ghostty-web (libghostty-vt as
+WASM; the choice is remembered). Both sit behind one small `TermView` interface in `packages/web/src/terminal.ts`.
+Keys: Alt+Up/Down switch sessions, Alt+N starts one.
+
+`SHEPHERD_AGENT_COMMAND=/bin/bash` makes the daemon run that instead of `claude`, for developing without spending tokens.
+
 ## Task sessions
 
 `session.create` with a `taskId`:

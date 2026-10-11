@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { DaemonClient } from "./client.ts";
 import { installedEvents, installHooks, stripHooks } from "./hooks.ts";
 import { runDaemon } from "./daemon.ts";
-import { socketPath } from "./paths.ts";
+import { socketPath, tokenPath, webPort } from "./paths.ts";
 import type { SessionInfo } from "./session.ts";
 
 const USAGE = `shepctl <command>
@@ -19,6 +19,7 @@ const USAGE = `shepctl <command>
   send <id> <text...>            type text and press Enter
   key <id> <key>...              enter esc tab up down left right space ctrl-c
   kill <id>
+  web                            print the link to the browser client
   hooks install|uninstall|status [--file <settings.json>]
                                  register shepherd's Claude Code hooks (default ~/.claude/settings.json)
 `;
@@ -127,6 +128,13 @@ async function main(): Promise<void> {
       return runDaemon();
     case "hooks":
       return hooksCommand(args);
+    case "web": {
+      if (!existsSync(tokenPath())) fail("no token yet: start the daemon first (shepctl daemon)");
+      const token = readFileSync(tokenPath(), "utf8").trim();
+      // the token goes in the fragment, so it is never sent over HTTP or written to logs
+      process.stdout.write(`http://127.0.0.1:${webPort()}/#token=${token}\n`);
+      return;
+    }
     case "list": {
       const c = await connect();
       const { sessions } = await c.request<{ sessions: SessionInfo[] }>("session.list");

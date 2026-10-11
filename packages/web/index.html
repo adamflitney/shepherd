@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" href="data:," />
+    <title>Shepherd</title>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="side">
+        <header><h1>Shepherd</h1><button id="new" title="New session (Alt+N)">+ New</button></header>
+        <ul id="sessions" aria-label="Sessions"></ul>
+        <footer id="conn"></footer>
+      </aside>
+      <main id="main">
+        <div id="bar"><span id="bar-title"></span><span id="bar-note"></span><button id="kill" hidden>Stop</button></div>
+        <div id="term"></div>
+        <div id="empty">No session selected. Press <kbd>Alt</kbd>+<kbd>N</kbd> to start one.</div>
+      </main>
+    </div>
+    <dialog id="dlg">
+      <form method="dialog" id="new-form">
+        <h2>New session</h2>
+        <label>Task number <small>(optional, starts or resumes it)</small><input name="task" inputmode="numeric" autocomplete="off" /></label>
+        <label>Directory <small>(not needed for a task)</small><input name="cwd" autocomplete="off" spellcheck="false" placeholder="/Users/you/dev/project" /></label>
+        <label>First message <small>(optional)</small><input name="prompt" autocomplete="off" /></label>
+        <p id="form-error" role="alert"></p>
+        <menu><button value="cancel" type="button" id="cancel">Cancel</button><button value="ok" type="submit" id="create">Start</button></menu>
+      </form>
+    </dialog>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
