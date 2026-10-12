@@ -65,6 +65,32 @@ struct TaskFileTests {
         #expect(!text.contains("entry number 0\n"))
         #expect(text.contains("(most recent)"))
     }
+
+    @Test func aTitleOnlyTaskTellsTheAgentToFillInTheObjectiveAndPlan() {
+        let t = TaskFile.create(id: 7, title: "Fix login", now: now)
+        let text = taskContext(t)
+        #expect(text.contains("still missing an objective and a plan"))
+        #expect(text.contains("task objective 7 <text>"))
+        #expect(text.contains("task plan 7 add <step>"))
+    }
+
+    @Test func theContextTellsAgentsToUseReviewAndNeverDone() {
+        let text = taskContext(TaskFile.create(id: 7, title: "T", now: now))
+        #expect(text.contains("task status <id> review"))
+        #expect(text.contains("Never mark a task done yourself"))
+    }
+
+    @Test func aFleshedOutTaskGetsNoNudge() {
+        var t = TaskFile.create(id: 7, title: "Fix login", objective: "Stop the 500", now: now)
+        t.addPlanItem("reproduce")
+        #expect(!taskContext(t).contains("still missing"))
+    }
+
+    @Test func settingTheObjectiveReplacesItAndStampsUpdated() {
+        var t = TaskFile.create(id: 1, title: "T", objective: "old", now: now)
+        t.setObjective("new", now: now)
+        #expect(t.objective == "new")
+    }
 }
 
 @Suite("TaskStore")

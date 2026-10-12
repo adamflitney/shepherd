@@ -192,6 +192,7 @@ A task is a file in `~/.shepherd/tasks/` (`0042-board-view.md`): frontmatter (`t
 crook task new "Fix the build" --objective "CI is red since the lockfile change" --project ~/dev/api
 crook task list
 crook task show 3
+crook task objective 3 "stop the checkout 500 on retry"  # sharpen the goal as it becomes clear
 crook task plan 3 add "bump the lockfile"      # also: check <n> / uncheck <n>
 crook task log 3 "root cause was a stale cache"
 crook task status 3 review

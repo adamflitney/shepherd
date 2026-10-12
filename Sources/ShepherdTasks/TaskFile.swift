@@ -95,6 +95,11 @@ public struct TaskFile: Sendable {
         touch(now: now)
     }
 
+    public mutating func setObjective(_ text: String, now: Date = Date()) {
+        doc.set("objective", .string(text))
+        touch(now: now)
+    }
+
     public mutating func touch(now: Date = Date()) {
         doc.set("updated", .string(formatStamp(now)))
     }
@@ -187,10 +192,16 @@ public func taskContext(_ t: TaskFile, max: Int = 9000, crook: String = "crook")
     if let b = t.branch { status += " | Branch: \(b)" }
     if let pr = t.pr { status += " | PR: \(pr)" }
     head.append(status)
-    head.append("Keep the task current with the crook CLI: `\(crook) task plan <id> add|check|uncheck`, `\(crook) task log <id> <text>`, `\(crook) task status <id> <status>`.")
+    head.append("Keep the task current with the crook CLI: `\(crook) task objective <id> <text>`, `\(crook) task plan <id> add|check|uncheck`, `\(crook) task log <id> <text>`, `\(crook) task status <id> review` when the work is ready for the user to look at. Never mark a task done yourself: that is the user's call.")
 
     let plan = t.section("Plan")
     let log = t.section("Log")
+    var missing: [String] = []
+    if t.objective == nil { missing.append("an objective") }
+    if plan.isEmpty { missing.append("a plan") }
+    if !missing.isEmpty {
+        head.append("This task is still missing \(missing.joined(separator: " and ")). It was probably captured as just a title, so treat the title as the start of the conversation, not the whole brief. As the goal becomes clear, record it with `\(crook) task objective \(t.id) <text>`, and as the approach takes shape add steps with `\(crook) task plan \(t.id) add <step>`, so a fresh session could pick the work up from the task alone.")
+    }
     var out = head.joined(separator: "\n")
     if !plan.isEmpty { out += "\n\n## Plan\n" + plan.joined(separator: "\n") }
     let room = max - out.count - 20

@@ -11,6 +11,7 @@ crook task <command>
   show <id> [--json]
   link <id> [--session <id>]     (defaults to $CLAUDE_CODE_SESSION_ID)
   status <id> <\(TaskStatus.allCases.map(\.rawValue).joined(separator: "|"))>
+  objective <id> <text>
   log <id> <text>
   plan <id> add <text> | check <n> | uncheck <n>
   find --session <id>            (prints the linked task id, exit 1 if none)
@@ -132,7 +133,14 @@ func main() {
             guard rest.count > 1, let status = TaskStatus(rawValue: rest[1]) else {
                 fail("status must be one of \(TaskStatus.allCases.map(\.rawValue).joined(separator: ", "))")
             }
+            if status == .done, ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ID"] != nil {
+                fail("marking a task done is the user's call; use \"review\" when the work is ready for them")
+            }
             try store.update(id) { $0.setStatus(status) }
+        case "objective":
+            let text = rest.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            if text.isEmpty { fail("objective needs text") }
+            try store.update(taskID(rest.first)) { $0.setObjective(text) }
         case "log":
             let text = rest.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
             if text.isEmpty { fail("log needs text") }
