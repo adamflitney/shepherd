@@ -61,7 +61,7 @@ SHEPHERD_LIVE_E2E=1     scripts/test.sh --filter LiveEndToEndTests     # Ghostty
   silence on a session started with a first message). Prompting a session (text, then Enter separately).
 - Peek from the transcript; closing a session (ends the process, then the tab).
 - Panel **Tasks tab** (Enter start/resume or go to live session, Cmd+Enter new task from typed text,
-  Cmd+Delete done). Release app idles at 21 MB / 0% CPU.
+  Cmd+⌫ (backspace) done). Release app idles at 21 MB / 0% CPU.
 
 ## NOT verified: please check these by hand
 
