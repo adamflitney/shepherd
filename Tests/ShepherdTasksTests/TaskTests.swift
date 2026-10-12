@@ -80,6 +80,25 @@ struct TaskFileTests {
         #expect(text.contains("Never mark a task done yourself"))
     }
 
+    @Test func settingThePlanKeepsCheckedStepsAndKeepsTheLogIntact() throws {
+        var t = TaskFile.create(id: 1, title: "T", now: now)
+        t.addPlanItem("reproduce")
+        t.addPlanItem("fix")
+        try t.setPlanItem(1, done: true, now: now)
+        t.appendLog("started", now: now)
+        t.setPlan(["reproduce", "write a test", "fix", "  "], now: now)
+        #expect(t.section("Plan") == ["- [x] reproduce", "- [ ] write a test", "- [ ] fix"])
+        #expect(t.section("Log").count == 1)
+        #expect(t.body.contains("## Log"))
+        #expect(t.progress == PlanProgress(done: 1, total: 3))
+    }
+
+    @Test func settingThePlanCreatesTheSectionWhenMissing() {
+        var t = TaskFile.parse("---\nid: 1\n---\n")
+        t.setPlan(["a"], now: now)
+        #expect(t.section("Plan") == ["- [ ] a"])
+    }
+
     @Test func aFleshedOutTaskGetsNoNudge() {
         var t = TaskFile.create(id: 7, title: "Fix login", objective: "Stop the 500", now: now)
         t.addPlanItem("reproduce")

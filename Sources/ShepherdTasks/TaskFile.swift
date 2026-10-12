@@ -115,6 +115,26 @@ public struct TaskFile: Sendable {
         touch(now: now)
     }
 
+    /// Replaces the Plan section's checklist with `steps`. A step that matches an existing one keeps its
+    /// checked state, so rewording or reordering a plan doesn't un-tick finished work. Other text in the
+    /// section is dropped, as the section is rewritten.
+    public mutating func setPlan(_ steps: [String], now: Date = Date()) {
+        let previous = section("Plan").filter(Self.isPlanItem)
+        var checked = Set<String>()
+        for line in previous where line.dropFirst(3).first != " " { checked.insert(String(line.dropFirst(6))) }
+        let items = steps.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            .map { "- [\(checked.contains($0) ? "x" : " ")] \($0)" }
+        var lines = doc.body.components(separatedBy: "\n")
+        if let range = Self.findSection(lines, "Plan") {
+            let tail = range.end < lines.count ? [""] : []
+            lines.replaceSubrange((range.start + 1)..<range.end, with: items + tail)
+            doc.body = lines.joined(separator: "\n")
+        } else {
+            for item in items { appendToSection("Plan", item) }
+        }
+        touch(now: now)
+    }
+
     /// Sets plan item `n` (1-based) done or not done.
     public mutating func setPlanItem(_ n: Int, done: Bool, now: Date = Date()) throws {
         var lines = doc.body.components(separatedBy: "\n")
@@ -192,7 +212,7 @@ public func taskContext(_ t: TaskFile, max: Int = 9000, crook: String = "crook")
     if let b = t.branch { status += " | Branch: \(b)" }
     if let pr = t.pr { status += " | PR: \(pr)" }
     head.append(status)
-    head.append("Keep the task current with the crook CLI: `\(crook) task objective <id> <text>`, `\(crook) task plan <id> add|check|uncheck`, `\(crook) task log <id> <text>`, `\(crook) task status <id> review` when the work is ready for the user to look at. Never mark a task done yourself: that is the user's call.")
+    head.append("Keep the task current with the crook CLI: `\(crook) task objective <id> <text>`, `\(crook) task plan <id> add|check|uncheck`, or rewrite the whole plan by piping one step per line into `\(crook) task plan <id> set` (checked steps keep their ticks), `\(crook) task log <id> <text>`, `\(crook) task status <id> review` when the work is ready for the user to look at. Never mark a task done yourself: that is the user's call.")
 
     let plan = t.section("Plan")
     let log = t.section("Log")

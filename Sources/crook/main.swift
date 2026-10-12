@@ -13,7 +13,7 @@ crook task <command>
   status <id> <\(TaskStatus.allCases.map(\.rawValue).joined(separator: "|"))>
   objective <id> <text>
   log <id> <text>
-  plan <id> add <text> | check <n> | uncheck <n>
+  plan <id> add <text> | check <n> | uncheck <n> | set   (set reads one step per line from stdin)
   find --session <id>            (prints the linked task id, exit 1 if none)
   context <id>                   (the text a SessionStart hook injects)
 crook hook session-start         (reads the hook JSON on stdin)
@@ -153,8 +153,13 @@ func main() {
                 try store.update(id) { $0.addPlanItem(args.joined(separator: " ")) }
             } else if sub == "check" || sub == "uncheck", let n = args.first {
                 try store.update(id) { try $0.setPlanItem(taskID(n), done: sub == "check") }
+            } else if sub == "set" {
+                let steps = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+                    .components(separatedBy: "\n")
+                    .map { $0.replacingOccurrences(of: #"^\s*(?:[-*]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)"#, with: "", options: .regularExpression) }
+                try store.update(id) { $0.setPlan(steps) }
             } else {
-                fail("plan <id> add <text> | check <n> | uncheck <n>")
+                fail("plan <id> add <text> | check <n> | uncheck <n> | set")
             }
         case "find":
             guard let session = opts.values["session"] else { fail("find needs --session") }
