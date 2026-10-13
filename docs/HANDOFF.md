@@ -71,7 +71,12 @@ SHEPHERD_LIVE_E2E=1     scripts/test.sh --filter LiveEndToEndTests     # Ghostty
 
 ## Not built yet
 
-Kanban columns as a view; PR badges and auto-move to Review; worktree-per-task; a task option in the
+**The dashboard is the big missing piece:** a native main window with embedded terminals for sessions plus a
+kanban Tasks board, with the modal panel kept minimal. It was dropped by accident in the Ghostty pivot and
+restored on 2026-10-12; see `docs/dashboard.md` (direction, rejected alternatives, open gaps, suggested order).
+The Ghostty backend is the stepping stone, not the destination.
+
+Also not built: kanban columns (now part of the dashboard); PR badges and auto-move to Review; worktree-per-task; a task option in the
 Create tab; editing a task's project from the panel; OpenCode under Ghostty (Claude only); a mobile-page
 check (peek/respond already work through the same protocol). **Herdr is not deleted** (still builds and
 passes its tests behind `--herdr`); delete `ShepherdHerdr`, its tests, the Terminal/Agent submenus and

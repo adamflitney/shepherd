@@ -1,9 +1,9 @@
 # Task board — design notes
 
-**Status (2026-10-11): partly built, and the design below has moved on in two ways.**
+**Status (2026-10-12): partly built, and the design below has moved on in two ways.**
 
 - **Built:** task files and the store (`ShepherdTasks`), the `crook` CLI, the SessionStart context hook, linking a session to its task at start and resuming a task's conversation, and a **Tasks tab in the panel** (list, start/resume, new task from the typed text, mark done).
-- **Changed:** agents now run in plain **Ghostty tabs**, driven by AppleScript, instead of Herdr panes (see the README's *How agents run*). Shepherd's Swift app is the only process, so the "TUI board in a Herdr pane", the Herdr plugin, and the local socket API described below are **not being built**; the board is the panel's Tasks tab. Live session state comes from Claude Code hooks, not Herdr.
+- **Changed:** agents now run in plain **Ghostty tabs**, driven by AppleScript, instead of Herdr panes (see the README's *How agents run*). Shepherd's Swift app is the only process, so the "TUI board in a Herdr pane", the Herdr plugin, and the local socket API described below are **not being built**. The board becomes a kanban view in a native dashboard window with embedded terminals, and the panel's Tasks tab is a stopgap (see `docs/dashboard.md`). Live session state comes from Claude Code hooks, not Herdr.
 - **Not built yet:** the kanban *columns* (Inbox / Ready / Needs you / In progress / Review / Done) as a view, PR badges and the automatic move to Review when a PR is marked ready, untracked-session promotion, worktree-per-task.
 
 The original design (2026-10-05) follows unchanged for reference.
