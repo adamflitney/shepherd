@@ -1,0 +1,3 @@
+window.__clickCell = (col,row)=>{ const el=document.querySelector('.xterm-screen'); const r=el.getBoundingClientRect(); const cw=r.width/window.__term.cols, ch=r.height/window.__term.rows; const x=r.left+(col+0.5)*cw, y=r.top+(row+0.5)*ch; const o={bubbles:true,cancelable:true,clientX:x,clientY:y,view:window,button:0};
+ el.dispatchEvent(new MouseEvent('mousemove',o)); return new Promise(res=>setTimeout(()=>{ el.dispatchEvent(new MouseEvent('mousedown',o)); el.dispatchEvent(new MouseEvent('mouseup',o)); el.dispatchEvent(new MouseEvent('click',o)); res('clicked '+col+','+row)},300)); };
+'installed'

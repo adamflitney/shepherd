@@ -1,0 +1,105 @@
+diff --git a/packages/web/src/main.ts b/packages/web/src/main.ts
+index a1ffe8c..32cfeb0 100644
+--- a/packages/web/src/main.ts
++++ b/packages/web/src/main.ts
+@@ -1,6 +1,6 @@
+ import "./style.css";
+ import { Rpc, type EventMessage } from "./rpc.ts";
+-import { createTerm, type TermKind, type TermView } from "./terminal.ts";
++import { createTerm, native, type TermKind, type TermView } from "./terminal.ts";
+ 
+ interface Attention {
+   kind: "blocked" | "done" | "working" | "idle" | "unknown";
+@@ -141,13 +141,41 @@ function renderBar() {
+ async function ensureTerm(): Promise<TermView> {
+   if (term) return term;
+   const t = await createTerm(kind, $("term"));
+-  t.onData((data) => {
++  const send = (data: string) => {
++    native.post({ type: "bytes", hex: [...data].map((c) => c.charCodeAt(0).toString(16).padStart(2, "0")).join(" ") });
+     if (selected) void rpc.request("session.input", { id: selected, data }).catch(() => {});
+-  });
++  };
++  (window as any).__send = send;
++  t.onData(send);
++  // Shift+Enter: Claude Code expects ESC CR (what Option+Enter sends) for a newline; plain CR submits.
++  // Cmd+V with an image and no text: send Ctrl+V so Claude reads the clipboard image itself.
++  $("term").addEventListener(
++    "paste",
++    (e) => {
++      const cd = (e as ClipboardEvent).clipboardData;
++      native.post({ type: "paste", types: [...(cd?.types ?? [])], files: [...(cd?.files ?? [])].map((f) => f.type) });
++      const hasImage = [...(cd?.files ?? [])].some((f) => f.type.startsWith("image/")) || [...(cd?.items ?? [])].some((i) => i.type.startsWith("image/"));
++      const text = cd?.getData("text/plain") ?? "";
++      if (hasImage && !text) {
++        e.preventDefault();
++        e.stopPropagation();
++        send("\x16");
++      }
++    },
++    true,
++  );
+   t.onResize(({ cols, rows }) => {
+     if (selected) void rpc.request("session.resize", { id: selected, cols, rows }).catch(() => {});
+   });
+-  t.onKey((e) => shortcut(e)); // our shortcuts must not also be typed into the agent
++  t.onKey((e) => {
++    // xterm.js runs this handler for keydown AND the keypress that follows; swallow both or the
++    // keypress still types a plain CR and submits.
++    if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
++      if (e.type === "keydown") send("\x1b\r");
++      return true;
++    }
++    return shortcut(e); // our shortcuts must not also be typed into the agent
++  });
+   new ResizeObserver(() => {
+     if (selected) t.fit();
+   }).observe($("term"));
+diff --git a/packages/web/src/terminal.ts b/packages/web/src/terminal.ts
+index 6f73ac3..85d9e09 100644
+--- a/packages/web/src/terminal.ts
++++ b/packages/web/src/terminal.ts
+@@ -5,6 +5,24 @@ import "@xterm/xterm/css/xterm.css";
+ 
+ export type TermKind = "xterm" | "ghostty";
+ 
++/** Bridge to the native WKWebView host, when there is one. */
++export const native = {
++  post(msg: Record<string, unknown>) {
++    try {
++      (window as any).webkit?.messageHandlers?.native?.postMessage(msg);
++    } catch {
++      /* not hosted natively */
++    }
++  },
++  get hosted(): boolean {
++    return !!(window as any).webkit?.messageHandlers?.native;
++  },
++};
++function openLink(uri: string) {
++  if (native.hosted) native.post({ type: "openURL", uri });
++  else window.open(uri, "_blank");
++}
++
+ /** What the app needs from a terminal emulator, so xterm.js and ghostty-web are interchangeable. */
+ export interface TermView {
+   readonly kind: TermKind;
+@@ -55,10 +73,16 @@ export async function createTerm(kind: TermKind, el: HTMLElement): Promise<TermV
+       dispose: () => term.dispose(),
+     };
+   }
+-  const term = new XTerm({ fontSize: 13, fontFamily: FONT, theme, scrollback: 5000, cursorBlink: true, allowProposedApi: true, macOptionIsMeta: true });
++  const term = new XTerm({
++    fontSize: 13, fontFamily: FONT, theme, scrollback: 5000, cursorBlink: true, allowProposedApi: true, macOptionIsMeta: true,
++    // OSC 8 hyperlinks: the default handler uses confirm() + window.open, which a WKWebView host drops
++    linkHandler: { activate: (_e, text) => openLink(text), allowNonHttpProtocols: false },
++  });
+   const fit = new FitAddon();
+   term.loadAddon(fit);
+-  term.loadAddon(new WebLinksAddon());
++  term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri)));
++  (window as any).__term = term;
++  (window as any).__XTerm = XTerm;
+   term.open(el);
+   return {
+     kind,

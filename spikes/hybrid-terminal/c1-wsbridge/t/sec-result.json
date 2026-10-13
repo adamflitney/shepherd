@@ -1,0 +1,262 @@
+[
+ [
+  "DNS rebinding: Host: evil.example (valid token)",
+  403
+ ],
+ [
+  "cross-site WS hijack: Origin evil.example (valid token)",
+  403
+ ],
+ [
+  "Origin: null (sandboxed iframe / file://)",
+  403
+ ],
+ [
+  "same-origin Origin + valid token (control: allowed)",
+  101
+ ],
+ [
+  "Origin localhost:9999 vs Host 127.0.0.1 (host differs)",
+  403
+ ],
+ [
+  "Origin 127.0.0.1:9999 (same host, other port)",
+  403
+ ],
+ [
+  "Origin https://127.0.0.1:18750 (scheme differs: port 443 vs 18750)",
+  101
+ ],
+ [
+  "Origin with non-http scheme",
+  403
+ ],
+ [
+  "Sec-Fetch-Site: cross-site",
+  403
+ ],
+ [
+  "no token",
+  401
+ ],
+ [
+  "wrong token",
+  401
+ ],
+ [
+  "token one char short",
+  401
+ ],
+ [
+  "token only in URL query (not accepted)",
+  401
+ ],
+ [
+  "token but no shepherd-v1 subprotocol",
+  401
+ ],
+ [
+  "Tailscale Funnel header",
+  403
+ ],
+ [
+  "forged Tailscale-User-Login (no owner configured)",
+  403
+ ],
+ [
+  "X-Forwarded-For without identity",
+  403
+ ],
+ [
+  "duplicate Host headers",
+  400
+ ],
+ [
+  "Sec-WebSocket-Version 12",
+  400
+ ],
+ [
+  "short Sec-WebSocket-Key",
+  400
+ ],
+ [
+  "/ws without Upgrade headers",
+  400
+ ],
+ [
+  "POST with body",
+  400
+ ],
+ [
+  "Content-Length: -1 (the old crash)",
+  400
+ ],
+ [
+  "CL + Transfer-Encoding (smuggling shape)",
+  400
+ ],
+ [
+  "binary garbage instead of HTTP",
+  400
+ ],
+ [
+  "20 KB header",
+  431
+ ],
+ [
+  "3000 small headers (~30 KB)",
+  431
+ ],
+ [
+  "5 KB request target",
+  400
+ ],
+ [
+  "control char in header",
+  400
+ ],
+ [
+  "/api/sessions without token",
+  401
+ ],
+ [
+  "/api/sessions cross-origin even with token",
+  403
+ ],
+ [
+  "slowloris: headers never finished (5 s timeout)",
+  "408 + socket closed"
+ ],
+ [
+  "rejected requests (400/403/401) close their socket",
+  "all closed within 2.5 s"
+ ],
+ [
+  "200 idle TCP connections at once (cap 64)",
+  "62 stayed open, 138 refused/closed"
+ ],
+ [
+  "legit client while flood holds slots",
+  "refused (expected: cap reached; httpStatus read ECONNRESET)"
+ ],
+ [
+  "legit client after flood released",
+  "connected"
+ ],
+ [
+  "unmasked client frame",
+  "close 1002 + socket closed"
+ ],
+ [
+  "RSV1 set (no extension negotiated)",
+  "close 1002 + socket closed"
+ ],
+ [
+  "reserved opcode 3",
+  "close 1002 + socket closed"
+ ],
+ [
+  "fragmented ping",
+  "close 1002 + socket closed"
+ ],
+ [
+  "ping with 200-byte payload",
+  "close 1002 + socket closed"
+ ],
+ [
+  "continuation frame with nothing to continue",
+  "close 1002 + socket closed"
+ ],
+ [
+  "new data frame inside a fragmented message",
+  "close 1002 + socket closed"
+ ],
+ [
+  "declared 1 TiB payload, header only (no body sent)",
+  "close 1009 + socket closed"
+ ],
+ [
+  "declared length with MSB set",
+  "close 1002 + socket closed"
+ ],
+ [
+  "300 KB binary frame (limit 256 KB)",
+  "close 1009 + socket closed"
+ ],
+ [
+  "fragments adding up to 300 KB",
+  "socket closed, no close frame"
+ ],
+ [
+  "invalid UTF-8 in a text frame",
+  "close 1007 + socket closed"
+ ],
+ [
+  "20 KB JSON control message (limit 8 KB)",
+  "close 1009 + socket closed"
+ ],
+ [
+  "close frame with bogus payload",
+  "close 1000 + socket closed"
+ ],
+ [
+  "truncated frame then silence (no hang for others)",
+  "no close (connection kept)"
+ ],
+ [
+  "binary input while not attached",
+  "no close (connection kept)"
+ ],
+ [
+  "21 malformed JSON messages",
+  "close 1008 + socket closed"
+ ],
+ [
+  "control-message flood: 500 list messages in one write",
+  "close 1008 + socket closed"
+ ],
+ [
+  "ping flood: 100000 pings in one write, never reading",
+  "close 1008 + socket closed"
+ ],
+ [
+  "spawn cwd=/etc",
+  "{\"message\":\"cwd not allowed\",\"type\":\"error\"}"
+ ],
+ [
+  "spawn cwd=<work>/../..  (traversal)",
+  "{\"message\":\"cwd not allowed\",\"type\":\"error\"}"
+ ],
+ [
+  "spawn cwd=<work>/escape -> /etc (symlink)",
+  "{\"message\":\"cwd not allowed\",\"type\":\"error\"}"
+ ],
+ [
+  "spawn kind=bash (unknown)",
+  "{\"message\":\"unknown kind\",\"type\":\"error\"}"
+ ],
+ [
+  "spawn cols=-1",
+  "{\"message\":\"bad size\",\"type\":\"error\"}"
+ ],
+ [
+  "spawn cols=99999",
+  "{\"message\":\"bad size\",\"type\":\"error\"}"
+ ],
+ [
+  "attach id=\"../../etc/passwd\"",
+  "{\"message\":\"bad id\",\"type\":\"error\"}"
+ ],
+ [
+  "attach nonexistent id",
+  "{\"message\":\"attach failed\",\"type\":\"error\"}"
+ ],
+ [
+  "resize before attach",
+  "no reply"
+ ],
+ [
+  "unknown message type",
+  "{\"message\":\"unknown type\",\"type\":\"error\"}"
+ ]
+]
