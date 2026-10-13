@@ -1,11 +1,13 @@
 # Dashboard: the main app window
 
-**Status: direction agreed 2026-10-12, nothing built yet.** This restores a goal that was dropped by accident
-during the pivot to Ghostty on 2026-10-11 (see [How this got lost](#how-this-got-lost)).
+**Status: direction agreed 2026-10-12. Architecture revisited and spiked 2026-10-12/13; Adam accepted the hybrid
+(Swift app, web UI in a WKWebView, PTYs held outside the app) as the direction on 2026-10-13, to be revisited if a
+blocker turns up. Nothing built yet.** This restores a goal that was dropped by accident during the pivot to Ghostty on 2026-10-11 (see
+[How this got lost](#how-this-got-lost)).
 
-Shepherd gets a native main window that is where you work with agents, with the modal panel kept as a small
-quick-look launcher. The goal is to break free of the TUI and Herdr limits while keeping the full Claude Code
-experience in every session.
+Shepherd gets a main window that is where you work with agents, with the modal panel kept as a small quick-look
+launcher. The goal is to break free of the TUI and Herdr limits while keeping the full Claude Code experience in
+every session, and to keep controlling sessions from the phone web app.
 
 ## The three surfaces
 
@@ -13,7 +15,7 @@ experience in every session.
 |---|---|---|
 | **Dashboard** (new, main window) | Where work happens | A sessions view in the style of herdr/cmux: session list plus the live terminals, grouped and prioritised by attention. |
 | **Tasks board** (new, same window) | What's being worked on | A conventional kanban board: columns, cards, drag or keys to move. Cards link to their sessions and open them in the dashboard. |
-| **Modal panel** (exists) | See at a glance, then go | Minimal. Summon with the hotkey, see what needs you, jump to it, dismiss. |
+| **Modal panel** (exists, native) | See at a glance, then go | Minimal. Summon with the hotkey, see what needs you, jump to it, dismiss. |
 
 **The panel stays small.** It is already getting large (Switch, Tasks, Create, Ask, Review). New work goes into
 the dashboard, not the panel. Over time the panel should shrink back to glance-and-go, and the Tasks tab built
@@ -21,26 +23,145 @@ on 2026-10-11 is a stopgap that the board replaces.
 
 ## Principles
 
+- **Core requirements, in order:** a simple, nice UI; real Claude Code sessions in it; control from a mobile web
+  app. Memory, hot reload and cross-platform are nice to have and must not drive decisions over those three.
 - **Full Claude Code experience per session.** Each session is the real `claude` TUI in a real terminal, not a
   reimplementation or a harness around the Agent SDK.
-- **Native, one process.** The app is Swift and AppKit/SwiftUI. It idles at about 21 MB today and the dashboard
-  shouldn't change that character.
-- **Tasks are the main grouping**, not directories (see `docs/task-board.md` for the task files, `crook` and the
-  session-linking rules, all unchanged).
+- **UI that is easy to style and change.** This is why the leading option puts the dashboard and board in web
+  tech. It was not weighed properly the first time (see the history below).
+- **Sessions outlive the app.** Quitting, updating or crashing the UI must not kill running agents.
+- **Everything is task-based; this is the main difference from cmux.** Every session belongs to a task, so the
+  kanban board reflects the state of every session. Context, plan and log live with the task, which makes it easy to
+  organise documentation and to pick a task back up from a closed session. Not directories or workspaces, not loose
+  sessions. (`docs/task-board.md` has the task files, `crook` and session linking, unchanged.)
+- **Simple, and only what is useful.** cmux is growing quickly and most of what it offers is not needed. Add a
+  feature when it proves useful in daily use, not because another tool has it. See [Non-goals](#non-goals).
 - **Attention state stays hook-driven.** Unchanged.
-- **Keyboard first.**
+- **Keyboard first.** App shortcuts use Cmd; Alt+letter and Ctrl-B belong to the terminal and Claude.
 
-## How it fits with what exists
+## What everything-is-a-task means
 
-- **`SessionBackend` stays the seam.** The dashboard needs sessions it can embed, so a new in-app backend owns
-  PTYs and renders them. `GhosttySessionBackend` stays as an alternative backend (terminals in Ghostty tabs);
-  `HerdrSessionBackend` is still slated for deletion.
-- **Reused as is:** hook-driven attention, task files and `crook`, the `SessionStart` context injection,
-  `SHEPHERD_TASK_ID` / `SHEPHERD_SESSION_ID` linking, task-linked `--session-id` / `--resume`, the phone view,
-  keep-awake.
-- **The parked TypeScript branches are the spec for the terminal side:** `daemon-pty` (PTY ownership, headless
-  screen state, snapshot on attach, resize), `browser-terminal` (the session list sorted by attention, new-session
-  dialog) and `electron-panel-spike` (measurements). Port the ideas, not the code.
+- **A session is always attached to a task.** Starting work creates the task (an inbox card with the session already
+  linked) or picks an existing one; there is no separate "loose session". This also resolves the earlier open item
+  about promoting untracked sessions. A session the user starts by hand in some other terminal still shows up, as
+  an untracked card, until promoted.
+- **The board is the index of all sessions.** Each card's column comes from its status plus the live state of its
+  sessions (Needs you, In progress, Review, and so on, per `docs/task-board.md`). The sessions view is the same data
+  seen as terminals, ordered by attention.
+- **Picking a task up again is the primary flow.** Open a card: if a session is live, go to it; if not, start one
+  with `--resume` and the plan and log injected. Agents keep the objective, plan and log current through `crook`.
+
+## Non-goals
+
+Things cmux and others do that this is deliberately not doing, unless daily use proves a need: workspace and
+directory-centric grouping, a built-in browser, agent hibernation and cloud VMs, teams or accounts, multi-agent
+support beyond Claude (OpenCode only if wanted later), a settings sprawl, and tracking another tool's roadmap.
+
+## Architecture (leading option: hybrid)
+
+```
+ Shepherd.app (Swift, menu bar, native panel)
+   ├─ WKWebView window: dashboard + kanban board (HTML/CSS/JS, xterm.js)
+   ├─ HTTP + WebSocket server on loopback (the existing ShepherdWebKit server, extended)
+   │      └─ also reached by the phone through `tailscale serve` behind the identity gate
+   └─ holder links ──► one small holder process per session (owns the PTY, ring buffer, redraw on attach)
+                          └─ `sh -c 'claude …'` (login-shell wrapper)
+ registry file: session → claude session id, cwd, task, for `claude --resume` after a holder crash or reboot
+```
+
+- **Holders are the Herdr model.** Herdr has a headless server that owns the PTYs and a `session.json` that stores
+  each pane's Claude session id; clients attach and detach, and a cold restart re-launches agents. Shepherd does the
+  same with one small holder per session (dtach-shaped), so a crash of one holder cannot affect another and a holder
+  exits by itself when its session ends. The app is a stateless client that finds holders by their sockets.
+- **The WebSocket is part of the existing web server,** which already has the Host/Origin/Sec-Fetch-Site/identity
+  checks. See spike C1 for the shape of the integration and the attack tests it survived.
+- **Protocol:** one WebSocket per attached session; binary frames carry terminal bytes both ways; JSON text frames
+  carry control (`list`, `spawn`, `attach`, `detach`, `resize`) and server events (`hello`, `attached`, `ready`,
+  `size`, `reset`, `detached`, `error`). The token travels as a subprotocol, never in the URL.
+- **PTY size policy:** whoever typed or resized last drives the PTY size; a passive client's resize is held until it
+  types; every client resizes to the PTY size so all show the same screen. Smallest-wins was rejected because a
+  phone would cramp the Mac window.
+- **Slow clients are resynced, not buffered:** the bridge stops output, closes its holder link, and re-attaches
+  (replay plus redraw) once the socket drains; a client stalled for 15 s is dropped. The holder must also drop a
+  stalled link instead of blocking (spike A's holder froze).
+
+### Reused from the current code
+
+Hook-driven attention, task files and `crook`, the `SessionStart` context injection, `SHEPHERD_TASK_ID` /
+`SHEPHERD_SESSION_ID` linking, task-linked `--session-id` / `--resume`, the phone view, keep-awake, the panel.
+`SessionBackend` stays the seam: the holder-based backend sits next to `GhosttySessionBackend`; `HerdrSessionBackend`
+is still slated for deletion. Answering prompts gets simpler with a real PTY, since letters and digits can be sent
+directly, which Ghostty's AppleScript could not.
+
+The parked TypeScript branches (`daemon-pty`, `attention-state`, `browser-terminal`, `electron-panel-spike`) remain
+the spec for the terminal side. Port the ideas, not the code.
+
+## Spike results (2026-10-12)
+
+Throwaway code lives outside the repo (the Claude scratchpad of the session that ran them); the findings are what
+matter. None of this was tried against a real phone.
+
+**A. A Swift holder can own PTYs for real `claude` sessions.**
+- `openpty` + `posix_spawn` with `POSIX_SPAWN_SETSID`, opening the slave in a file action, gives a controlling TTY,
+  resize (SIGWINCH) and Ctrl-C. No C target needed. If `claude` is the session leader it gets no controlling
+  terminal and ignores resizes, so run it under a wrapper shell (`sh -c 'claude …; exit $?'`).
+- Killing the client, even mid-turn, changes nothing; a reattach shows the result. Restarting the app is a non-event.
+- A holder crash kills its session (SIGHUP when the master closes; tmux behaves the same). `claude --resume <id>`
+  restores the conversation. Lost: a running tool call (Claude reports it as killed), a pending permission prompt
+  (comes back as "interrupted"), and scrollback. A resumed session needs a fresh registry id.
+- Raw replay garbles Claude's alternate-screen TUI when the ring is truncated or the client size differs. A forced
+  redraw on attach (a resize nudge) repainted cleanly. A headless SwiftTerm `Terminal` can render a snapshot but has no
+  colour serializer, so only build one if the redraw trick proves flaky.
+- launchd is not needed for survival (a detached `SETSID` spawn reparents to PID 1). A LaunchAgent adds auto-restart.
+  Either way, spawn through a login shell (`$SHELL -l -c`) or `PATH` lacks brew and fnm.
+
+**B. xterm.js hosts the Claude TUI well (tested in Chrome, with the parked rig).**
+- Works: typing, colours, resize, reattach after reload, the `@file` and `/` menus, bracketed paste, wheel scrolling,
+  Option+Enter, Option+arrows, 645 KB of output in about 150 ms.
+- xterm.js answers primary DA, focus events and bracketed paste; it does not answer the kitty keyboard protocol or
+  XTVERSION queries, so Claude uses legacy key encoding.
+- ZWJ emoji and flags render wrongly. ghostty-web (0.4.0) is usable but far less tested; keep it as an opt-in behind
+  the same interface and default to xterm.js.
+- Cmd combinations send nothing to the PTY, so app shortcuts can be Cmd-based without a prefix key. Avoid
+  Alt+letter and Ctrl-B.
+
+**C2. The same client works in a native WKWebView, with glue (about 350 lines of Swift plus page fixes).**
+- Edit menu with `cut: copy: paste: selectAll: undo: redo:` and nil targets, or ⌘C and ⌘V do nothing.
+- **Shift+Enter:** send `\x1b\r` on `keydown` and swallow both `keydown` and `keypress`. Swallowing only `keydown`
+  sends a newline and then a submit.
+- **Image paste:** on a paste with an image and no text, send Ctrl+V (`\x16`); Claude reads the macOS clipboard and
+  shows `[Image #1]`. Only works when the session runs on the same Mac as the clipboard, so not from the phone.
+- **Mouse selection:** Shift+drag does not select on macOS. Set `macOptionClickForcesSelection: true`; Option+drag
+  selects and ⌘C copies. A plain drag goes to Claude as mouse reports.
+- **Links:** xterm's default handler cannot work. Use `linkHandler` and `WebLinksAddon` posting to a
+  `WKScriptMessageHandler`, plus the `confirm` UI-delegate method.
+- **File drop:** the page only receives a name. Subclass `WKWebView`, override `performDragOperation`,
+  `prepareForDragOperation`, `draggingEntered`, `draggingUpdated`, and type the shell-quoted path.
+- Keystroke to echo median 3 ms; hide and re-show repaints in about 1 ms; session switch 5-11 ms.
+- Memory (physical footprint, app plus WebKit helpers): 83 MB with one session; 85 MB after switching through three;
+  231 MB with three extra xterm instances holding 5,000 coloured lines each (GPU about half). DOM renderer only; the
+  WebGL renderer was not tried. Render only the selected terminal to avoid most of the growth.
+
+**C1. The Swift WebSocket bridge works and held up under attack.**
+- `NWProtocolWebSocket` makes a whole port WebSocket-only, so it cannot share a port with plain HTTP. A hand-rolled
+  RFC 6455 upgrade inside a small HTTP server works: about 60 lines of frame parsing, 100 for handshake and messages,
+  780 for the whole bridge, no dependencies (`Insecure.SHA1` from CryptoKit).
+- 65 attack rows all refused with the process alive: bad Host, foreign or `null` Origin, cross-site fetch metadata,
+  missing, wrong or query-string tokens, Funnel and forged identity headers, malformed HTTP (duplicate Host, CL+TE,
+  `Content-Length: -1`), oversized headers, slowloris, 200 idle connections (cap 64), WebSocket framing violations
+  (unmasked, RSV bits, bad opcodes, fragmented control frames), oversized frames without allocating, invalid UTF-8,
+  message, ping and malformed-JSON floods, and spawns outside the directory allow-list.
+- Bugs the spike found in its own code, worth testing for in the real one: a socket leak on every rejected request,
+  an Origin check that compared only the host and not the port, and no ping rate limit. (The shipping phone server
+  also compares only the host, but `Sec-Fetch-Site` rejects other localhost ports in browsers, so this is
+  defence in depth, not an open hole.)
+- Backpressure: capped, the bridge stayed at 15 MB through a 14 s unthrottled flood; uncapped it grew about 110 MB/s.
+- Truncated replay loses terminal modes (bracketed paste, mouse tracking, focus events, alternate screen), so a
+  reconnected multi-line paste would submit line by line. The holder now tracks `ESC[?…h/l` and re-emits the active
+  modes ahead of the replay.
+- Phone path: Tailscale Serve is a stock reverse proxy that strips client identity headers, sets its own, keeps Host
+  and leaves Origin alone. A request shaped like Serve's passed the gate for the owner and was refused for other
+  users, Funnel, untagged proxies, and a different Origin port or host.
 
 ## Prior art
 
@@ -49,12 +170,12 @@ on 2026-10-11 is a stopgap that the board replaces.
   Ghostty as the terminal, is huge and fast-moving (GPL app, BUSL server parts), is workspace/directory-centric
   with no task layer, and would fight shepherd over `~/.claude/settings.json`. Still the thing to compare the
   dashboard against.
-- **Herdr**: the sessions-list-plus-panes model this is escaping. Its limits were no raw output stream, no
-  control over layout, and a TUI that can't host a board.
+- **Herdr**: the model for persistence (server owns PTYs, `session.json` stores each pane's Claude session id,
+  clients attach). Its limits were no raw output stream, no control over layout, and a TUI that can't host a board.
 - **tsk, Backlog.md, kanban-md**: kanban over markdown tasks. Reviewed in `docs/task-board.md`; none reused.
-- **Embeddable terminals:** SwiftTerm (mature, pure Swift, AppKit) and libghostty (what Ghostty and cmux use;
-  third-party SPM wrapper `Lakr233/libghostty-spm`; API still moving). From the 2026-10-11 notes. Neither has been
-  tried in this repo.
+- **Embeddable native terminals:** SwiftTerm (mature, pure Swift, AppKit; its headless `Terminal` is useful for
+  snapshots) and libghostty (what Ghostty and cmux use; third-party SPM wrapper `Lakr233/libghostty-spm`; API still
+  moving). Neither has been used as the visible terminal in this repo.
 
 ## How this got lost
 
@@ -65,13 +186,22 @@ Swift process is cheaper than a Node daemon plus a web view. That change parked 
 it the dashboard, but nothing recorded the dashboard as dropped, and `docs/HANDOFF.md` listed only the kanban
 columns as "not built". Caught on 2026-10-12.
 
+The first re-plan then recommended a native dashboard (SwiftTerm) and listed a web UI under "Rejected" on memory and
+process-count grounds. Adam's actual criterion, how easy the UI is to style and change, was never weighed. The
+earlier notes had in fact leaned toward a web dashboard in a WKWebView ("customisability comes from the UI being web
+tech, not from Electron"). The spikes above were run to settle it.
+
 ## Rejected alternatives
 
-- **Web dashboard in a WKWebView, backed by the parked TS daemon.** Works (xterm.js and ghostty-web both rendered
-  in WKWebView), but costs about 135 MB with a live terminal and brings back Node as a second process with a
-  second task and attention implementation to keep in step.
-- **Electron.** About 90 MB idle and 217 MB with the dashboard open (measured), against 21 MB for the Swift app.
-  Its one real advantage, a non-activating panel, the Swift panel already has.
+- **Native SwiftUI/AppKit dashboard with SwiftTerm.** Smallest footprint, but a drag-and-drop board and a sessions
+  view are much slower to build and restyle natively, and SwiftTerm has never been tried against Claude here. Not
+  rejected on principle: if the web UI disappoints in daily use, the holder and protocol are unchanged and the view
+  can be swapped.
+- **Web dashboard over the parked Node daemon.** Works and was verified, but brings Node back as a second process
+  and a second task and attention implementation to keep in step with the Swift ones. Kept as a fallback if the
+  Swift holder proves painful; the protocol is designed so either can sit behind the web client.
+- **Electron.** About 90 MB idle and 217 MB with the dashboard open (measured), against 21 MB for the Swift app. Its
+  one real advantage, a non-activating panel, the Swift panel already has.
 - **Ghostty tabs only, with a board plus peek view.** Cheapest, but terminals can't be embedded: Ghostty's
   AppleScript can't read the screen, place windows on a monitor or emit events. It stays as a backend, not the
   main surface.
@@ -79,40 +209,60 @@ columns as "not built". Caught on 2026-10-12.
 - **A TUI board in a terminal pane.** The original task-board design. Dropped with Herdr; a kanban board wants
   a real window.
 - **Growing the modal panel into the main UI.** Rejected by Adam: it is already large and should be minimal.
+- **`NWProtocolWebSocket` for the server.** It cannot share a port with HTTP (spike C1).
+- **Smallest-wins PTY sizing.** A phone would shrink the Mac window.
 
 ## Open gaps
 
-- **What differs from cmux?** Adam said the dashboard has "a few opinionated differences" from cmux. Task-first
-  grouping is the obvious one. The rest are not written down yet; ask before designing the sessions view.
-- **Terminal view:** SwiftTerm or libghostty. Needs a spike: keyboard and IME fidelity, scrollback, selection,
-  colours and Claude Code's own TUI (the question is whether it feels like Ghostty), plus footprint per session.
-- **PTY lifetime.** Sessions owned by the app die when it quits. Task links and `--resume` make that cheap, but
-  decide whether to accept it, add a small helper process, or auto-resume linked sessions at launch.
-- **Does Ghostty stay a first-class backend** or only a fallback? This decides how much two-backend upkeep is
-  accepted (peek from transcript vs. from the terminal, key handling, answering prompts).
-- **Multi-monitor.** The two-monitor workflow is non-negotiable: panel on one screen, live sessions on the
-  other. A native window can be placed explicitly, which Ghostty couldn't. Remember the position.
-- **Attention without screen reading.** Hooks were enough under Ghostty; an embedded terminal can also read its
-  own screen, which would close known gaps (a denied permission or Esc fires no hook; the folder-trust prompt
-  has no hook).
+- **Is the hybrid final?** Accepted as the direction on 2026-10-13. Revisit only if a blocker turns up (the likeliest:
+  the phone terminal path, or WKWebView glue that is more fragile than the spike suggests).
+- **Sessions with no task.** Everything is task-based, but sessions can still start outside shepherd. Confirm they
+  appear as untracked cards and how promotion works.
+- **Phone terminals are untested.** WebSocket upgrade through the real `tailscale serve` proxy was not verified
+  (Tailscale was off in the spike), and no phone was used. A manual test needs: Tailscale running, a temporary
+  `tailscale serve --https=<port>` to the bridge, the phone on the same tailnet, the Mac's tailnet name allowed and
+  the owner set, then opening the page with the token in the URL fragment. Typing into xterm on iOS also needs a keys
+  bar; the existing purpose-built reply UI may be the better phone surface.
+- **Not verified by hand:** real drag-and-drop (tested with a fake drag), real link hover and click (tested with DOM
+  events), IME, `window.open` and `confirm` with no delegate, a global-hotkey summon over WKWebView (the app must be
+  active first), Cmd+Tab and screenshot shortcuts.
+- **Holder crash policy.** Detached holders survive the app; a crashed holder loses its session. Decide whether to
+  auto-`--resume` registry sessions after a crash or reboot, and how a stale registry entry is cleared.
+- **Holder supervision:** LaunchAgent with `KeepAlive` (auto-restart, survives logout) versus app-spawned detached
+  processes (simpler to ship, keeps the app's identity). Leaning app-spawned first.
+- **Production holder needs:** bounded writes (drop a stalled link), mode tracking, replay plus forced redraw, an
+  allow-list of directories and agent kinds for spawn, the test-only `shell` kind behind a flag.
+- **Untuned:** the 64-connection cap (all tailnet traffic appears as 127.0.0.1, so a per-address limit can't help),
+  the 15 s stall limit, ring size. Kitty keyboard push/pop state is not tracked.
+- **Memory with several live terminals** in one page (231 MB in the test). Render only the selected terminal; try
+  the WebGL renderer.
+- **Does Ghostty stay a first-class backend** or only a fallback? Decides how much two-backend upkeep is accepted.
+- **Multi-monitor.** The two-monitor workflow is non-negotiable: panel on one screen, live sessions on the other. A
+  native window can be placed explicitly; remember the position.
+- **Attention without screen reading.** Hooks were enough under Ghostty; an embedded terminal can also read its own
+  screen, which would close known gaps (a denied permission or Esc fires no hook; the folder-trust prompt has no
+  hook).
 - **Board behaviour.** Columns follow `docs/task-board.md` (Inbox, Ready, Needs you, In progress, Review, Done)
-  unless Adam wants a typical Todo/Doing/Done set. Drag-and-drop versus keys, how a task with several sessions
-  is shown, PR badges and auto-Review, and the worktree-per-task option are all undecided.
-- **OpenCode** under the embedded backend. Claude only so far.
+  unless Adam wants a typical Todo/Doing/Done set. Drag versus keys, how a task with several sessions is shown, PR
+  badges and auto-Review, and the worktree-per-task option are undecided.
+- **OpenCode** under the new backend. Claude only so far.
+- **ZWJ emoji and flags** render wrongly in xterm.js. Cosmetic.
 
 ## Optional / nice to have
 
 - Phone view mirrors the board.
 - Tiled or split layouts showing several terminals at once.
 - A Review view for PRs in the dashboard, so the panel's Review tab can shrink too.
-- libghostty in place of SwiftTerm once its API settles.
+- ghostty-web as an opt-in renderer; libghostty or SwiftTerm if a native view is ever wanted.
+- Hot reload of the web UI in development.
 
 ## Suggested order
 
-1. **Spike the terminal view** in a throwaway window: SwiftTerm hosting a real `claude`, judged against Ghostty on feel
-   and memory. Decides the biggest open risk.
-2. **In-app session backend** behind `SessionBackend`, with task-linked start and resume as the Ghostty backend does.
-3. **Dashboard window**: sessions list plus embedded terminal, attention-sorted, with Enter to go and a hotkey to
-   open it.
-4. **Tasks board** in the same window.
-5. **Trim the panel** back to glance and go, once the board has replaced its Tasks tab.
+1. **Phone terminal check**, manually, with the spike bridge (small, answers the last unknown).
+2. **Production holder** with the fixes above, plus the registry and `--resume` restore.
+3. **In-app backend** behind `SessionBackend`, with task-linked start and resume as the Ghostty backend does, and
+   the bridge folded into `ShepherdWebKit`.
+4. **Dashboard window**: WKWebView with the glue from spike C2, sessions list plus terminal, attention-sorted, a
+   hotkey to open it.
+5. **Tasks board** in the same window.
+6. **Trim the panel** back to glance and go, once the board has replaced its Tasks tab.
