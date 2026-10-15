@@ -99,7 +99,7 @@ the spec for the terminal side. Port the ideas, not the code.
 ## Spike results (2026-10-12)
 
 Throwaway code lives outside the repo (the Claude scratchpad of the session that ran them); the findings are what
-matter. None of this was tried against a real phone.
+matter. A, B, C1 and C2 were not tried against a real phone; C3 below was.
 
 **A. A Swift holder can own PTYs for real `claude` sessions.**
 - `openpty` + `posix_spawn` with `POSIX_SPAWN_SETSID`, opening the slave in a file action, gives a controlling TTY,
@@ -163,6 +163,36 @@ matter. None of this was tried against a real phone.
   and leaves Origin alone. A request shaped like Serve's passed the gate for the owner and was refused for other
   users, Funnel, untagged proxies, and a different Origin port or host.
 
+**C3. A real phone terminal over Tailscale works, with a lot of touch glue (2026-10-15).** The C1 bridge served an
+xterm.js page through a temporary `tailscale serve --https=8443` and an iPhone on the same tailnet drove real
+`claude` sessions. The WebSocket upgrade through Serve and the identity gate worked first time. Code is on
+`spike/hybrid-terminal` in `spikes/hybrid-terminal/c3-phone-test/`. What the first version got wrong, and what fixed it:
+
+- Keyboard open left most of the screen to the header and menu. Fix: hide both while `visualViewport` is under 80% of
+  the window height. Resizing the PTY on every keyboard toggle was not jumpy in use.
+- An idle drop was silent (typing just did nothing). Fix: a red banner, a heartbeat (`list` every 8 s, 4 s deadline),
+  automatic reconnect with backoff, and a wake on visibility, page show and online events. The banner shows and the
+  reconnect is quick.
+- Text was too small. Fix: 16 px by default, `A-`/`A+` buttons, remembered per phone.
+- No scrollback by touch. xterm does not scroll its own buffer on a drag. Fullscreen Claude Code runs on the alternate
+  screen with mouse tracking on, so a drag has to become SGR wheel events (`ESC[<64;1;1M` up, `ESC[<65;1;1M` down),
+  with arrow keys for the alternate screen without mouse tracking and `scrollLines` otherwise. A gain of 2 and momentum
+  on release feel right.
+- Touch events stop arriving when the element they started on is removed, and xterm replaces its row elements as it
+  redraws, so drags died after the first line. Fix: a transparent, stable overlay that owns all touches.
+- That overlay must cancel the browser's follow-up click on every tap (`preventDefault` in `touchend`) and focus the
+  input itself, otherwise the click blurs it and the keyboard flickers up and down. A long press worked because it
+  produces no click. Block text selection and the long-press callout on the overlay.
+- Key bar, in use order: `1 2 3 y n`, arrows, `Tab`, `Shift+Enter`, `Esc`, then the rest. With tap-to-type working,
+  the return and keyboard buttons matter least.
+- The `where-am-i` mod's truncated text cannot be expanded from the phone: a click on it hides the mod's panel, so
+  forwarding a tap as a mouse click does not help and needs a change in the mod. Claude Code's own away summary was
+  too long on mobile and was turned off globally with `awaySummaryEnabled: false`.
+
+Still not known: how it feels over a long session, selecting and copying text on the phone (the overlay removes
+long-press selection), image paste from the phone, and whether a purpose-built reply UI would beat a terminal for the
+common case (answering a prompt).
+
 ## Prior art
 
 - **cmux** (manaflow-ai/cmux, native Swift on libghostty): the reference for the sessions view. Vertical tabs,
@@ -218,11 +248,9 @@ tech, not from Electron"). The spikes above were run to settle it.
   the phone terminal path, or WKWebView glue that is more fragile than the spike suggests).
 - **Sessions with no task.** Everything is task-based, but sessions can still start outside shepherd. Confirm they
   appear as untracked cards and how promotion works.
-- **Phone terminals are untested.** WebSocket upgrade through the real `tailscale serve` proxy was not verified
-  (Tailscale was off in the spike), and no phone was used. A manual test needs: Tailscale running, a temporary
-  `tailscale serve --https=<port>` to the bridge, the phone on the same tailnet, the Mac's tailnet name allowed and
-  the owner set, then opening the page with the token in the URL fragment. Typing into xterm on iOS also needs a keys
-  bar; the existing purpose-built reply UI may be the better phone surface.
+- **Phone terminals mostly work, with caveats.** Tested on an iPhone over Tailscale Serve on 2026-10-15 (C3 above).
+  Open: copy and select on the phone, image paste, a long session, and whether answering prompts is better served by
+  the existing purpose-built reply UI than by a terminal.
 - **Not verified by hand:** real drag-and-drop (tested with a fake drag), real link hover and click (tested with DOM
   events), IME, `window.open` and `confirm` with no delegate, a global-hotkey summon over WKWebView (the app must be
   active first), Cmd+Tab and screenshot shortcuts.

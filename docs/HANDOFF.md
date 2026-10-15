@@ -40,42 +40,28 @@ Full detail, glue code and numbers are in `docs/dashboard.md` ("Spike results").
 - **C1 (Swift WebSocket bridge): works and survived 65 attack tests.** `NWProtocolWebSocket` cannot share a port with
   HTTP, so the upgrade is hand-rolled (about 780 lines for the whole bridge).
 
-### The phone terminal test (C3): in flight
+### The phone terminal test (C3): done and torn down
 
-Purpose: the last unknown, a terminal on a real phone through Tailscale.
+A terminal on a real iPhone through Tailscale Serve works. The first version was clunky; the fixes below were made and
+re-tested on the phone over the afternoon of 2026-10-15. Full list with reasons in `docs/dashboard.md` (spike C3).
 
-- **Setup:** the spike bridge and holder plus a purpose-built xterm.js page, served at
-  `https://macbook1.stern-saturation.ts.net:8443/` through a temporary Tailscale Serve entry (443 is Mobile Access, left
-  alone). The link carries a one-off token in the URL fragment; a QR code of it was shown to Adam.
-- **Verified from the Mac through the real proxy:** page loads, WebSocket upgrade works, valid token opens, wrong token
-  401, foreign Origin 403, the Tailscale owner header passes the identity gate.
-- **Adam on his iPhone:** it connects and works, but is **clunky**. With the keyboard up most of the screen is hidden,
-  and what is left is irrelevant UI; after sitting idle it was not clear the connection had dropped (typing did
-  nothing), though Reconnect worked.
-- **Fix made, not yet re-tested on the phone:** a thin one-line header with controls behind a button and hidden while
-  the keyboard is up; a red "Disconnected" banner; heartbeat (asks for the session list every 8 s, reconnects on no
-  reply); auto-reconnect with backoff, and on returning to the app. Unknown: whether the PTY resizing every time the
-  keyboard opens or closes makes Claude repaint annoyingly (cheap alternative: do not resize the PTY on keyboard
-  changes); Add to Home Screen removes Safari's own bars and has not been tried.
-- **Where the code is:** snapshotted onto the branch `spike/hybrid-terminal` under
-  `spikes/hybrid-terminal/c3-phone-test/` (page, bridge changes, probe and QR scripts; the vendored xterm files and the
-  token are left out, see its README). The running copy is in the session scratchpad
-  (`/private/tmp/claude-501/-Users-adamflitney-Dev-shepherd/552972dd-9c42-44c6-9737-a3ee46ff548d/scratchpad/`:
-  `phone-web/`, `spike-wsbridge/`, `phone-state/` with the token, logs and QR image, `phone-work/` as the scratch cwd).
-  `/private/tmp` is cleaned eventually.
-- **Live state to clean up when Adam is done.** All of this is currently running:
-  - `pkill -f 'wsbridge --port 18760'` and `pkill -f 'ptyd daemon --home .*phone-state'` (stops the bridge and holder;
-    any Claude session started from the phone dies with the holder)
-  - `tailscale serve --https=8443 off`, then check `tailscale serve status` still shows the 443 entry to 8787
-  - delete `phone-state/` (it holds the token and a QR image of the link)
-  - Tailscale was **stopped** before the test and was started with `tailscale up --accept-routes`; `tailscale down`
-    puts it back if Adam wants it off
-  - the phone session leaves a transcript and a trust entry for the scratch folder in `~/.claude.json`
+- **Works:** WebSocket upgrade through Serve and the identity gate, real Claude sessions, keyboard-up layout, visible
+  disconnect banner with automatic reconnect, larger text with `A-`/`A+`, touch scrolling with momentum, tap-to-type,
+  key bar ordered by use.
+- **Not solved:** the `where-am-i` mod's truncated text cannot be expanded on the phone (a click hides its panel;
+  needs a change in the mod). Not tried: selecting or copying text on the phone, image paste, a long session.
+- **Tailscale** was stopped before the test and started with `tailscale up --accept-routes`; it was left running.
+  `tailscale down` puts it back if wanted.
+- **Side effects:** Claude's away summary was turned off globally (`awaySummaryEnabled: false` in
+  `~/.claude/settings.json`, backup alongside it). The phone sessions left a transcript and a trust entry for the scratch
+  folder in `~/.claude.json`.
+- **Torn down 2026-10-15:** bridge, holder, the `:8443` Serve entry (the 443 entry to 8787 is untouched), and the
+  scratchpad `phone-state/` (token, logs, QR image). The code is on `spike/hybrid-terminal` in
+  `spikes/hybrid-terminal/c3-phone-test/`; the vendored xterm files and the token are not in the repo (see its README).
 
 ### Repo and machine state
 
-- **Branch `swift-ghostty-host`** is the working branch and is pushed (tip `08fd035`, from the mods session). This
-  section is uncommitted.
+- **Branch `swift-ghostty-host`** is the working branch and is pushed.
 - **Branch `spike/hybrid-terminal`** holds all the spike code including the phone test (pushed).
 - **Parked TypeScript branches** (`task-store-ts`, `daemon-pty`, `attention-state`, `browser-terminal`,
   `electron-panel-spike`): the executable spec for the terminal side. **`main`** is v0.8.2 with Herdr.
@@ -98,11 +84,12 @@ Purpose: the last unknown, a terminal on a real phone through Tailscale.
 
 ### Suggested next steps (not agreed)
 
-1. Re-test the fixed phone page, record the result in `docs/dashboard.md`, then clean up the live state above.
-2. Decide the order of the mods spike and the dashboard work (see "These two are not reconciled").
-3. If the dashboard goes ahead: production holder, then the in-app backend, then the dashboard window and board
+1. Decide the order of the mods spike and the dashboard work (see "These two are not reconciled"). TUIOS (tuios.dev) was looked at on 2026-10-15 and skipped for now: a Go
+   terminal multiplexer with a daemon, a socket API, Claude Code hooks and phone pairing; the open question was whether
+   Claude Code runs with full fidelity inside its panes, which nobody has tried.
+2. If the dashboard goes ahead: production holder, then the in-app backend, then the dashboard window and board
    (`docs/dashboard.md`, "Suggested order").
-4. If the mods spike goes first: its Phase 0 phone checks need no code.
+3. If the mods spike goes first: its Phase 0 phone checks need no code.
 
 ## What this is
 
