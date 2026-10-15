@@ -3,6 +3,107 @@
 Read this first when picking the work up on another machine. Everything described here is on the
 `swift-ghostty-host` branch of this repo (pushed to `origin`); `main` is untouched and nothing is merged.
 
+## Update 2026-10-15: direction, spikes, and what is in flight
+
+**Read this section first.** The rest of the file describes the Ghostty-backend code as of 2026-10-12 and is still
+accurate for that code. This section is the state of the planning and spikes since then.
+
+### Where the plan stands
+
+- **`docs/dashboard.md` is the main plan.** Adam accepted the **hybrid** on 2026-10-13: a Swift app with a WKWebView
+  dashboard and kanban board (HTML, xterm.js), a web server with a hand-rolled WebSocket, and one small PTY-holder
+  process per session so sessions outlive the app. Everything is task-based (every session belongs to a task; the
+  board reflects every session), which is the main difference from cmux; keep it simple, add only what proves useful.
+  Revisit if a blocker turns up.
+- **`docs/mods-spike.md` is a second line of thinking from another session (2026-10-14/15), not discussed in the
+  session that wrote this section.** It proposes finding out whether a Claude Code mod can do the in-session work
+  (task briefing, state reporting, answering prompts, the task UI), with Claude's own mobile app replacing the Tailscale
+  web app. Terminals would stay in Ghostty or herdr, and it lists "build the dashboard window first" as rejected. Its
+  probe mod is in `spike/shepherd-probe/`. Context is in the memory note `project_shepherd_mods_exploration` and a
+  storyboard artifact linked from the doc.
+- **These two are not reconciled.** They disagree on embedded terminals and on the phone. A reasonable reading is that
+  they are complementary (the mods spike is cheaper and tests whether in-session plumbing plus Claude mobile is enough;
+  the dashboard is the plan if it is not, and is where the kanban board lives), but that is the previous session's
+  reading, not a decision. **Ask Adam which goes first.**
+
+### Spike results (2026-10-12/13), short version
+
+Full detail, glue code and numbers are in `docs/dashboard.md` ("Spike results"). Code is on the branch
+`spike/hybrid-terminal` (`spikes/hybrid-terminal/`, with a README).
+
+- **A (PTY holder in Swift): works.** `openpty` + `posix_spawn` with `POSIX_SPAWN_SETSID`. App restarts do not touch
+  sessions. A holder crash kills its session; `claude --resume` recovers the conversation but not an in-flight tool
+  call or pending permission prompt. Run `claude` under a wrapper shell or it ignores resizes.
+- **B (xterm.js hosts Claude well):** needs a Shift+Enter handler (send `\x1b\r`) and an image-paste handler (send
+  Ctrl+V). Cmd combinations are free for app shortcuts.
+- **C2 (WKWebView host): works with glue** (Edit menu, link handler, native drop handler, Option+drag to select).
+- **C1 (Swift WebSocket bridge): works and survived 65 attack tests.** `NWProtocolWebSocket` cannot share a port with
+  HTTP, so the upgrade is hand-rolled (about 780 lines for the whole bridge).
+
+### The phone terminal test (C3): in flight
+
+Purpose: the last unknown, a terminal on a real phone through Tailscale.
+
+- **Setup:** the spike bridge and holder plus a purpose-built xterm.js page, served at
+  `https://macbook1.stern-saturation.ts.net:8443/` through a temporary Tailscale Serve entry (443 is Mobile Access, left
+  alone). The link carries a one-off token in the URL fragment; a QR code of it was shown to Adam.
+- **Verified from the Mac through the real proxy:** page loads, WebSocket upgrade works, valid token opens, wrong token
+  401, foreign Origin 403, the Tailscale owner header passes the identity gate.
+- **Adam on his iPhone:** it connects and works, but is **clunky**. With the keyboard up most of the screen is hidden,
+  and what is left is irrelevant UI; after sitting idle it was not clear the connection had dropped (typing did
+  nothing), though Reconnect worked.
+- **Fix made, not yet re-tested on the phone:** a thin one-line header with controls behind a button and hidden while
+  the keyboard is up; a red "Disconnected" banner; heartbeat (asks for the session list every 8 s, reconnects on no
+  reply); auto-reconnect with backoff, and on returning to the app. Unknown: whether the PTY resizing every time the
+  keyboard opens or closes makes Claude repaint annoyingly (cheap alternative: do not resize the PTY on keyboard
+  changes); Add to Home Screen removes Safari's own bars and has not been tried.
+- **Where the code is:** snapshotted onto the branch `spike/hybrid-terminal` under
+  `spikes/hybrid-terminal/c3-phone-test/` (page, bridge changes, probe and QR scripts; the vendored xterm files and the
+  token are left out, see its README). The running copy is in the session scratchpad
+  (`/private/tmp/claude-501/-Users-adamflitney-Dev-shepherd/552972dd-9c42-44c6-9737-a3ee46ff548d/scratchpad/`:
+  `phone-web/`, `spike-wsbridge/`, `phone-state/` with the token, logs and QR image, `phone-work/` as the scratch cwd).
+  `/private/tmp` is cleaned eventually.
+- **Live state to clean up when Adam is done.** All of this is currently running:
+  - `pkill -f 'wsbridge --port 18760'` and `pkill -f 'ptyd daemon --home .*phone-state'` (stops the bridge and holder;
+    any Claude session started from the phone dies with the holder)
+  - `tailscale serve --https=8443 off`, then check `tailscale serve status` still shows the 443 entry to 8787
+  - delete `phone-state/` (it holds the token and a QR image of the link)
+  - Tailscale was **stopped** before the test and was started with `tailscale up --accept-routes`; `tailscale down`
+    puts it back if Adam wants it off
+  - the phone session leaves a transcript and a trust entry for the scratch folder in `~/.claude.json`
+
+### Repo and machine state
+
+- **Branch `swift-ghostty-host`** is the working branch and is pushed (tip `08fd035`, from the mods session). This
+  section is uncommitted.
+- **Branch `spike/hybrid-terminal`** holds all the spike code including the phone test (pushed).
+- **Parked TypeScript branches** (`task-store-ts`, `daemon-pty`, `attention-state`, `browser-terminal`,
+  `electron-panel-spike`): the executable spec for the terminal side. **`main`** is v0.8.2 with Herdr.
+- **Local `main` has one unpushed commit** (`abf0c01`, a Review-tab filter) that Adam said to ignore, and **`stash@{0}`**
+  holds an uncommitted Herdr `createSession` retry fix, superseded by the Ghostty direction. Neither is lost; neither
+  matters unless the Herdr backend is kept.
+- **Installed `/Applications/Shepherd.app`** is the `swift-ghostty-host` build (still labelled 0.8.2) with hooks
+  installed, including the `crook` SessionStart hook. Backups: `~/.claude/settings.json.pre-ghostty-backup`.
+- **Small repo changes made this session:** `crook task objective`, `crook task plan set`, a nudge in the task context
+  for tasks with no objective or plan, and `crook` refusing `task status done` inside Claude Code (agents finish at
+  `review`; only the user closes a task). All committed and pushed.
+
+### Side effects of the spikes on Adam's machine (so nothing is a surprise)
+
+- A spike fork overwrote the clipboard and briefly stole focus; the old clipboard contents are lost.
+- `~/.claude.json` has trust entries for scratch directories; `~/.shepherd/events.jsonl` has lines from spike sessions.
+- Obsidian's MCP server was disconnected at the end of the session, so the Obsidian notes (`2026-10-12 Shepherd START
+  HERE` and the long plan note) were not updated with any of this. Update them through the `my-notes` skill, or rely on
+  this file.
+
+### Suggested next steps (not agreed)
+
+1. Re-test the fixed phone page, record the result in `docs/dashboard.md`, then clean up the live state above.
+2. Decide the order of the mods spike and the dashboard work (see "These two are not reconciled").
+3. If the dashboard goes ahead: production holder, then the in-app backend, then the dashboard window and board
+   (`docs/dashboard.md`, "Suggested order").
+4. If the mods spike goes first: its Phase 0 phone checks need no code.
+
 ## What this is
 
 Shepherd is a macOS menu-bar app (Swift) that runs AI coding agents (Claude Code) in ordinary
