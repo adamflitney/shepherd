@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Terminal check</title>
+<link rel="stylesheet" href="/vendor/xterm.css">
+<style>
+  :root { color-scheme: dark; --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --fg:#e6e8ee; --dim:#8b93a3; --accent:#6aa9ff; --bad:#ff6b6b; --ok:#4ade80; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:14px -apple-system, system-ui, sans-serif; overflow:hidden; overscroll-behavior:none; }
+  #app { display:flex; flex-direction:column; height:var(--vh, 100dvh); padding-top:env(safe-area-inset-top); }
+  #head { display:flex; align-items:center; gap:8px; padding:4px 8px; background:var(--panel); border-bottom:1px solid var(--line); min-height:30px; }
+  #dot { width:10px; height:10px; border-radius:50%; background:var(--dim); flex:0 0 auto; }
+  #dot.ok { background:var(--ok); } #dot.bad { background:var(--bad); }
+  #status { color:var(--dim); font-size:12px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #head button { background:#222733; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:4px 10px; font:inherit; }
+  #menu { display:none; gap:6px; padding:6px 8px; background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  #menu.open { display:flex; }
+  #menu select, #menu button { background:#222733; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font:inherit; }
+  #menu button.primary { background:var(--accent); color:#0b1220; border-color:var(--accent); font-weight:600; }
+  #termwrap { flex:1; min-height:0; padding:2px 4px; overflow:hidden; position:relative; }
+  #term { width:100%; height:100%; }
+  #banner { display:none; position:absolute; left:0; right:0; top:0; z-index:5; padding:10px 12px; background:var(--bad); color:#1b0000; font-weight:600; text-align:center; }
+  #banner.show { display:block; }
+  #keys { display:flex; gap:5px; padding:5px 6px calc(5px + env(safe-area-inset-bottom)); background:var(--panel); border-top:1px solid var(--line); overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  body.kb #keys { padding-bottom:5px; }
+  body.kb #head, body.kb #menu { display:none; }
+  #keys button { flex:0 0 auto; min-width:42px; background:#222733; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:9px 10px; font:inherit; touch-action:manipulation; }
+  #keys button.on { background:var(--accent); color:#0b1220; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="head"><span id="dot"></span><div id="status">starting…</div><button id="bMenu">⋯</button></div>
+  <div id="menu">
+    <button id="bNew" class="primary">New claude</button>
+    <select id="sel"><option value="">sessions…</option></select>
+    <button id="bAttach">Attach</button>
+    <button id="bConn">Reconnect</button>
+  </div>
+  <div id="termwrap"><div id="term"></div><div id="banner">Disconnected, reconnecting…</div></div>
+  <div id="keys"></div>
+</div>
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script>
+(() => {
+  const WORK_DIR = "__WORK_DIR__"; // replace with the directory passed to --allow-cwd
+  const $ = (id) => document.getElementById(id);
+  const enc = new TextEncoder();
+
+  let token = "";
+  try { if (location.hash.length > 1) { sessionStorage.setItem("tok", decodeURIComponent(location.hash.slice(1))); history.replaceState(null, "", location.pathname); } token = sessionStorage.getItem("tok") || ""; } catch {}
+
+  const term = new Terminal({ fontSize: 12, fontFamily: 'Menlo, ui-monospace, monospace', scrollback: 3000, cursorBlink: true, allowProposedApi: true, theme: { background: "#0f1115" } });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open($("term"));
+
+  let ws = null, sid = null, ctrl = false, ptySize = null, driver = null, myId = null;
+  let alive = false, lastRx = 0, hbTimer = null, retryTimer = null, retries = 0, wantConnected = true;
+
+  function status(s) { $("status").textContent = s; }
+  function setAlive(on) {
+    alive = on; $("dot").className = on ? "ok" : "bad"; $("banner").classList.toggle("show", !on && wantConnected);
+    refreshStatus();
+  }
+  function refreshStatus() {
+    const p = ptySize ? ptySize.cols + "x" + ptySize.rows : "-";
+    const d = driver === myId ? "you drive" : driver == null || driver < 0 ? "" : "other drives";
+    status((alive ? "live" : "offline") + " · " + (sid ? sid : "no session") + " · " + p + " " + d);
+  }
+  function proposed() { try { const d = fit.proposeDimensions(); return d && d.cols > 1 ? { cols: d.cols, rows: d.rows } : { cols: 80, rows: 24 }; } catch { return { cols: 80, rows: 24 }; } }
+  function sendCtl(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+  function sendBytes(str) {
+    if (!ws || ws.readyState !== 1 || !sid) { if (!alive) { $("banner").classList.add("show"); scheduleReconnect(0); } return; }
+    if (ctrl && str.length === 1) { const c = str.toUpperCase().charCodeAt(0); if (c >= 64 && c <= 95) str = String.fromCharCode(c - 64); setCtrl(false); }
+    ws.send(enc.encode(str));
+  }
+  function setCtrl(on) { ctrl = on; const b = document.querySelector('[data-k="ctrl"]'); if (b) b.classList.toggle("on", on); }
+
+  // Liveness: a browser can't see WebSocket pings, so ask for the session list every 8 s and expect an answer.
+  function heartbeat() {
+    clearInterval(hbTimer);
+    hbTimer = setInterval(() => {
+      if (!ws || ws.readyState !== 1) return;
+      const sent = Date.now(); sendCtl({ type: "list" });
+      setTimeout(() => { if (lastRx < sent && ws && ws.readyState === 1) { try { ws.close(); } catch {} markDead(); } }, 4000);
+    }, 8000);
+  }
+  function markDead() { if (alive) setAlive(false); scheduleReconnect(retries === 0 ? 0 : Math.min(10000, 1000 * Math.pow(2, retries - 1))); }
+  function scheduleReconnect(delay) {
+    if (!wantConnected || retryTimer) return;
+    retryTimer = setTimeout(() => { retryTimer = null; connect(); }, delay);
+  }
+
+  function connect() {
+    if (!token) { status("no token: open the link with the #token part"); return; }
+    if (ws) { ws.onclose = null; ws.onmessage = null; try { ws.close(); } catch {} }
+    const url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
+    ws = new WebSocket(url, ["shepherd-v1", "token." + token]);
+    ws.binaryType = "arraybuffer";
+    const mine = ws;
+    ws.onopen = () => { retries = 0; lastRx = Date.now(); setAlive(true); sendCtl({ type: "list" }); if (sid) attach(sid); heartbeat(); };
+    ws.onclose = () => { if (mine !== ws) return; retries++; markDead(); };
+    ws.onerror = () => {};
+    ws.onmessage = (ev) => {
+      lastRx = Date.now();
+      if (typeof ev.data !== "string") { term.write(new Uint8Array(ev.data)); return; }
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      switch (m.type) {
+        case "hello": myId = m.you; break;
+        case "sessions": {
+          const sel = $("sel"); const cur = sel.value; sel.innerHTML = '<option value="">sessions…</option>';
+          for (const s of m.sessions || []) { if (!s.alive) continue; const o = document.createElement("option"); o.value = s.id; o.textContent = s.id + " · " + s.cols + "x" + s.rows; sel.appendChild(o); }
+          sel.value = cur; if (!sel.value && sid) sel.value = sid;
+          break; }
+        case "spawned": attach(m.id); sendCtl({ type: "list" }); $("menu").classList.remove("open"); break;
+        case "attached": term.reset(); ptySize = { cols: m.cols, rows: m.rows }; term.resize(m.cols, m.rows); refreshStatus(); break;
+        case "ready": term.focus(); break;
+        case "size": ptySize = { cols: m.cols, rows: m.rows }; driver = m.driver; term.resize(m.cols, m.rows); refreshStatus(); break;
+        case "reset": term.reset(); break;
+        case "detached": sid = null; refreshStatus(); break;
+        case "error": status("error: " + m.message); break;
+      }
+    };
+  }
+  function attach(id) { sid = id; const d = proposed(); sendCtl({ type: "attach", id, cols: d.cols, rows: d.rows }); refreshStatus(); }
+
+  // Back in the app (unlock, app switch, network change): check straight away instead of waiting for a timeout.
+  function wake() {
+    wantConnected = true;
+    if (!ws || ws.readyState !== 1) { clearTimeout(retryTimer); retryTimer = null; retries = 0; connect(); }
+    else { const sent = Date.now(); sendCtl({ type: "list" }); setTimeout(() => { if (lastRx < sent) { try { ws.close(); } catch {} markDead(); } }, 2500); }
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") wake(); });
+  window.addEventListener("pageshow", wake);
+  window.addEventListener("online", wake);
+
+  term.onData((d) => sendBytes(d));
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) { if (e.type === "keydown") sendBytes("\x1b\r"); return false; }
+    return true;
+  });
+
+  const KEYS = [["Esc", "\x1b"], ["Tab", "\t"], ["⇧⏎", "\x1b\r"], ["⏎", "\r"], ["↑", "\x1b[A"], ["↓", "\x1b[B"], ["←", "\x1b[D"], ["→", "\x1b[C"],
+    ["Ctrl", "ctrl"], ["^C", "\x03"], ["^D", "\x04"], ["^L", "\x0c"], ["^R", "\x12"], ["^O", "\x0f"], ["/", "/"], ["@", "@"], ["1", "1"], ["2", "2"], ["3", "3"], ["y", "y"], ["n", "n"], ["⌨", "kb"]];
+  for (const [label, val] of KEYS) {
+    const b = document.createElement("button"); b.textContent = label; b.dataset.k = val;
+    b.addEventListener("pointerdown", (e) => e.preventDefault());
+    b.addEventListener("click", () => { if (val === "ctrl") setCtrl(!ctrl); else if (val === "kb") term.focus(); else sendBytes(val); });
+    $("keys").appendChild(b);
+  }
+
+  // Keyboard open = the visual viewport is much shorter than the window: drop the header so the terminal gets the room.
+  let resizeTimer = null;
+  function onResize() {
+    const vv = window.visualViewport;
+    if (vv) {
+      document.documentElement.style.setProperty("--vh", vv.height + "px");
+      document.body.classList.toggle("kb", vv.height < window.innerHeight * 0.8);
+    }
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { const d = proposed(); sendCtl({ type: "resize", cols: d.cols, rows: d.rows }); if (!sid) { try { fit.fit(); } catch {} } term.scrollToBottom(); }, 150);
+  }
+  window.addEventListener("resize", onResize);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", onResize);
+
+  $("bMenu").onclick = () => $("menu").classList.toggle("open");
+  $("bNew").onclick = () => { const d = proposed(); sendCtl({ type: "spawn", kind: "claude", cwd: WORK_DIR, cols: d.cols, rows: d.rows }); status("starting claude…"); };
+  $("bAttach").onclick = () => { const v = $("sel").value; if (v) { if (sid) sendCtl({ type: "detach" }); setTimeout(() => attach(v), 150); $("menu").classList.remove("open"); } };
+  $("bConn").onclick = () => { retries = 0; clearTimeout(retryTimer); retryTimer = null; connect(); };
+  $("sel").addEventListener("focus", () => sendCtl({ type: "list" }));
+
+  try { fit.fit(); } catch {}
+  $("menu").classList.add("open");
+  connect();
+})();
+</script>
+</body>
+</html>

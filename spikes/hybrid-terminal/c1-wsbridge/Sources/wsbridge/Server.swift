@@ -10,6 +10,7 @@ enum Cfg {
     nonisolated(unsafe) static var allowCwds: [String] = []
     nonisolated(unsafe) static var allowShell = false
     nonisolated(unsafe) static var owner: String?
+    nonisolated(unsafe) static var webDir: String?
     nonisolated(unsafe) static var maxPending = 2 << 20
     static let maxHeader = 16 * 1024
     static let maxFrame = 256 * 1024
@@ -175,7 +176,11 @@ final class Server {
         let query = target.contains("?") ? String(target.split(separator: "?", maxSplits: 1)[1]) : ""
         switch path {
         case "/":
-            respond(p, 200, "OK", "<!doctype html><title>bridge spike</title><p>HTTP and WebSocket share this port.", type: "text/html")
+            if let r = staticFile("index.html") { respond(p, 200, "OK", r.body, type: r.type) }
+            else { respond(p, 200, "OK", "<!doctype html><title>bridge spike</title><p>HTTP and WebSocket share this port.", type: "text/html") }
+        case _ where path.hasPrefix("/vendor/"):
+            if let r = staticFile("vendor/" + String(path.dropFirst(8))) { respond(p, 200, "OK", r.body, type: r.type) }
+            else { respond(p, 404, "Not Found", "not found") }
         case "/api/sessions":
             guard let auth = h["authorization"], auth.hasPrefix("Bearer "), constantTimeEqual(String(auth.dropFirst(7)), Cfg.token) else {
                 return respond(p, 401, "Unauthorized", "unauthorized")
@@ -189,6 +194,18 @@ final class Server {
         default:
             respond(p, 404, "Not Found", "not found")
         }
+    }
+
+    /// Phone-test pages: only plain file names directly under the web dir or its vendor/ folder.
+    func staticFile(_ rel: String) -> (body: String, type: String)? {
+        guard let dir = Cfg.webDir else { return nil }
+        let comps = rel.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard (1...2).contains(comps.count), comps.dropLast().allSatisfy({ $0 == "vendor" }),
+              let name = comps.last, name.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil, !name.hasPrefix(".") else { return nil }
+        let path = dir + "/" + rel
+        guard let body = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        let type = name.hasSuffix(".html") ? "text/html; charset=utf-8" : name.hasSuffix(".js") ? "text/javascript; charset=utf-8" : name.hasSuffix(".css") ? "text/css; charset=utf-8" : "text/plain"
+        return (body, type)
     }
 
     /// Host / Origin / Sec-Fetch-Site / Tailscale identity checks (same rules as ShepherdWebKit's AccessPolicy).

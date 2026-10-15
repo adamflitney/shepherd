@@ -15,6 +15,7 @@ while !args.isEmpty {
     case "--allow-cwd": Cfg.allowCwds.append(URL(fileURLWithPath: val()).resolvingSymlinksInPath().path)
     case "--allow-shell": Cfg.allowShell = true
     case "--owner": Cfg.owner = val()
+    case "--web": Cfg.webDir = URL(fileURLWithPath: val()).resolvingSymlinksInPath().path
     case "--max-pending": Cfg.maxPending = Int(val()) ?? Cfg.maxPending
     default: print("unknown arg \(a)"); exit(2)
     }
