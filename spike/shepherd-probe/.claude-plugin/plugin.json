@@ -1,0 +1,6 @@
+{
+  "name": "shepherd-probe",
+  "version": "0.1.0",
+  "description": "Throwaway probe for the shepherd mod spike: phone rendering, answering a permission prompt from outside, task briefing, the session.end budget.",
+  "types": "./types/index.d.ts"
+}

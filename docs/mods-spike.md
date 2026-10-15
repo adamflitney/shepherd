@@ -17,9 +17,9 @@ Ordered by what would sink the idea.
 
 | # | Question | If the answer is no |
 |---|---|---|
-| Q1 | Is the Claude mobile app enough? Remote Control on for Yoto's org, auto-connect and push for ordinary sessions, a mod's band and buttons visible and pressable on mobile, a mod slash command runnable from the phone | Keep the Tailscale web app, fed by the mod's state instead of hooks. A custom mobile client stays |
-| Q2 | Can a session be answered from outside? A `classic.PermissionRequest` hook returns a `decision`, so it can wait on the panel or phone. How long may it wait, and who wins if the phone and the panel both answer | Keep typing answers into the terminal |
-| Q3 | Can a mod do the plumbing? Read a task id from the environment, call `crook` through `$.process.run`, add a section with `prompt.compose`, register tools, deny `task_close`, report state to the app | Find which part fails; the hook-and-skill setup stays for that part |
+| Q1 | Is the Claude mobile app enough? Remote Control on for Yoto's org, auto-connect and push for ordinary sessions, and a mod slash command or tool giving a useful text reply on the phone. The docs say a mod's drawing (band, panes, buttons) appears only in the terminal under Remote Control, so the phone is chat plus text | Keep the Tailscale web app, fed by the mod's state instead of hooks. A custom mobile client stays |
+| Q2 | Can a session be answered from outside? A `tool.check` hook (allowed under the guard) can hold a permission prompt. How long may it wait, what do the terminal and the phone show while it holds, and does holding hide the phone's native prompt and push | Keep typing answers into the terminal, and let the phone answer natively without holding |
+| Q3 | Can a mod do the plumbing? Read a task id from the environment, call `crook` through `$.process.run`, attach the task to the first prompt (`prompt.submit` context), register tools, deny `task_close`, report state to the app | Find which part fails; the hook-and-skill setup stays for that part |
 
 One constraint found while checking the types: `session.end` has a **1.5 second** budget for all hooks. A Haiku-written
 handoff at session end will not fit, so the handoff has to be written as the session goes (on `turn.complete`), not when
@@ -34,18 +34,22 @@ remote-control --spawn worktree`. Record each as works / works with a catch / fa
 **Phase 1: probe mod (about 1 day, throwaway).** One mod, around 150 lines, `shepherd-probe`, loaded with `--plugin-dir`.
 Each piece exists to answer one question and is deleted afterwards:
 
-- a band, a button, a Markdown pane and `/probe`, opened from the terminal and the phone (Q1)
-- a `classic.PermissionRequest` hook that polls a file for a decision, answered by `echo allow > …` from another
-  terminal and by the phone; try 5 s, 60 s and 10 min waits (Q2)
+- a band, a button, a Markdown pane and `/probe`, opened from the terminal; and `/probe` typed from the phone, to see
+  whether a text reply comes back (Q1)
+- a `tool.check` hook that, when the engine would ask, polls a file for a decision, answered by `echo allow > …` from
+  another terminal; try 5 s, 60 s and 10 min waits, and watch what the phone shows meanwhile (Q2)
+- detectors for the two hooks the guard probably skips (`prompt.compose`, `classic.PermissionRequest`): a log line if
+  either runs after all
 - `$.session.send` to a second session, and the same session id arriving at the app (Q2)
-- on `session.start`: read `SHEPHERD_TASK`, run `crook task show`, add it with `prompt.compose`, register a
-  `probe_log` tool that runs `crook task log` (Q3)
+- on `session.start`: read `SHEPHERD_TASK`, run `crook task show`; attach the result to the first prompt as `context`,
+  register a `probe_log` tool that runs `crook task log` (Q3)
 - a `tool.call` deny on a tool named `task_close` (Q3)
 - on `session.end`: try a `$.model.complete` and see whether it finishes inside 1.5 s (Q3)
 
 **Phase 2: first slice (2 to 3 days): a task-aware session.** The smallest mod worth keeping, additive to what exists:
 
-1. **Briefing:** objective, plan and the last handoff added to the session's prompt from the task file.
+1. **Briefing:** objective, plan and the last handoff attached to the session's first prompt from the task file. Not the
+   system prompt (the guard blocks that), so it has to be re-attached after `/clear` and compaction.
 2. **Tools:** `task_log`, `task_plan_set`, `task_status`, thin wrappers over `crook`. `task_close` is denied, so only the
    user closes a task.
 3. **Band:** task title and plan progress above the prompt.
@@ -53,7 +57,9 @@ Each piece exists to answer one question and is deleted afterwards:
    today, so the app can ignore the shell hooks for sessions that have the mod.
 5. **Rolling handoff:** after each turn, append the session's "where am I" line to the task log. Read it from
    `where-am-i`'s state (any plugin may read another's `$.state`) instead of making a second model call.
-6. **Answer from the panel or phone,** if Phase 1 says Q2 works.
+6. **Answer from the panel,** if Phase 1 says holding in `tool.check` works. Holding hides the native prompt from the
+   phone until it resolves, so either the panel answers (and the phone loses the prompt) or the phone answers natively
+   and the panel keeps typing keystrokes. Decide from what the probe shows.
 
 The shell hooks and `crook` skill stay installed during the slice, so uninstalling the mod puts shepherd back exactly
 as it is. Run it on one real task for a working day.
@@ -62,8 +68,8 @@ as it is. Run it on one real task for a working day.
 
 1. Start a task from the panel and the new session knows its objective, plan and last handoff with nothing typed.
 2. The agent updates the plan and log through tools, the task file shows it, and the agent cannot close the task.
-3. A permission prompt is answered from the phone through the Claude app, and another from the panel, and the session
-   continues within about 5 seconds.
+3. A permission prompt is answered from the panel with the hold in place, and another from the phone natively, and the
+   session continues within about 5 seconds each time.
 4. After a tab is closed with ⌘W, the task log holds a handoff and the next session starts from it.
 5. No extra model calls beyond where-am-i's, and usage-meter shows no visible change.
 6. With the mod uninstalled, nothing about shepherd's current behaviour has changed.
@@ -89,6 +95,9 @@ as it is. Run it on one real task for a working day.
   "not planned"), and it knows nothing about tasks.
 - **Install corgi.** It overlaps heavily with shepherd and would bring its own daemon and task model. Better read than adopted.
 - **Handoff on session end with a model call.** The 1.5 s budget rules it out.
+- **Make the mod one of Yoto's own (managed settings, marketplace folder via device management).** The only way to get
+  `prompt.compose` and `classic.PermissionRequest` back, but not available to Adam right now.
+- **Run on a personal API key or without managed settings.** Would skip the guard, but sidesteps Yoto's policy.
 
 ## Prior art
 
@@ -106,6 +115,21 @@ as it is. Run it on one real task for a working day.
 
 ## Open gaps
 
+- **Org-managed Claude Code skips two of the hooks (decided: work around it).** `claude plugin validate` warns that
+  `prompt.compose` and `classic.PermissionRequest` "do not run in a plugin a person installs where an organization manages
+  Claude Code". The docs (code.claude.com/docs/en/plugins/mods/admin) explain why: a built-in guard, `sec-default`, loads
+  ahead of every installed mod when the machine has managed settings or the user is on a Team or Enterprise plan, and it
+  stops a user's mod changing the system prompt or what managed hooks decide. Everything else is allowed, including
+  `tool.check` approvals, prompt rewrites, panes, commands, `$.process`, `$.http` and `$.session.send`. Yoto's setup fits
+  (`~/.claude/remote-settings.json` pins `model: opusplan`). **Chosen route:** use the allowed hooks (`tool.check` to
+  answer, `prompt.submit` context to brief). Making the plugin an organization mod needs managed settings and a
+  marketplace folder deployed to every Mac, and running without managed settings sidesteps Yoto's policy; neither is
+  available, so they are rejected below. Also noted: `policy-limits.json` has `remote_control_at_startup: false`, so
+  auto-connect is something to switch on.
+- **A mod's drawing does not reach the phone.** The mods overview says that under Remote Control the hooks run on the Mac
+  but what a mod draws appears in the terminal there. The phone is plain chat. A mod can still help through tool results
+  and slash commands that reply with text (a `/tasks` list), but not buttons or a docked list. The storyboard's phone
+  mockups showed mod UI on the phone and were wrong on this.
 - **How state reaches the app.** The shell hooks' message format lives in the Swift code and is not described here. The
   mod could call `$.process.run` on a small CLI or write a file the app watches; pick after reading the current hook code.
 - **Where `SHEPHERD_TASK` comes from.** The app sets it when it opens a tab. Starting `claude` by hand or in herdr has no
