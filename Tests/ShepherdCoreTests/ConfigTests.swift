@@ -194,3 +194,11 @@ import Foundation
     #expect(BackendConfig(kind: "Herdr").isHerdr)
     #expect(!BackendConfig(kind: "anything-else").isHerdr)
 }
+
+@Test func theDashboardHotkeyDefaultsAndOlderConfigsStillDecode() throws {
+    #expect(HotkeyConfig(switchSession: "hyper+w").resolvedDashboard == "hyper+d")
+    #expect(HotkeyConfig(switchSession: "hyper+w", dashboard: "cmd+shift+d").resolvedDashboard == "cmd+shift+d")
+    let old = try JSONDecoder().decode(HotkeyConfig.self, from: Data(#"{"switchSession":"hyper+w"}"#.utf8))
+    #expect(old.dashboard == nil)
+    #expect(parseHotkey(old.resolvedDashboard) != nil)
+}

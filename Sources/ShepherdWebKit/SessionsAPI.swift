@@ -91,6 +91,9 @@ struct SessionsAPI {
                 case ("POST", "focus"):
                     try await backend.focus(id)
                     return .json(Data("{}".utf8))
+                case ("POST", "close"):
+                    try await backend.close(id)
+                    return .json(Data("{}".utf8))
                 case ("POST", "prompt"):
                     let body = try JSONDecoder().decode(PromptBody.self, from: request.body)
                     try await backend.prompt(id, text: body.text)

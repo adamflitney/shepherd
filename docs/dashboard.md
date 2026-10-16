@@ -365,7 +365,34 @@ tech, not from Electron"). The spikes above were run to settle it.
      move, and the dashboard (step 4) will want its own page. A holder that is not in the registry, or an interrupted
      session, cannot be attached (the page lists live sessions only).
 
-4. **Dashboard window**: WKWebView with the glue from spike C2, sessions list plus terminal, attention-sorted, a
-   hotkey to open it.
+4. **Dashboard window.** **First version built 2026-10-16, not yet committed.** With the holder backend the window is
+   where sessions are shown. A WKWebView around `Public/dashboard.html`, which the app's own web server serves; the page
+   talks to the server like any browser (HTTP, the event stream and the `/ws` bridge). Checked by running the real app
+   against a scratch registry with a snapshot of the window: two real Claude sessions listed, the real Claude UI in the
+   terminal, "go to a session" from outside the page (`POST /api/sessions/<id>/focus`, which is what the panel, a
+   notification and the Start button on a task do) selecting the right row and switching the terminal, closing a session
+   removing it, and a session staying live after the app was stopped. Not checked by hand: typing, paste, drag-and-drop,
+   the hotkey and the new-session sheet in the live window (the bridge side of each is tested).
+   - **Page:** session list sorted by attention (needs you, finished, working, idle), a dot per state, the summary or
+     the reason it is blocked under the title, ⌘1 to ⌘9 to jump, ⌘N for a new session (project picker fed by
+     `/api/projects`, optional title), Close session, and for an interrupted session a placeholder with Resume. One
+     terminal is rendered and re-attached as the selection changes (the memory gap noted below). The glue from spike C2
+     is in: Shift+Enter sends ESC CR on keydown and swallows the keypress, an image paste with no text sends Ctrl+V,
+     Option works as Meta and Option+drag selects, links open in the browser, dropped files type their quoted paths.
+   - **Window:** `DashboardWindowController`, remembers its frame, hides with the hotkey (Hyper+D by default,
+     `hotkey.dashboard`) and with ⌘W, "Open Dashboard" at the top of the status item's context menu. A minimal main menu
+     (Quit, Close Window, Edit) is installed because an app with no menu bar gives ⌘C and ⌘V nothing to run. JS
+     `confirm()` and `alert()` show real alerts. The WebKit delegate methods must be declared `@MainActor @Sendable` or
+     Swift 6 treats them as a near miss and WebKit never calls them (confirm would silently return "no").
+   - **Server:** `MobileAccessModel.ensureServer()` starts the web server for the dashboard whether or not Mobile Access is
+     on; only turning Mobile Access on keeps the Mac awake or publishes it (and restarts a dashboard-started server with
+     those options). `SHEPHERD_WEB_PORT` overrides the port, to run a second copy next to the installed app. New route:
+     `POST /api/sessions/<id>/close`.
+   - **Replaces** the interim "open a Ghostty tab attached to the holder" for going to a session.
+   - Dev: `SHEPHERD_DASHBOARD_SNAPSHOT=<png>` writes a picture of the window after it loads and after each `show`, to look
+     at the layout without screen-recording permission; `--show-dashboard` opens it at launch.
+   - Not done: the task label is only the title (a task field and group headings come with the board), no answer buttons
+     for a blocked session (the terminal is right there; the phone page is the place for buttons), no unseen-badge on the
+     Dock or menu bar beyond what the panel already shows, `shepherd-holder attach` still exists for use from any terminal.
 5. **Tasks board** in the same window.
 6. **Trim the panel** back to glance and go, once the board has replaced its Tasks tab.

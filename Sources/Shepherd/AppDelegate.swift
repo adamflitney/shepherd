@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import os
 import ShepherdCore
+import ShepherdHolderBackend
 import ShepherdTerminalBridge
 import ShepherdTasks
 import ShepherdUI
@@ -10,6 +11,7 @@ import ShepherdUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let backend: any SessionBackend
     private let terminals: TerminalBridgeConfig?
+    private var dashboard: DashboardWindowController?
     /// Applies a newly-picked terminal app to the live Herdr backend. `nil`
     /// under `--fake`, since there's no real terminal to activate.
     private let onTerminalAppNameChanged: ((String) -> Void)?
@@ -126,6 +128,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { [weak self] in self?.panel.presentCentered() }
         }
 
+        // With the holder backend the dashboard is the place sessions are shown: "go to a session" anywhere (the panel, a
+        // notification, a task) lands there.
+        if let holderBackend = backend as? HolderSessionBackend {
+            let dashboard = DashboardWindowController(serverPort: { await mobileAccess.ensureServer() })
+            self.dashboard = dashboard
+            DashboardMenu.install()
+            statusItemController.onShowDashboard = { Task { await dashboard.show() } }
+            Task { await holderBackend.setShowSession { id in await dashboard.show(selecting: id.rawValue) } }
+            if CommandLine.arguments.contains("--show-dashboard") { Task { await dashboard.show() } }
+        }
+
         statusItemController.currentHotkeyBinding = { ShepherdConfig.load().hotkey.switchSession }
         statusItemController.onChangeHotkey = { [weak self] binding in self?.changeHotkey(to: binding) ?? false }
         self.statusItemController = statusItemController
@@ -183,7 +196,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Reads `hotkey.switchSession` from config (default Hyper+W, same
     /// binding mac-sesh used). Falls back to the hardcoded default if the
     /// configured string is malformed, rather than leaving the app with no
-    /// hotkey registered at all.
+    /// hotkey registered at all. With the holder backend, `hotkey.dashboard`
+    /// (default Hyper+D) opens the dashboard.
     private func registerHotkey() {
         let configured = ShepherdConfig.load().hotkey.switchSession
         if let parsed = parseHotkey(configured) {
@@ -196,6 +210,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.toggleQuickSwitcher()
             }
         }
+        if dashboard != nil, let parsed = parseHotkey(ShepherdConfig.load().hotkey.resolvedDashboard) {
+            registerGlobalHotkey(keyCode: parsed.keyCode, modifiers: parsed.modifiers) { [weak self] in
+                guard let dashboard = self?.dashboard else { return }
+                Task { await dashboard.toggle() }
+            }
+        }
     }
 
     /// Applies a new hotkey binding live (from the menu bar's "Change
@@ -203,14 +223,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Returns false without touching the current binding if the string
     /// doesn't parse.
     private func changeHotkey(to binding: String) -> Bool {
-        guard let parsed = parseHotkey(binding) else { return false }
-        unregisterAllHotkeys()
-        registerGlobalHotkey(keyCode: parsed.keyCode, modifiers: parsed.modifiers) { [weak self] in
-            self?.toggleQuickSwitcher()
-        }
+        guard parseHotkey(binding) != nil else { return false }
         var config = ShepherdConfig.load()
         config.hotkey.switchSession = binding
         try? config.save()
+        unregisterAllHotkeys()
+        registerHotkey()
         return true
     }
 

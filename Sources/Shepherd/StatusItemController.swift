@@ -13,6 +13,8 @@ final class StatusItemController: NSObject {
     private var imageCache: [AttentionState.Kind: NSImage] = [:]
     var onToggle: (() -> Void)?
     var onShowMobileAccess: (() -> Void)?
+    /// Set only with the holder backend, where the dashboard window exists.
+    var onShowDashboard: (() -> Void)?
     /// Supplies the currently-configured binding to prefill the "Change
     /// Hotkey…" prompt - read fresh each time rather than cached, since it
     /// can also change via editing the config file directly.
@@ -76,6 +78,12 @@ final class StatusItemController: NSObject {
 
     private func showContextMenu() {
         let menu = NSMenu()
+        if onShowDashboard != nil {
+            let dashboardItem = NSMenuItem(title: "Open Dashboard", action: #selector(showDashboard), keyEquivalent: "")
+            dashboardItem.target = self
+            menu.addItem(dashboardItem)
+            menu.addItem(.separator())
+        }
         let installed = HookInstaller.isInstalled()
         menu.addItem(NSMenuItem(
             title: installed ? "Uninstall Hooks…" : "Install Hooks…",
@@ -119,6 +127,10 @@ final class StatusItemController: NSObject {
 
     @objc private func useFrontGhosttyWindow() {
         onUseFrontGhosttyWindow?()
+    }
+
+    @objc private func showDashboard() {
+        onShowDashboard?()
     }
 
     @objc private func showMobileAccess() {

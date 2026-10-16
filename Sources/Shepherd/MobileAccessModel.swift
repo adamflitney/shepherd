@@ -60,6 +60,8 @@ final class MobileAccessModel {
         if on {
             update { $0.enabled = true }
             triedAutoPublish = false
+            // a server the dashboard started has no keep-awake: restart it with the options of an enabled one
+            if server != nil { await server?.stop(); server = nil }
             await startServer()
             await refresh()
             await publishAutomaticallyIfReady()
@@ -165,11 +167,23 @@ final class MobileAccessModel {
 
     // MARK: Internals
 
+    /// The port the server uses: `SHEPHERD_WEB_PORT` (for running a second copy next to the installed app), else the config.
+    private var port: UInt16 {
+        UInt16(clamping: ProcessInfo.processInfo.environment["SHEPHERD_WEB_PORT"].flatMap(Int.init) ?? config.port)
+    }
+
+    /// Makes sure the web server is up and returns its port. The dashboard window is a page served by it, so it needs the
+    /// server whether or not Mobile Access is turned on; only turning Mobile Access on keeps the Mac awake or publishes it.
+    func ensureServer() async -> UInt16? {
+        await startServer()
+        return server == nil ? nil : port
+    }
+
     private func startServer() async {
         guard server == nil else { return }
         let candidate = MobileAccessServer(
             backend: backend,
-            options: .init(port: UInt16(clamping: config.port), keepAwake: config.keepAwake, onlyWhenAway: config.alertsOnlyWhenAway),
+            options: .init(port: port, keepAwake: config.enabled && config.keepAwake, onlyWhenAway: config.alertsOnlyWhenAway),
             terminals: terminals
         )
         do {

@@ -19,10 +19,15 @@ public struct ProjectsConfig: Codable, Equatable, Sendable {
 /// parsed by `parseHotkey(_:)`.
 public struct HotkeyConfig: Codable, Equatable, Sendable {
     public var switchSession: String
+    /// Opens the dashboard window (holder backend only). Defaults to Hyper+D when absent.
+    public var dashboard: String?
 
-    public init(switchSession: String) {
+    public init(switchSession: String, dashboard: String? = nil) {
         self.switchSession = switchSession
+        self.dashboard = dashboard
     }
+
+    public var resolvedDashboard: String { dashboard ?? "hyper+d" }
 }
 
 /// Whether shepherd posts desktop notifications on blocked/done transitions.

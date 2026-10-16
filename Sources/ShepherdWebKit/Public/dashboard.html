@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shepherd</title>
+<link rel="stylesheet" href="/vendor/xterm.css">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f1115; --panel: #161920; --raised: #1d212a; --line: #262b36; --fg: #e6e8ee; --dim: #8b93a3;
+    --accent: #6aa9ff; --needs: #ff8a5c; --done: #4ade80; --working: #6aa9ff; --idle: #6b7280; --warn: #f5c451;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px -apple-system, system-ui, sans-serif; overflow: hidden; }
+  button, select { font: inherit; color: var(--fg); }
+  #app { display: flex; height: 100%; }
+
+  /* sidebar */
+  #side { width: 290px; flex: 0 0 290px; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); }
+  #sideHead { display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 8px; }
+  #sideHead h1 { margin: 0; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  #newBtn { background: var(--raised); border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; cursor: pointer; }
+  #newBtn:hover { border-color: var(--accent); }
+  #list { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
+  .row { display: flex; gap: 10px; align-items: flex-start; padding: 9px 10px; border-radius: 9px; cursor: default; border: 1px solid transparent; }
+  .row:hover { background: var(--raised); }
+  .row.sel { background: var(--raised); border-color: var(--line); }
+  .dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; margin-top: 4px; background: var(--idle); }
+  .dot.blocked { background: var(--needs); box-shadow: 0 0 0 3px #ff8a5c33; }
+  .dot.done { background: var(--done); }
+  .dot.working { background: var(--working); animation: pulse 1.4s ease-in-out infinite; }
+  .dot.unknown, .dot.interrupted { background: transparent; border: 2px solid var(--warn); }
+  .dot.interrupted { border-color: var(--warn); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .rowText { min-width: 0; flex: 1; }
+  .rowTitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+  .rowSub { color: var(--dim); font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rowSub.needs { color: var(--needs); }
+  .key { flex: 0 0 auto; color: var(--dim); font-size: 11px; margin-top: 2px; opacity: .7; }
+  #empty { color: var(--dim); padding: 18px 14px; line-height: 1.5; }
+  #conn { padding: 8px 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; display: flex; align-items: center; gap: 7px; }
+  #connDot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+  #connDot.ok { background: var(--done); } #connDot.bad { background: var(--needs); }
+
+  /* main */
+  #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  #head { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); min-height: 48px; }
+  #title { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #chip { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--raised); color: var(--dim); white-space: nowrap; }
+  #chip.blocked { color: var(--needs); } #chip.done { color: var(--done); } #chip.working { color: var(--working); } #chip.interrupted { color: var(--warn); }
+  #spacer { flex: 1; }
+  #meta { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .btn { background: var(--raised); border: 1px solid var(--line); border-radius: 7px; padding: 5px 11px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #0b1220; border-color: var(--accent); font-weight: 600; }
+  .btn.danger:hover { border-color: var(--needs); color: var(--needs); }
+  #stage { flex: 1; min-height: 0; position: relative; }
+  #termWrap { position: absolute; inset: 0; padding: 8px 6px 4px 10px; }
+  #term { width: 100%; height: 100%; }
+  #placeholder { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; color: var(--dim); line-height: 1.6; padding: 24px; }
+  #placeholder.show { display: flex; }
+  #placeholder .btn { margin-top: 10px; }
+  #banner { display: none; position: absolute; left: 0; right: 0; top: 0; z-index: 5; padding: 6px 12px; background: #5a2b1d; color: #ffd9cc; text-align: center; font-size: 12px; }
+  #banner.show { display: block; }
+
+  /* new session sheet */
+  #sheetBack { display: none; position: fixed; inset: 0; background: #0009; z-index: 20; align-items: flex-start; justify-content: center; padding-top: 14vh; }
+  #sheetBack.show { display: flex; }
+  #sheet { width: 420px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  #sheet h2 { margin: 0 0 12px; font-size: 14px; }
+  #sheet label { display: block; color: var(--dim); font-size: 12px; margin: 10px 0 4px; }
+  #sheet select, #sheet input { width: 100%; background: var(--raised); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; color: var(--fg); font: inherit; }
+  #sheetButtons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  #sheetError { color: var(--needs); font-size: 12px; margin-top: 8px; min-height: 16px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div id="sideHead"><h1>Sessions</h1><button id="newBtn" title="New session (⌘N)">+ New</button></div>
+    <div id="list"></div>
+    <div id="conn"><span id="connDot"></span><span id="connText">connecting…</span></div>
+  </aside>
+  <section id="main">
+    <div id="head">
+      <span id="title">Shepherd</span><span id="chip" hidden></span>
+      <span id="spacer"></span>
+      <span id="meta"></span>
+      <button id="resumeBtn" class="btn primary" hidden>Resume</button>
+      <button id="closeBtn" class="btn danger" hidden title="End this session">Close session</button>
+    </div>
+    <div id="stage">
+      <div id="banner">Disconnected, reconnecting…</div>
+      <div id="termWrap"><div id="term"></div></div>
+      <div id="placeholder"><div id="placeholderText"></div></div>
+    </div>
+  </section>
+</div>
+<div id="sheetBack">
+  <div id="sheet">
+    <h2>New Claude session</h2>
+    <label for="proj">Project</label>
+    <select id="proj"></select>
+    <label for="sheetTitle">Title (optional)</label>
+    <input id="sheetTitle" placeholder="Shown in the list" autocomplete="off">
+    <div id="sheetError"></div>
+    <div id="sheetButtons"><button id="sheetCancel" class="btn">Cancel</button><button id="sheetStart" class="btn primary">Start</button></div>
+  </div>
+</div>
+
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/vendor/addon-web-links.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const enc = new TextEncoder();
+  const native = (msg) => { try { window.webkit.messageHandlers.native.postMessage(msg); } catch {} };
+  const hosted = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native);
+
+  // ---- state --------------------------------------------------------------------------------------
+  let sessions = [];            // from /api/sessions, in the server's attention order
+  let holders = [];             // from the bridge's `list`
+  let selected = null;          // Claude session id
+  let attachedHolder = null;    // holder id this page is attached to
+  let ws = null, alive = false, lastRx = 0, hbTimer = null, retryTimer = null, retries = 0, myId = null, driver = null;
+  let pendingSelectHolder = null;
+  const holderOf = (sid) => holders.find((h) => h.claudeSessionID === sid && h.liveness === "live");
+  const interruptedOf = (sid) => holders.find((h) => h.claudeSessionID === sid && h.liveness === "interrupted");
+  const sessionById = (sid) => sessions.find((s) => s.id === sid);
+
+  // ---- terminal -----------------------------------------------------------------------------------
+  function openLink(uri) { if (hosted) native({ type: "openURL", uri }); else window.open(uri, "_blank"); }
+  const term = new Terminal({
+    fontSize: 13, fontFamily: '"SF Mono", Menlo, ui-monospace, monospace', scrollback: 5000, cursorBlink: true,
+    allowProposedApi: true, macOptionIsMeta: true, macOptionClickForcesSelection: true,
+    theme: { background: "#0f1115", foreground: "#e6e8ee", cursor: "#e6e8ee", selectionBackground: "#3a4a6b" },
+    linkHandler: { activate: (_e, text) => openLink(text), allowNonHttpProtocols: false },
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.loadAddon(new WebLinksAddon.WebLinksAddon((_e, uri) => openLink(uri)));
+  term.open($("term"));
+
+  function proposed() { try { const d = fit.proposeDimensions(); return d && d.cols > 1 ? { cols: d.cols, rows: d.rows } : { cols: 100, rows: 30 }; } catch { return { cols: 100, rows: 30 }; } }
+  function sendCtl(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+  function sendBytes(str) { if (ws && ws.readyState === 1 && attachedHolder) ws.send(enc.encode(str)); }
+  window.__send = sendBytes;   // the native host types dropped file paths through this
+
+  term.onData(sendBytes);
+  term.attachCustomKeyEventHandler((e) => {
+    // Shift+Enter: Claude Code expects ESC CR (what Option+Enter sends) for a newline; a plain CR submits. xterm runs this
+    // handler for keydown and for the keypress after it, so both are swallowed or the keypress still submits.
+    if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) { if (e.type === "keydown") sendBytes("\x1b\r"); return false; }
+    // our own shortcuts must not also be typed into the agent
+    if (e.metaKey && !e.ctrlKey && !e.altKey && (/^[1-9]$/.test(e.key) || e.key === "n")) return false;
+    return true;
+  });
+  // Cmd+V with an image and no text: Ctrl+V makes Claude Code read the clipboard image itself.
+  $("term").addEventListener("paste", (e) => {
+    const cd = e.clipboardData;
+    const hasImage = [...(cd?.files ?? [])].some((f) => f.type.startsWith("image/")) || [...(cd?.items ?? [])].some((i) => i.type.startsWith("image/"));
+    if (hasImage && !(cd?.getData("text/plain") ?? "")) { e.preventDefault(); e.stopPropagation(); sendBytes("\x16"); }
+  }, true);
+
+  let resizeTimer = null;
+  function onResize() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!attachedHolder) return;
+      try { fit.fit(); } catch {}
+      const d = proposed();
+      sendCtl({ type: "resize", cols: d.cols, rows: d.rows });
+    }, 120);
+  }
+  new ResizeObserver(onResize).observe($("termWrap"));
+
+  // ---- connection ---------------------------------------------------------------------------------
+  function setAlive(on) {
+    alive = on;
+    $("connDot").className = on ? "ok" : "bad";
+    $("connText").textContent = on ? "live" : "reconnecting…";
+    $("banner").classList.toggle("show", !on);
+  }
+  function connect() {
+    if (ws) { ws.onclose = null; ws.onmessage = null; try { ws.close(); } catch {} }
+    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws", ["shepherd-v1"]);
+    ws.binaryType = "arraybuffer";
+    const mine = ws;
+    ws.onopen = () => { retries = 0; lastRx = Date.now(); setAlive(true); sendCtl({ type: "list" }); refresh(); heartbeat(); };
+    ws.onclose = () => { if (mine !== ws) return; attachedHolder = null; retries++; setAlive(false); scheduleReconnect(Math.min(8000, 500 * Math.pow(2, retries - 1))); };
+    ws.onerror = () => {};
+    ws.onmessage = (ev) => {
+      lastRx = Date.now();
+      if (typeof ev.data !== "string") { term.write(new Uint8Array(ev.data)); return; }
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      switch (m.type) {
+        case "hello": myId = m.you; break;
+        case "sessions": holders = m.sessions || []; render(); ensureAttached(); break;
+        case "spawned": pendingSelectHolder = m.id; sendCtl({ type: "list" }); refresh(); closeSheet(); break;
+        case "attached": term.reset(); term.resize(m.cols, m.rows); break;
+        case "ready": if (document.hasFocus()) term.focus(); onResize(); break;
+        case "size": driver = m.driver; term.resize(m.cols, m.rows); $("meta").textContent = m.cols + "×" + m.rows; break;
+        case "reset": term.reset(); break;
+        case "detached": attachedHolder = null; sendCtl({ type: "list" }); refresh(); break;
+        case "error": $("sheetError").textContent = m.message; break;
+      }
+    };
+  }
+  function scheduleReconnect(delay) { if (retryTimer) return; retryTimer = setTimeout(() => { retryTimer = null; connect(); }, delay); }
+  // A browser cannot see WebSocket pings, so ask for the list now and then and expect an answer.
+  function heartbeat() {
+    clearInterval(hbTimer);
+    hbTimer = setInterval(() => {
+      if (!ws || ws.readyState !== 1) return;
+      const sent = Date.now(); sendCtl({ type: "list" });
+      setTimeout(() => { if (lastRx < sent && ws && ws.readyState === 1) { try { ws.close(); } catch {} } }, 4000);
+    }, 8000);
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && (!ws || ws.readyState !== 1)) { clearTimeout(retryTimer); retryTimer = null; connect(); } });
+
+  // ---- data ---------------------------------------------------------------------------------------
+  let refreshTimer = null;
+  function refresh() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      try {
+        const r = await fetch("/api/sessions");
+        sessions = await r.json();
+        sendCtl({ type: "list" });
+        if (!selected && sessions.length) select(sessions[0].id, { announce: false });
+        render();
+      } catch {}
+    }, 60);
+  }
+  function watchEvents() {
+    const es = new EventSource("/api/events");
+    es.onmessage = () => refresh();
+    es.onerror = () => {};
+  }
+
+  // ---- rendering ----------------------------------------------------------------------------------
+  function stateOf(s) { return interruptedOf(s.id) && !holderOf(s.id) ? "interrupted" : s.attention_kind; }
+  function labelOf(kind, s) {
+    switch (kind) {
+      case "blocked": return s.blocker === "needsPermission" ? "Needs permission" : "Waiting for your answer";
+      case "done": return "Finished";
+      case "working": return "Working";
+      case "interrupted": return "Interrupted";
+      case "idle": return "Idle";
+      default: return "Starting";
+    }
+  }
+  function render() {
+    const list = $("list");
+    list.textContent = "";
+    if (!sessions.length) {
+      const e = document.createElement("div"); e.id = "empty";
+      e.textContent = "No sessions yet. Start one with + New, or start a task from the panel.";
+      list.appendChild(e);
+    }
+    sessions.forEach((s, i) => {
+      const kind = stateOf(s);
+      const row = document.createElement("div"); row.className = "row" + (s.id === selected ? " sel" : "");
+      const dot = document.createElement("span"); dot.className = "dot " + kind;
+      const text = document.createElement("div"); text.className = "rowText";
+      const t = document.createElement("div"); t.className = "rowTitle"; t.textContent = s.title;
+      const sub = document.createElement("div"); sub.className = "rowSub" + (kind === "blocked" ? " needs" : "");
+      sub.textContent = kind === "blocked" ? labelOf(kind, s) + (s.summary ? ": " + s.summary : "") : (s.summary && kind !== "working" ? s.summary : labelOf(kind, s));
+      text.append(t, sub);
+      row.append(dot, text);
+      if (i < 9) { const k = document.createElement("span"); k.className = "key"; k.textContent = "⌘" + (i + 1); row.appendChild(k); }
+      row.addEventListener("click", () => select(s.id, { announce: true }));
+      list.appendChild(row);
+    });
+    renderHeader();
+  }
+  function renderHeader() {
+    const s = selected && sessionById(selected);
+    const chip = $("chip");
+    if (!s) {
+      $("title").textContent = "Shepherd"; chip.hidden = true; $("resumeBtn").hidden = true; $("closeBtn").hidden = true;
+      showPlaceholder(sessions.length ? "Pick a session." : "No sessions yet.\nStart one with + New.");
+      return;
+    }
+    const kind = stateOf(s);
+    $("title").textContent = s.title;
+    chip.hidden = false; chip.className = kind; chip.textContent = labelOf(kind, s);
+    $("closeBtn").hidden = false;
+    const live = !!holderOf(s.id);
+    $("resumeBtn").hidden = live || kind !== "interrupted";
+    if (live) { hidePlaceholder(); }
+    else if (kind === "interrupted") { showPlaceholder("This session was interrupted (the Mac restarted or its holder stopped).\nResume continues the same conversation."); }
+    else { showPlaceholder("Connecting…"); }
+  }
+  function showPlaceholder(text) { $("placeholderText").textContent = text; $("placeholderText").style.whiteSpace = "pre-line"; $("placeholder").classList.add("show"); $("termWrap").style.visibility = "hidden"; }
+  function hidePlaceholder() { $("placeholder").classList.remove("show"); $("termWrap").style.visibility = "visible"; }
+
+  // ---- selecting and attaching --------------------------------------------------------------------
+  function select(id, { announce }) {
+    selected = id;
+    render();
+    ensureAttached();
+    // Tell the backend someone has looked at it (finished sessions stop counting as unseen). The reply asks the host to
+    // show the session, which comes back as `shepherd.show` and does not announce again.
+    if (announce) fetch("/api/sessions/" + encodeURIComponent(id) + "/focus", { method: "POST" }).then(refresh).catch(() => {});
+  }
+  function ensureAttached() {
+    if (pendingSelectHolder) {
+      const h = holders.find((x) => x.id === pendingSelectHolder);
+      if (h && h.claudeSessionID) { pendingSelectHolder = null; selected = h.claudeSessionID; refresh(); }
+    }
+    const h = selected && holderOf(selected);
+    if (!h) {
+      if (attachedHolder) { sendCtl({ type: "detach" }); attachedHolder = null; }
+      renderHeader();
+      return;
+    }
+    if (attachedHolder === h.id) { hidePlaceholder(); return; }
+    if (attachedHolder) sendCtl({ type: "detach" });
+    attachedHolder = h.id;
+    term.reset();
+    hidePlaceholder();
+    try { fit.fit(); } catch {}
+    const d = proposed();
+    sendCtl({ type: "attach", id: h.id, cols: d.cols, rows: d.rows });
+    setTimeout(() => sendCtl({ type: "resize", cols: d.cols, rows: d.rows }), 50);
+    renderHeader();
+  }
+  function selectByIndex(n) { const s = sessions[n]; if (s) select(s.id, { announce: true }); }
+
+  $("resumeBtn").addEventListener("click", () => {
+    if (!selected) return;
+    $("resumeBtn").disabled = true;
+    fetch("/api/sessions/" + encodeURIComponent(selected) + "/focus", { method: "POST" })
+      .then(() => { let n = 0; const poll = setInterval(() => { sendCtl({ type: "list" }); refresh(); if (++n > 12 || (selected && holderOf(selected))) { clearInterval(poll); $("resumeBtn").disabled = false; } }, 500); })
+      .catch(() => { $("resumeBtn").disabled = false; });
+  });
+  $("closeBtn").addEventListener("click", () => {
+    if (!selected) return;
+    const s = sessionById(selected);
+    if (!window.confirm('End "' + (s ? s.title : "this session") + '"?')) return;
+    fetch("/api/sessions/" + encodeURIComponent(selected) + "/close", { method: "POST" }).then(() => { attachedHolder = null; selected = null; term.reset(); refresh(); }).catch(() => {});
+  });
+
+  // ---- new session --------------------------------------------------------------------------------
+  function openSheet() {
+    $("sheetError").textContent = ""; $("sheetTitle").value = "";
+    fetch("/api/projects").then((r) => r.json()).then((list) => {
+      const sel = $("proj"); sel.textContent = "";
+      for (const p of list) { const o = document.createElement("option"); o.value = p.path; o.textContent = p.name; if (p.is_default) o.selected = true; sel.appendChild(o); }
+    }).catch(() => {});
+    $("sheetBack").classList.add("show");
+    setTimeout(() => $("proj").focus(), 30);
+  }
+  function closeSheet() { $("sheetBack").classList.remove("show"); if (document.hasFocus()) term.focus(); }
+  $("newBtn").addEventListener("click", openSheet);
+  $("sheetCancel").addEventListener("click", closeSheet);
+  $("sheetBack").addEventListener("mousedown", (e) => { if (e.target === $("sheetBack")) closeSheet(); });
+  $("sheetStart").addEventListener("click", () => {
+    const cwd = $("proj").value; if (!cwd) return;
+    const d = proposed(); const title = $("sheetTitle").value.trim();
+    $("sheetError").textContent = "";
+    const msg = { type: "spawn", cwd, cols: d.cols, rows: d.rows }; if (title) msg.title = title;
+    sendCtl(msg);
+  });
+  $("sheet").addEventListener("keydown", (e) => { if (e.key === "Enter") $("sheetStart").click(); if (e.key === "Escape") closeSheet(); });
+
+  // ---- keyboard -----------------------------------------------------------------------------------
+  window.addEventListener("keydown", (e) => {
+    if (e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (/^[1-9]$/.test(e.key)) { e.preventDefault(); selectByIndex(Number(e.key) - 1); }
+      else if (e.key === "n") { e.preventDefault(); openSheet(); }
+    }
+    if (e.key === "Escape" && $("sheetBack").classList.contains("show")) closeSheet();
+  }, true);
+
+  // ---- the native host ----------------------------------------------------------------------------
+  window.shepherd = {
+    /** The host asks to show a session (a notification, the hotkey, "go to" in the panel). */
+    show(id) { if (id) { if (!sessionById(id)) { refresh(); } selected = id; render(); ensureAttached(); } if (document.hasFocus()) term.focus(); },
+    focusTerminal() { term.focus(); },
+  };
+
+  watchEvents();
+  connect();
+  refresh();
+  setInterval(refresh, 15000);
+})();
+</script>
+</body>
+</html>
