@@ -61,6 +61,9 @@ actor HTTPServer {
     /// the original stream straight from this actor's own task, as done
     /// below, doesn't.
     private let sseEvents: @Sendable () -> AsyncStream<BackendEvent>
+    /// Takes over a connection whose request is a WebSocket upgrade for `/ws`, after the gate has passed it. Returns
+    /// false when nothing handles WebSockets, and the request is answered as a plain 404.
+    private let upgrade: (@Sendable (Request, NWConnection) -> Bool)?
     private let listener: NWListener
 
     /// Limits on what a client may make us read. The real traffic is tiny (a
@@ -77,8 +80,10 @@ actor HTTPServer {
         queue: DispatchQueue = .main,
         gate: @escaping @Sendable (Request) async -> Response? = { _ in nil },
         router: @escaping @Sendable (Request) async -> Response,
-        sseEvents: @escaping @Sendable () -> AsyncStream<BackendEvent>
+        sseEvents: @escaping @Sendable () -> AsyncStream<BackendEvent>,
+        upgrade: (@Sendable (Request, NWConnection) -> Bool)? = nil
     ) throws {
+        self.upgrade = upgrade
         self.readTimeout = readTimeout
         self.queue = queue
         self.router = router
@@ -176,6 +181,13 @@ actor HTTPServer {
 
         if head.path == "/api/events" && head.method == "GET" {
             await streamSSE(connection)
+            return
+        }
+
+        if head.path == "/ws" && head.method == "GET" {
+            if let upgrade, upgrade(request, connection) { return }   // the bridge owns the connection now
+            try? await write(connection, response: .notFound(), keepAlive: false)
+            connection.cancel()
             return
         }
 

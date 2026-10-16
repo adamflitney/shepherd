@@ -20,7 +20,7 @@ func spawnPTY(argv: [String], cwd: String, env: [String: String], cols: UInt16, 
     var master: Int32 = -1, slave: Int32 = -1
     var size = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
     guard openpty(&master, &slave, nil, nil, &size) == 0 else { return nil }
-    fcntl(master, F_SETFD, FD_CLOEXEC)
+    _ = fcntl(master, F_SETFD, FD_CLOEXEC)
     var name = [CChar](repeating: 0, count: 128)
     ttyname_r(slave, &name, 128)
 
@@ -36,8 +36,8 @@ func spawnPTY(argv: [String], cwd: String, env: [String: String], cols: UInt16, 
     defer { posix_spawnattr_destroy(&attributes) }
     posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
 
-    var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) } + [nil]
-    var cenv: [UnsafeMutablePointer<CChar>?] = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
+    let cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) } + [nil]
+    let cenv: [UnsafeMutablePointer<CChar>?] = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
     defer { cargs.forEach { free($0) }; cenv.forEach { free($0) } }
     var pid: pid_t = 0
     let rc = posix_spawn(&pid, command, &actions, &attributes, cargs, cenv)
@@ -48,7 +48,7 @@ func spawnPTY(argv: [String], cwd: String, env: [String: String], cols: UInt16, 
 
 func setWindowSize(_ master: Int32, cols: UInt16, rows: UInt16) {
     var size = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
-    ioctl(master, TIOCSWINSZ, &size)
+    _ = ioctl(master, TIOCSWINSZ, &size)
 }
 
 /// Decodes a `waitpid` status: the exit code, or the negated signal number when the child was killed.

@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import ShepherdCore
+import ShepherdTerminalBridge
 import ShepherdWebKit
 
 /// Drives the Mobile Access window and owns the embedded web server. The
@@ -23,6 +24,7 @@ final class MobileAccessModel {
     private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
 
     private let backend: any SessionBackend
+    private let terminals: TerminalBridgeConfig?
     private var server: MobileAccessServer?
     private var pollTask: Task<Void, Never>?
     /// Publishing is attempted automatically once, as soon as the
@@ -30,8 +32,9 @@ final class MobileAccessModel {
     /// rather than looping on an error they need to fix.
     private var triedAutoPublish = false
 
-    init(backend: any SessionBackend) {
+    init(backend: any SessionBackend, terminals: TerminalBridgeConfig? = nil) {
         self.backend = backend
+        self.terminals = terminals
         self.config = ShepherdConfig.load().web
     }
 
@@ -166,7 +169,8 @@ final class MobileAccessModel {
         guard server == nil else { return }
         let candidate = MobileAccessServer(
             backend: backend,
-            options: .init(port: UInt16(clamping: config.port), keepAwake: config.keepAwake, onlyWhenAway: config.alertsOnlyWhenAway)
+            options: .init(port: UInt16(clamping: config.port), keepAwake: config.keepAwake, onlyWhenAway: config.alertsOnlyWhenAway),
+            terminals: terminals
         )
         do {
             try await candidate.start()

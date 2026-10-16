@@ -1,11 +1,16 @@
 import Foundation
 import ShepherdCore
 import ShepherdHerdr
+import ShepherdHolder
+import ShepherdHolderBackend
+import ShepherdTerminalBridge
 import ShepherdWebKit
 
 // Dev harness: the same server the menu bar app hosts, as its own process.
 // `--fake` mirrors the main app's demo-data flag, for UX iteration without a
-// running Herdr; `--port N` lets a throwaway instance run alongside another.
+// running Herdr; `--port N` lets a throwaway instance run alongside another; `--holder` runs sessions in PTY holders
+// (with `SHEPHERD_HOME` pointing at a scratch folder, nothing of the real install is touched) and serves `/ws` and
+// `/terminal.html`.
 
 setbuf(stdout, nil) // unbuffered - so `print` shows up immediately when redirected to a log file
 
@@ -14,7 +19,19 @@ let port: UInt16 = arguments.firstIndex(of: "--port")
     .flatMap { arguments.indices.contains($0 + 1) ? UInt16(arguments[$0 + 1]) : nil } ?? 8787
 
 let backend: any SessionBackend
-if arguments.contains("--fake") {
+var terminals: TerminalBridgeConfig?
+if arguments.contains("--holder") {
+    let registry = SessionRegistry.standard
+    let holderExecutable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath().deletingLastPathComponent().appendingPathComponent("shepherd-holder").path
+    let holderBackend = HolderSessionBackend(registry: registry, launcher: HolderLauncher(registry: registry, holderExecutable: holderExecutable))
+    await holderBackend.startListening()
+    backend = holderBackend
+    terminals = TerminalBridgeConfig(registry: registry, spawn: { request in
+        let id = try await holderBackend.createSession(CreateSessionRequest(workingDirectory: URL(fileURLWithPath: request.cwd), agent: .claude, title: request.title, taskID: request.taskID))
+        guard let holderID = await holderBackend.holderID(for: id) else { throw BackendError.unavailable("the session did not start") }
+        return holderID
+    })
+} else if arguments.contains("--fake") {
     let fake = FakeSessionBackend(sessions: demoSessions)
     await fake.setPeekText(demoPermissionPeekText, for: SessionID(rawValue: "demo:permission"))
     await fake.setPeekText(demoQuestionPeekText, for: SessionID(rawValue: "demo:question"))
@@ -39,7 +56,8 @@ let server = MobileAccessServer(
         port: port,
         keepAwake: !arguments.contains("--no-keep-awake"),
         onlyWhenAway: !arguments.contains("--alert-even-when-here")
-    )
+    ),
+    terminals: terminals
 )
 do {
     try await server.start()

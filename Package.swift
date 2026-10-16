@@ -41,6 +41,14 @@ let package = Package(
             dependencies: ["ShepherdCore", "ShepherdTasks", "ShepherdHolder", "ShepherdGhostty"],
             path: "Sources/ShepherdHolderBackend"
         ),
+        // Terminals over WebSocket: the bridge between a browser (xterm.js) and the PTY holders. POSIX- and dispatch-level
+        // code with shared mutable state confined to one queue, so it builds in Swift 5 mode like the holder.
+        .target(
+            name: "ShepherdTerminalBridge",
+            dependencies: ["ShepherdHolder"],
+            path: "Sources/ShepherdTerminalBridge",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         // Herdr-socket adapter: framing, wire DTOs, reducer, transport. Depends on Core.
         .target(
             name: "ShepherdHerdr",
@@ -64,7 +72,7 @@ let package = Package(
         // App entry point: backend selection, NSStatusItem, panel window.
         .executableTarget(
             name: "Shepherd",
-            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdGhostty", "ShepherdHolder", "ShepherdHolderBackend", "ShepherdTasks", "ShepherdUI", "ShepherdWebKit"],
+            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdGhostty", "ShepherdHolder", "ShepherdHolderBackend", "ShepherdTerminalBridge", "ShepherdTasks", "ShepherdUI", "ShepherdWebKit"],
             path: "Sources/Shepherd",
             resources: [.copy("HookScripts")]
         ),
@@ -74,7 +82,7 @@ let package = Package(
         // iterated on and restarted without relaunching the GUI.
         .target(
             name: "ShepherdWebKit",
-            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdUI"],
+            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdUI", "ShepherdTerminalBridge"],
             path: "Sources/ShepherdWebKit",
             resources: [.copy("Public")]
         ),
@@ -82,8 +90,13 @@ let package = Package(
         // hosts, runnable on its own (`swift run ShepherdWeb [--fake]`).
         .executableTarget(
             name: "ShepherdWeb",
-            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdWebKit"],
+            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdHolder", "ShepherdHolderBackend", "ShepherdTerminalBridge", "ShepherdWebKit"],
             path: "Sources/ShepherdWeb"
+        ),
+        .testTarget(
+            name: "ShepherdTerminalBridgeTests",
+            dependencies: ["ShepherdTerminalBridge"],
+            path: "Tests/ShepherdTerminalBridgeTests"
         ),
         .testTarget(
             name: "ShepherdHolderBackendTests",
@@ -118,7 +131,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ShepherdWebTests",
-            dependencies: ["ShepherdWebKit"],
+            dependencies: ["ShepherdWebKit", "ShepherdTerminalBridge", "ShepherdHolder", "shepherd-holder"],
             path: "Tests/ShepherdWebTests"
         ),
         .testTarget(

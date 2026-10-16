@@ -2,12 +2,14 @@ import AppKit
 import Carbon.HIToolbox
 import os
 import ShepherdCore
+import ShepherdTerminalBridge
 import ShepherdTasks
 import ShepherdUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let backend: any SessionBackend
+    private let terminals: TerminalBridgeConfig?
     /// Applies a newly-picked terminal app to the live Herdr backend. `nil`
     /// under `--fake`, since there's no real terminal to activate.
     private let onTerminalAppNameChanged: ((String) -> Void)?
@@ -38,8 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     init(
         backend: any SessionBackend,
         onTerminalAppNameChanged: ((String) -> Void)? = nil,
-        useFrontGhosttyWindow: (() async throws -> Void)? = nil
+        useFrontGhosttyWindow: (() async throws -> Void)? = nil,
+        terminals: TerminalBridgeConfig? = nil
     ) {
+        self.terminals = terminals
         self.backend = backend
         self.onTerminalAppNameChanged = onTerminalAppNameChanged
         self.useFrontGhosttyWindow = useFrontGhosttyWindow
@@ -112,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let statusItemController = StatusItemController()
         statusItemController.onToggle = { [weak self] in self?.togglePanel() }
 
-        let mobileAccess = MobileAccessModel(backend: backend)
+        let mobileAccess = MobileAccessModel(backend: backend, terminals: terminals)
         self.mobileAccess = mobileAccess
         mobileAccessWindow = MobileAccessWindowController(model: mobileAccess)
         statusItemController.onShowMobileAccess = { [weak self] in self?.mobileAccessWindow.show() }

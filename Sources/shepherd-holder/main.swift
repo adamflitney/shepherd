@@ -135,7 +135,7 @@ case "remove":
 case "attach":
     guard arguments.count >= 2 else { usage() }
     var size = winsize()
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &size)
+    _ = ioctl(STDOUT_FILENO, TIOCGWINSZ, &size)
     guard let a = HolderClient.attach(socketPath: registry.socketPath(arguments[1]), cols: Int(size.ws_col), rows: Int(size.ws_row)) else { print("cannot attach"); exit(1) }
     var original = termios()
     tcgetattr(STDIN_FILENO, &original)

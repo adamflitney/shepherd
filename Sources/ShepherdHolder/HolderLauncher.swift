@@ -114,7 +114,7 @@ public struct HolderLauncher: Sendable {
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
-        var cargs: [UnsafeMutablePointer<CChar>?] = ([holderExecutable] + arguments).map { strdup($0) } + [nil]
+        let cargs: [UnsafeMutablePointer<CChar>?] = ([holderExecutable] + arguments).map { strdup($0) } + [nil]
         defer { cargs.forEach { free($0) } }
         var pid: pid_t = 0
         return posix_spawn(&pid, holderExecutable, &actions, &attributes, cargs, environ) == 0

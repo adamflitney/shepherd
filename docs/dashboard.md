@@ -310,8 +310,7 @@ tech, not from Electron"). The spikes above were run to settle it.
    - Not done yet: supervision beyond "the app spawns holders", the ring size and stall limits are untuned, Kitty
      keyboard state is not tracked, the web bridge is not ported (step 3).
 3. **In-app backend** behind `SessionBackend`, with task-linked start and resume as the Ghostty backend does, and
-   the bridge folded into `ShepherdWebKit`. **Backend built 2026-10-16, not yet committed; the bridge is not folded in
-   yet.** `Sources/ShepherdHolderBackend/HolderSessionBackend.swift`, 12 tests that run real holders against a stand-in
+   the bridge folded into `ShepherdWebKit`. **Backend built and pushed 2026-10-16. Bridge built the same day, see below.** `Sources/ShepherdHolderBackend/HolderSessionBackend.swift`, 12 tests that run real holders against a stand-in
    for `claude`. How it differs from the Ghostty backend:
    - The session list is the holder registry. A holder that answers is live; a record that says running with no answer
      is **interrupted** and shows as idle with "Interrupted. Resume to continue the conversation." and no prompt
@@ -335,6 +334,37 @@ tech, not from Electron"). The spikes above were run to settle it.
      PTY, and a process that is closing its terminal waits for unread output to drain, so a kill right after start
      could leave both stuck (the child in state `E`, the holder blocked in `wait4`). The holder now drains output while
      it waits and every wait is bounded. Not reproduced in the in-process holder tests, only with real holder processes.
+   **The bridge (built 2026-10-16, not yet committed):** `Sources/ShepherdTerminalBridge` ported from spike C1, hooked into
+   the app's own HTTP server. The server's existing gate (Host, Sec-Fetch-Site, Origin host, Tailscale identity, owner
+   only, no Funnel) runs first, then a `GET /ws` upgrade goes to `TerminalBridge.adopt`. 11 integration tests drive the
+   real server, bridge and holders; 11 unit tests cover frames and the origin check. Proven end to end with a real
+   Claude session started, typed into and read back over the WebSocket through the app's server and backend.
+   - **Protocol** as in the spike, minus the bearer token: subprotocol `shepherd-v1`; `list` (the holder registry, with
+     title, task, liveness, size), `spawn {cwd, cols, rows, task?, title?}`, `attach`, `detach`, `resize`; events
+     `hello`, `sessions`, `spawned`, `attached`, `ready`, `size`, `reset`, `detached`, `error`. A holder id (not the
+     Claude session id) names a session on the wire; `list` carries `claudeSessionID` and `taskID` to join it to the
+     backend's sessions.
+   - **No token.** Access is the server's gate, the same trust the existing API has (a local process can already read
+     `~/.shepherd`). One addition for a socket that types into agents: `Origin` must match `Host` on port as well as host
+     (the gate compares host only; another app on another localhost port is the same host), with the scheme's default
+     port standing in when `Host` has none, as behind `tailscale serve`.
+   - **Spawn allow-list is the existing one:** a session may start only in a folder the server offers at
+     `/api/projects` (default directory plus git projects, exclusions applied). Only `claude` can be started; there is
+     no `shell` kind on the wire.
+   - Kept from the spike: PTY size follows whoever typed or resized last (a joiner sees the session's size and a
+     passive client's resize is held until it types), output queues are bounded and a slow browser is resynced
+     (`reset`, replay, redraw) rather than dropped, rate limits on input, control messages and pings, 64 connections,
+     heartbeat pings, protocol violations close with a code.
+   - `Public/terminal.html` is the phone test page (the fixed version from the C3 phone test) pointed at `/ws`, with a
+     project picker fed by `/api/projects`. xterm.js 5.5.0 and the fit addon 0.10.0 are vendored in `Public/vendor/`.
+   - The bridge lives in its own target in Swift 5 mode (shared state confined to one dispatch queue), like the holder.
+   - `swift run ShepherdWeb --holder` runs the server with the holder backend for development; point `SHEPHERD_HOME`
+     at a scratch folder and nothing of the real install is touched. The holder backend turns the bridge on in the app
+     too (`backend.kind = "holder"`), reachable through Mobile Access like the rest of the web server.
+   - Not done: the page is not linked from the existing phone view, the page has not been tried on the phone since the
+     move, and the dashboard (step 4) will want its own page. A holder that is not in the registry, or an interrupted
+     session, cannot be attached (the page lists live sessions only).
+
 4. **Dashboard window**: WKWebView with the glue from spike C2, sessions list plus terminal, attention-sorted, a
    hotkey to open it.
 5. **Tasks board** in the same window.

@@ -78,7 +78,7 @@ func listenUnix(_ path: String) -> Int32? {
     unlink(path)
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
     guard fd >= 0 else { return nil }
-    fcntl(fd, F_SETFD, FD_CLOEXEC)
+    _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
     let bound: Bool = withSocketAddress(path) { address in
         var a = address
         return withUnsafePointer(to: &a) {
@@ -93,7 +93,7 @@ func listenUnix(_ path: String) -> Int32? {
 func connectUnix(_ path: String) -> Int32? {
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
     guard fd >= 0 else { return nil }
-    fcntl(fd, F_SETFD, FD_CLOEXEC)
+    _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
     var one: Int32 = 1
     setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
     let connected: Bool = withSocketAddress(path) { address in
@@ -112,4 +112,11 @@ func jsonBytes(_ object: Any) -> [UInt8] {
 
 func logLine(_ text: String) {
     FileHandle.standardError.write(Data("[\(ProcessInfo.processInfo.processIdentifier)] \(text)\n".utf8))
+}
+
+/// A nonblocking connection to a holder's socket, for callers that drive it with dispatch sources.
+public func connectHolderSocketNonblocking(_ path: String) -> Int32? {
+    guard let fd = connectUnix(path) else { return nil }
+    _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+    return fd
 }

@@ -4,6 +4,7 @@ import ShepherdGhostty
 import ShepherdHerdr
 import ShepherdHolder
 import ShepherdHolderBackend
+import ShepherdTerminalBridge
 
 // Headless hook install/uninstall, for scripting or a terminal-triggered
 // switch - the same `HookInstaller` the menu bar's "Install/Uninstall
@@ -38,6 +39,7 @@ MainActor.assumeIsolated {
     let backend: any SessionBackend
     var onTerminalAppNameChanged: ((String) -> Void)?
     var useFrontGhosttyWindow: (() async throws -> Void)?
+    var terminals: TerminalBridgeConfig?
     let args = CommandLine.arguments
     let environmentBackend = ProcessInfo.processInfo.environment["SHEPHERD_BACKEND"]
     let useHerdr = args.contains("--herdr")
@@ -68,6 +70,16 @@ MainActor.assumeIsolated {
             await holderBackend.startListening()
         }
         backend = holderBackend
+        // Browsers (the phone, later the dashboard) attach to the same holders over /ws, and may start sessions in the
+        // folders the web server offers as start targets.
+        terminals = TerminalBridgeConfig(
+            registry: registry,
+            spawn: { request in
+                let id = try await holderBackend.createSession(CreateSessionRequest(
+                    workingDirectory: URL(fileURLWithPath: request.cwd), agent: .claude, title: request.title, taskID: request.taskID))
+                guard let holderID = await holderBackend.holderID(for: id) else { throw BackendError.unavailable("the session did not start") }
+                return holderID
+            })
     } else if !useHerdr {
         // Agents run in ordinary Ghostty tabs and are driven through Ghostty's AppleScript interface.
         let crook = HookInstaller.crookURL.path
@@ -94,7 +106,8 @@ MainActor.assumeIsolated {
     let delegate = AppDelegate(
         backend: backend,
         onTerminalAppNameChanged: onTerminalAppNameChanged,
-        useFrontGhosttyWindow: useFrontGhosttyWindow
+        useFrontGhosttyWindow: useFrontGhosttyWindow,
+        terminals: terminals
     )
     app.delegate = delegate
     app.run()

@@ -72,7 +72,7 @@ public final class Holder: @unchecked Sendable {
             return fail("could not start \(record.argv.first ?? "nothing")")
         }
         child = spawned
-        fcntl(spawned.master, F_SETFL, fcntl(spawned.master, F_GETFL) | O_NONBLOCK)
+        _ = fcntl(spawned.master, F_SETFL, fcntl(spawned.master, F_GETFL) | O_NONBLOCK)
         record.holderPID = getpid()
         record.childPID = spawned.pid
         persist()
@@ -118,8 +118,8 @@ public final class Holder: @unchecked Sendable {
         let fd = accept(listener, nil, nil)
         guard fd >= 0 else { return }
         guard conns.count < config.maxClients else { close(fd); return }
-        fcntl(fd, F_SETFD, FD_CLOEXEC)
-        fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         var one: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
         conns.append(Conn(fd: fd))

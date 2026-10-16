@@ -1,5 +1,7 @@
 import Foundation
+import Network
 import ShepherdCore
+import ShepherdTerminalBridge
 
 /// Where phone access stands, for the setup checklist. Each flag is the
 /// precondition for the next, so a UI can show the first unmet one as the
@@ -79,15 +81,19 @@ public actor MobileAccessServer {
 
     private let backend: any SessionBackend
     private let options: Options
+    private let terminals: TerminalBridgeConfig?
+    private var bridge: TerminalBridge?
     private let tailscale = TailscaleService()
     private var http: HTTPServer?
     private var push: PushService?
     private var keepAwake: KeepAwakeController?
     private var tasks: [Task<Void, Never>] = []
 
-    public init(backend: any SessionBackend, options: Options = Options()) {
+    /// `terminals` turns on `/ws`, the terminal WebSocket, for backends whose sessions run in PTY holders.
+    public init(backend: any SessionBackend, options: Options = Options(), terminals: TerminalBridgeConfig? = nil) {
         self.backend = backend
         self.options = options
+        self.terminals = terminals
     }
 
     public var isRunning: Bool { http != nil }
@@ -106,6 +112,23 @@ public actor MobileAccessServer {
         let publicDirectory = locatePublicDirectory()
         let tailscale = self.tailscale
         let backend = self.backend
+        // The server only starts a session in a folder it offers itself (`/api/projects`), whichever way the request comes.
+        let bridge = terminals.map { configured -> TerminalBridge in
+            var config = configured
+            config.isDirectoryAllowed = { path in startTargets(config: ShepherdConfig.load()).contains { $0.path == path } }
+            return TerminalBridge(config: config)
+        }
+        self.bridge = bridge
+
+        let upgrade: (@Sendable (HTTPServer.Request, NWConnection) -> Bool)?
+        if let bridge {
+            upgrade = { request, connection in
+                bridge.adopt(connection: connection, headers: request.headers, leftover: Data())
+                return true
+            }
+        } else {
+            upgrade = nil
+        }
 
         let server = try HTTPServer(
             port: options.port,
@@ -137,7 +160,8 @@ public actor MobileAccessServer {
                 }
                 return await api.handle(request)
             },
-            sseEvents: { backend.events() }
+            sseEvents: { backend.events() },
+            upgrade: upgrade
         )
         do {
             try await server.start()
@@ -232,6 +256,8 @@ public actor MobileAccessServer {
         await keepAwake?.shutdown()
         keepAwake = nil
         await http?.stop()
+        bridge?.shutdown()
+        bridge = nil
         http = nil
         push = nil
     }
