@@ -94,6 +94,14 @@ struct HolderTests {
         try? FileManager.default.removeItem(at: h.registry.directory)
     }
 
+    @Test func killEndsASessionThatIgnoresSIGTERMWhileFloodingOutput() throws {
+        let h = RunningHolder(script: "trap '' TERM; yes 0123456789abcdef")
+        #expect(HolderClient.kill(socketPath: h.socket))
+        let record = try #require(h.waitUntilFinished(seconds: 8))
+        #expect(record.state == .killed)
+        try? FileManager.default.removeItem(at: h.registry.directory)
+    }
+
     @Test func aClientThatNeverReadsIsDroppedAndTheHolderKeepsServing() throws {
         let h = RunningHolder(script: "yes 0123456789abcdef")
         defer { h.stopAndWait() }

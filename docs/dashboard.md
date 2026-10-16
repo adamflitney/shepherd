@@ -310,7 +310,31 @@ tech, not from Electron"). The spikes above were run to settle it.
    - Not done yet: supervision beyond "the app spawns holders", the ring size and stall limits are untuned, Kitty
      keyboard state is not tracked, the web bridge is not ported (step 3).
 3. **In-app backend** behind `SessionBackend`, with task-linked start and resume as the Ghostty backend does, and
-   the bridge folded into `ShepherdWebKit`.
+   the bridge folded into `ShepherdWebKit`. **Backend built 2026-10-16, not yet committed; the bridge is not folded in
+   yet.** `Sources/ShepherdHolderBackend/HolderSessionBackend.swift`, 12 tests that run real holders against a stand-in
+   for `claude`. How it differs from the Ghostty backend:
+   - The session list is the holder registry. A holder that answers is live; a record that says running with no answer
+     is **interrupted** and shows as idle with "Interrupted. Resume to continue the conversation." and no prompt
+     capability. `focus` on it resumes it with `claude --resume`; `close` dismisses it.
+   - `prompt` and `respond` go straight into the PTY (bracketed paste when the app has turned it on, then Enter).
+     `respond` reuses the Ghostty key vocabulary and the multi-select handling, translated to byte sequences.
+   - A task's earlier conversation is resumed exactly as before; the task is linked before the agent starts and
+     `SHEPHERD_TASK_ID`, `SHEPHERD_SESSION_ID` and `SHEPHERD_CROOK` are passed in the environment.
+   - `backend.remoteControlNames: true` starts each session as `claude --remote-control "<task title>"`, so it appears
+     under its task's name in the Claude mobile app (checked in the mods spike, Phase 0).
+   - Claude runs under the user's login shell (`$SHELL -l -c`) with an absolute path to `claude`, because the app's own
+     environment is nearly empty: a login shell gives `gh`, `node` and the rest of the Homebrew PATH but not
+     `~/.local/bin`, which is why the path is absolute.
+   - Turn it on with `"backend": {"kind": "holder"}` in the config, `SHEPHERD_BACKEND=holder` or `--holder`. Ghostty stays
+     the default. `scripts/build-app.sh` now bundles `shepherd-holder` next to `crook`.
+   - **Until the dashboard window exists, "go to a session" opens a Ghostty tab running
+     `shepherd-holder attach <id>`** (Ctrl-\ detaches). That is the interim viewer.
+   - Reuses `ghosttyAttention`, `GhosttyKeyMap`, `TranscriptPeek` and `ClaudeLocator` from `ShepherdGhostty`, so the new
+     target depends on it. Move them to `ShepherdCore` if Ghostty stops being a backend.
+   - A bug the backend tests found in the holder: while waiting for a session to exit the holder stopped reading its
+     PTY, and a process that is closing its terminal waits for unread output to drain, so a kill right after start
+     could leave both stuck (the child in state `E`, the holder blocked in `wait4`). The holder now drains output while
+     it waits and every wait is bounded. Not reproduced in the in-process holder tests, only with real holder processes.
 4. **Dashboard window**: WKWebView with the glue from spike C2, sessions list plus terminal, attention-sorted, a
    hotkey to open it.
 5. **Tasks board** in the same window.

@@ -28,14 +28,19 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     public var endedAt: Date?
     public var exitStatus: Int32?
     public var error: String?
+    /// Set at launch, never changed by the holder: what the app shows, and whether a first message was sent.
+    public var title: String?
+    public var startedWithPrompt: Bool?
 
     public init(id: String, taskID: Int? = nil, agent: AgentKind, claudeSessionID: String? = nil, cwd: String, argv: [String],
                 cols: Int, rows: Int, state: State = .running, holderPID: Int32? = nil, childPID: Int32? = nil,
-                startedAt: Date = Date(), endedAt: Date? = nil, exitStatus: Int32? = nil, error: String? = nil) {
+                startedAt: Date = Date(), endedAt: Date? = nil, exitStatus: Int32? = nil, error: String? = nil,
+                title: String? = nil, startedWithPrompt: Bool? = nil) {
         self.id = id; self.taskID = taskID; self.agent = agent; self.claudeSessionID = claudeSessionID
         self.cwd = cwd; self.argv = argv; self.cols = cols; self.rows = rows; self.state = state
         self.holderPID = holderPID; self.childPID = childPID; self.startedAt = startedAt
         self.endedAt = endedAt; self.exitStatus = exitStatus; self.error = error
+        self.title = title; self.startedWithPrompt = startedWithPrompt
     }
 }
 

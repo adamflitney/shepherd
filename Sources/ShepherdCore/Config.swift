@@ -72,16 +72,22 @@ public struct AgentConfig: Codable, Equatable, Sendable {
     }
 }
 
-/// Where agents run: `ghostty` (ordinary Ghostty tabs, driven by AppleScript) or `herdr` (the legacy
-/// Herdr backend, kept until it is removed). A raw string so an unknown value degrades to the default.
+/// Where agents run: `ghostty` (ordinary Ghostty tabs, driven by AppleScript), `holder` (a detached PTY holder per
+/// session, so sessions outlive the app) or `herdr` (the legacy Herdr backend, kept until it is removed). A raw
+/// string so an unknown value degrades to the default.
 public struct BackendConfig: Codable, Equatable, Sendable {
     public var kind: String
+    /// Holder backend only: start each session with `claude --remote-control "<title>"`, so it shows up under its task's
+    /// name in the Claude mobile app.
+    public var remoteControlNames: Bool?
 
-    public init(kind: String = "ghostty") {
+    public init(kind: String = "ghostty", remoteControlNames: Bool? = nil) {
         self.kind = kind
+        self.remoteControlNames = remoteControlNames
     }
 
     public var isHerdr: Bool { kind.lowercased() == "herdr" }
+    public var isHolder: Bool { kind.lowercased() == "holder" }
 }
 
 /// The phone-facing web view (Mobile Access). Off by default: it opens a

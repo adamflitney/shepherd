@@ -11,9 +11,13 @@ public struct SessionSpec: Sendable {
     public var env: [String: String]
     public var cols: Int
     public var rows: Int
+    public var title: String?
+    public var startedWithPrompt: Bool?
 
     public init(id: String = SessionSpec.newID(), taskID: Int? = nil, agent: AgentKind, claudeSessionID: String? = nil,
-                cwd: String, argv: [String], env: [String: String] = [:], cols: Int = 100, rows: Int = 30) {
+                cwd: String, argv: [String], env: [String: String] = [:], cols: Int = 100, rows: Int = 30,
+                title: String? = nil, startedWithPrompt: Bool? = nil) {
+        self.title = title; self.startedWithPrompt = startedWithPrompt
         self.id = id; self.taskID = taskID; self.agent = agent; self.claudeSessionID = claudeSessionID
         self.cwd = cwd; self.argv = argv; self.env = env; self.cols = cols; self.rows = rows
     }
@@ -23,9 +27,12 @@ public struct SessionSpec: Sendable {
 
 public enum ClaudeCommand {
     /// `claude` runs under a wrapper shell, as in the spikes, so the PTY child is a shell that exits with claude's status.
-    public static func argv(claudePath: String, sessionID: String, resume: Bool, extra: [String] = []) -> [String] {
+    /// With `loginShell` the command runs in that shell as a login shell, so it gets the user's PATH the way a terminal
+    /// tab does; a menu bar app's own environment is nearly empty.
+    public static func argv(claudePath: String, sessionID: String, resume: Bool, extra: [String] = [], loginShell: String? = nil) -> [String] {
         let quoted = ([claudePath, resume ? "--resume" : "--session-id", sessionID] + extra).map(shellQuote).joined(separator: " ")
-        return ["/bin/sh", "-c", "\(quoted); exit $?"]
+        guard let loginShell else { return ["/bin/sh", "-c", "\(quoted); exit $?"] }
+        return [loginShell, "-l", "-c", "\(quoted); exit $?"]
     }
 
     static func shellQuote(_ s: String) -> String {
@@ -61,7 +68,8 @@ public struct HolderLauncher: Sendable {
         try registry.prepare()
 
         let record = SessionRecord(id: spec.id, taskID: spec.taskID, agent: spec.agent, claudeSessionID: spec.claudeSessionID,
-                                   cwd: spec.cwd, argv: spec.argv, cols: spec.cols, rows: spec.rows)
+                                   cwd: spec.cwd, argv: spec.argv, cols: spec.cols, rows: spec.rows,
+                                   title: spec.title, startedWithPrompt: spec.startedWithPrompt)
         try registry.save(record)
         try writeSpec(spec)
 
@@ -79,12 +87,13 @@ public struct HolderLauncher: Sendable {
 
     /// Brings an interrupted Claude session back with `--resume`, keeping its id, task and directory.
     @discardableResult
-    public func resume(_ id: String, claudePath: String, env: [String: String] = [:]) throws -> SessionRecord {
+    public func resume(_ id: String, claudePath: String, extra: [String] = [], env: [String: String] = [:], loginShell: String? = nil) throws -> SessionRecord {
         guard let record = registry.load(id), registry.liveness(record) == .interrupted else { throw LaunchError.notInterrupted(id) }
         guard record.agent == .claude, let sid = record.claudeSessionID else { throw LaunchError.notResumable(id) }
         return try launch(SessionSpec(id: record.id, taskID: record.taskID, agent: .claude, claudeSessionID: sid, cwd: record.cwd,
-                                      argv: ClaudeCommand.argv(claudePath: claudePath, sessionID: sid, resume: true),
-                                      env: env, cols: record.cols, rows: record.rows))
+                                      argv: ClaudeCommand.argv(claudePath: claudePath, sessionID: sid, resume: true, extra: extra, loginShell: loginShell),
+                                      env: env, cols: record.cols, rows: record.rows,
+                                      title: record.title, startedWithPrompt: false))
     }
 
     private func writeSpec(_ spec: SessionSpec) throws {

@@ -131,16 +131,38 @@ public final class Holder: @unchecked Sendable {
     }
 
     private func masterReadable() {
-        guard let child else { return }
+        if !pumpMaster() { finish(state: .exited, status: nil) }
+    }
+
+    /// Reads what the session has written and hands it to the ring and the attached clients. False at end of output.
+    /// Must keep running while the holder waits for the session to exit: a process that is closing its terminal waits
+    /// for unread output to drain, so a holder that stops reading can never see it finish.
+    @discardableResult
+    private func pumpMaster() -> Bool {
+        guard let child else { return false }
         var buf = [UInt8](repeating: 0, count: 65536)
         let n = read(child.master, &buf, buf.count)
-        if n < 0, errno == EAGAIN || errno == EINTR { return }
-        if n <= 0 { finish(state: .exited, status: nil); return }
+        if n < 0, errno == EAGAIN || errno == EINTR { return true }
+        if n <= 0 { return false }
         let chunk = Array(buf[0..<n])
         modes.feed(chunk)
         ring.append(chunk)
         for c in conns where c.attached {
             if !writeBounded(c.fd, chunk) { logLine("dropping a stalled client on \(record.id)"); drop(c) }
+        }
+        return true
+    }
+
+    /// Waits up to `seconds` for the child to exit while draining its output. Returns its status once reaped.
+    private func waitForExit(seconds: Double) -> Int32? {
+        guard let child else { return nil }
+        let deadline = Date().addingTimeInterval(seconds)
+        var status: Int32 = 0
+        while true {
+            if waitpid(child.pid, &status, WNOHANG) == child.pid { return status }
+            if Date() >= deadline { return nil }
+            var p = pollfd(fd: child.master, events: Int16(POLLIN), revents: 0)
+            if Darwin.poll(&p, 1, 50) > 0, p.revents & Int16(POLLIN) != 0 { pumpMaster() }
         }
     }
 
@@ -233,13 +255,12 @@ public final class Holder: @unchecked Sendable {
     private func terminate(state: SessionRecord.State) {
         guard let child, !ended else { return }
         kill(-child.pid, SIGTERM)
-        var status: Int32 = 0
-        var reaped = false
-        for _ in 0..<20 {
-            if waitpid(child.pid, &status, WNOHANG) == child.pid { reaped = true; break }
-            usleep(50_000)
+        var status = waitForExit(seconds: 1.5)
+        if status == nil {
+            kill(-child.pid, SIGKILL)
+            status = waitForExit(seconds: 2)
         }
-        if !reaped { kill(-child.pid, SIGKILL); waitpid(child.pid, &status, 0) }
+        if status == nil { logLine("session \(record.id) did not exit after SIGKILL; giving up on it") }
         finish(state: state, status: status)
     }
 
@@ -247,11 +268,11 @@ public final class Holder: @unchecked Sendable {
         guard !ended, let child else { return }
         var code = status
         if code == nil {
-            var s: Int32 = 0
-            var r = waitpid(child.pid, &s, WNOHANG)
-            for _ in 0..<10 where r == 0 { usleep(50_000); r = waitpid(child.pid, &s, WNOHANG) }
-            if r == 0 { kill(child.pid, SIGKILL); waitpid(child.pid, &s, 0) }
-            code = s
+            code = waitForExit(seconds: 1)
+            if code == nil {
+                kill(child.pid, SIGKILL)
+                code = waitForExit(seconds: 2)
+            }
         }
         ended = true
         endedAt = Date()

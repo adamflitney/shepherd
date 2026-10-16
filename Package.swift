@@ -34,6 +34,13 @@ let package = Package(
             path: "Sources/shepherd-holder",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // SessionBackend over the PTY holders: sessions start in holders, survive the app, and are resumed after a crash.
+        // Reuses the Ghostty backend's attention mapping, key vocabulary and transcript reader for now.
+        .target(
+            name: "ShepherdHolderBackend",
+            dependencies: ["ShepherdCore", "ShepherdTasks", "ShepherdHolder", "ShepherdGhostty"],
+            path: "Sources/ShepherdHolderBackend"
+        ),
         // Herdr-socket adapter: framing, wire DTOs, reducer, transport. Depends on Core.
         .target(
             name: "ShepherdHerdr",
@@ -57,7 +64,7 @@ let package = Package(
         // App entry point: backend selection, NSStatusItem, panel window.
         .executableTarget(
             name: "Shepherd",
-            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdGhostty", "ShepherdTasks", "ShepherdUI", "ShepherdWebKit"],
+            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdGhostty", "ShepherdHolder", "ShepherdHolderBackend", "ShepherdTasks", "ShepherdUI", "ShepherdWebKit"],
             path: "Sources/Shepherd",
             resources: [.copy("HookScripts")]
         ),
@@ -77,6 +84,11 @@ let package = Package(
             name: "ShepherdWeb",
             dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdWebKit"],
             path: "Sources/ShepherdWeb"
+        ),
+        .testTarget(
+            name: "ShepherdHolderBackendTests",
+            dependencies: ["ShepherdHolderBackend", "ShepherdHolder", "ShepherdCore", "ShepherdTasks", "ShepherdGhostty", "shepherd-holder"],
+            path: "Tests/ShepherdHolderBackendTests"
         ),
         .testTarget(
             name: "ShepherdHolderTests",

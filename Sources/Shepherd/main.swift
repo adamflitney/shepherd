@@ -2,6 +2,8 @@ import AppKit
 import ShepherdCore
 import ShepherdGhostty
 import ShepherdHerdr
+import ShepherdHolder
+import ShepherdHolderBackend
 
 // Headless hook install/uninstall, for scripting or a terminal-triggered
 // switch - the same `HookInstaller` the menu bar's "Install/Uninstall
@@ -37,11 +39,35 @@ MainActor.assumeIsolated {
     var onTerminalAppNameChanged: ((String) -> Void)?
     var useFrontGhosttyWindow: (() async throws -> Void)?
     let args = CommandLine.arguments
+    let environmentBackend = ProcessInfo.processInfo.environment["SHEPHERD_BACKEND"]
     let useHerdr = args.contains("--herdr")
-        || ProcessInfo.processInfo.environment["SHEPHERD_BACKEND"] == "herdr"
+        || environmentBackend == "herdr"
         || (!args.contains("--ghostty") && ShepherdConfig.load().backend.isHerdr)
+    let useHolder = !useHerdr && !args.contains("--ghostty")
+        && (args.contains("--holder") || environmentBackend == "holder" || ShepherdConfig.load().backend.isHolder)
     if args.contains("--fake") {
         backend = FakeSessionBackend(sessions: DemoSessions.all)
+    } else if useHolder {
+        // Agents run in PTY holders that outlive the app. Until the dashboard window exists, "go to a session" opens a
+        // Ghostty tab attached to its holder.
+        let crook = HookInstaller.crookURL.path
+        let registry = SessionRegistry.standard
+        let holderExecutable = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("shepherd-holder").path
+        let holderBackend = HolderSessionBackend(
+            registry: registry,
+            launcher: HolderLauncher(registry: registry, holderExecutable: holderExecutable),
+            crookPath: FileManager.default.isExecutableFile(atPath: crook) ? crook : nil,
+            remoteControlNames: ShepherdConfig.load().backend.remoteControlNames ?? false)
+        let scripting = OsascriptGhosttyScripting()
+        Task {
+            await holderBackend.setShowSession { id in
+                guard let holderID = await holderBackend.holderID(for: id) else { return }
+                let command = "'\(holderExecutable)' attach \(holderID) --registry '\(registry.directory.path)'"
+                _ = try? await scripting.open(command: command, workingDirectory: NSHomeDirectory(), environment: [:], windowID: nil)
+            }
+            await holderBackend.startListening()
+        }
+        backend = holderBackend
     } else if !useHerdr {
         // Agents run in ordinary Ghostty tabs and are driven through Ghostty's AppleScript interface.
         let crook = HookInstaller.crookURL.path

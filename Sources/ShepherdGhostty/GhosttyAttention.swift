@@ -36,7 +36,7 @@ public let ghosttyStartupGrace: TimeInterval = 8
 /// A fresh Claude Code session in a directory it has not seen shows a "do you trust this folder"
 /// menu, and no hook fires for it. Shown as a blocked session with the menu's real choices, so it can
 /// be answered from the panel or the phone (choice 2 is "Yes").
-func folderTrustAttention() -> AttentionState {
+public func folderTrustAttention() -> AttentionState {
     AttentionState(
         kind: .blocked,
         blocker: .needsAnswer,
