@@ -64,6 +64,26 @@ Each piece exists to answer one question and is deleted afterwards:
 The shell hooks and `crook` skill stay installed during the slice, so uninstalling the mod puts shepherd back exactly
 as it is. Run it on one real task for a working day.
 
+## Phase 0 results (2026-10-16, partial, run with Adam on his iPhone)
+
+Run against `claude` 2.1.300 in an empty scratch folder, Yoto's org policy in place (`remote_control_at_startup: false`).
+
+| Check | Result |
+|---|---|
+| Remote Control starts under Yoto's policy | **Works.** `claude remote-control` needed the folder trusted first (a normal `claude` run, not `!` from inside a session) |
+| Phone can use the folder and answer a permission prompt | **Works** |
+| A mod's text command (`/where`) from the phone | **Works**, a text reply comes back |
+| Several sessions in one folder | **Works with a catch.** `--spawn session` allows one session per directory ("Directory at capacity"); `--spawn same-dir --capacity N` lifts it |
+| Sessions named after tasks | **Works.** Two interactive sessions started with `claude --remote-control "task: ..."` appeared on the phone under those names, so Shepherd can name every session after its task at launch with no typing |
+| Push when a session is created from the phone | **Works** |
+| Push when a session finishes its task | **Fails as a setting.** Nothing in `/config` on the phone covers it (the binary does name `taskCompleteNotifEnabled`, but it is not offered). The phone session itself suggested a Stop hook that sends a notification |
+| Push when a session needs input (permission or question) | **Works** once `inputNeededNotifEnabled` is switched on in `/config` (it was off by default) |
+| `claude --bg` sessions on the phone | Not tested (reported not to appear, claudeissues #70546) |
+| `--spawn worktree` | Not tested |
+
+What this means so far: the official app is usable as a secondary surface. Naming is the automation that matters, and
+it works through one flag Shepherd already controls when it launches `claude`. The one gap is a push when a turn ends. Needing-input push works once a setting is on. Completion push has a candidate fix that has not been tried: Claude Code has a `PushNotification` tool (desktop notification, plus a phone push when Remote Control is connected, skipped when the user is at the terminal), so Shepherd's task context can tell the agent to call it when it moves a task to `review` or hits a decision. A shell Stop hook cannot call it, so the alternative is a mod's `turn.complete` hook or an outside push service.
+
 ## Success criteria
 
 1. Start a task from the panel and the new session knows its objective, plan and last handoff with nothing typed.

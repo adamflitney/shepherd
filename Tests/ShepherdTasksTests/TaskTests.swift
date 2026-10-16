@@ -80,6 +80,11 @@ struct TaskFileTests {
         #expect(text.contains("Never mark a task done yourself"))
     }
 
+    @Test func theContextAsksForAPushWhenTheUserIsNeeded() {
+        let text = taskContext(TaskFile.create(id: 7, title: "T", now: now))
+        #expect(text.contains("PushNotification"))
+    }
+
     @Test func settingThePlanKeepsCheckedStepsAndKeepsTheLogIntact() throws {
         var t = TaskFile.create(id: 1, title: "T", now: now)
         t.addPlanItem("reproduce")

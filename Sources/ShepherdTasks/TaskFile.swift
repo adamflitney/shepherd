@@ -212,7 +212,7 @@ public func taskContext(_ t: TaskFile, max: Int = 9000, crook: String = "crook")
     if let b = t.branch { status += " | Branch: \(b)" }
     if let pr = t.pr { status += " | PR: \(pr)" }
     head.append(status)
-    head.append("Keep the task current with the crook CLI: `\(crook) task objective <id> <text>`, `\(crook) task plan <id> add|check|uncheck`, or rewrite the whole plan by piping one step per line into `\(crook) task plan <id> set` (checked steps keep their ticks), `\(crook) task log <id> <text>`, `\(crook) task status <id> review` when the work is ready for the user to look at. Never mark a task done yourself: that is the user's call.")
+    head.append("Keep the task current with the crook CLI: `\(crook) task objective <id> <text>`, `\(crook) task plan <id> add|check|uncheck`, or rewrite the whole plan by piping one step per line into `\(crook) task plan <id> set` (checked steps keep their ticks), `\(crook) task log <id> <text>`, `\(crook) task status <id> review` when the work is ready for the user to look at. Never mark a task done yourself: that is the user's call. When you move a task to review, or hit a decision you cannot make without the user, call the PushNotification tool with a one-line message that leads with what they would act on; skip it for routine progress.")
 
     let plan = t.section("Plan")
     let log = t.section("Log")
