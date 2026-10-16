@@ -21,6 +21,19 @@ let package = Package(
             dependencies: ["ShepherdTasks"],
             path: "Sources/crook"
         ),
+        // The PTY holder: one small detached process per agent session so sessions outlive the app, plus the registry
+        // that records them for `claude --resume`. POSIX-level code, so it builds in Swift 5 mode like the spikes did.
+        .target(
+            name: "ShepherdHolder",
+            path: "Sources/ShepherdHolder",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .executableTarget(
+            name: "shepherd-holder",
+            dependencies: ["ShepherdHolder"],
+            path: "Sources/shepherd-holder",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         // Herdr-socket adapter: framing, wire DTOs, reducer, transport. Depends on Core.
         .target(
             name: "ShepherdHerdr",
@@ -64,6 +77,11 @@ let package = Package(
             name: "ShepherdWeb",
             dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdWebKit"],
             path: "Sources/ShepherdWeb"
+        ),
+        .testTarget(
+            name: "ShepherdHolderTests",
+            dependencies: ["ShepherdHolder"],
+            path: "Tests/ShepherdHolderTests"
         ),
         .testTarget(
             name: "ShepherdTasksTests",

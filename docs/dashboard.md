@@ -287,7 +287,28 @@ tech, not from Electron"). The spikes above were run to settle it.
 ## Suggested order
 
 1. **Phone terminal check**, manually, with the spike bridge (small, answers the last unknown).
-2. **Production holder** with the fixes above, plus the registry and `--resume` restore.
+2. **Production holder** with the fixes above, plus the registry and `--resume` restore. **Built 2026-10-16, not yet
+   committed:** `Sources/ShepherdHolder` (library), `Sources/shepherd-holder` (the holder process and a CLI to drive
+   it), `Tests/ShepherdHolderTests` (29 tests, including real PTYs). Proven with a real Claude session: spawn, kill -9
+   the holder, the session shows as interrupted, `restore` resumes it and the conversation is back. Decisions made
+   while building it:
+   - One holder per session, started with `shepherd-holder hold` by `HolderLauncher` (detached, own session, log per
+     session). The daemon mode from the spike is gone.
+   - **The holder socket has no `spawn` op.** The command arrives once, through the record and a spec file (env only,
+     mode 0600, deleted after reading), so nothing that can reach the socket can start a process. The allow-list of
+     directories and agent kinds therefore belongs to whatever accepts spawn requests from clients (the web bridge),
+     not to the holder. The test-only `shell` agent is refused unless the launcher is created with `allowShell`.
+   - The holder writes its own record (`~/.shepherd/sessions/<id>.json`) at start and at exit, so it is right when the
+     app is not running. A record that says running with no answer on the socket is **interrupted**; nothing resumes
+     it automatically. `restore` (and later a Resume button) does.
+   - Replay plus a forced redraw: the holder replays its ring (512 KB) and reports the active terminal modes; the
+     client re-asserts the modes and nudges the size (`Attachment.forceRedraw`).
+   - Stalled clients are dropped (no progress for 300 ms), input to the PTY is bounded too, frames over 1 MB and
+     unknown frame types drop the connection, at most 16 clients, idle unattached connections are dropped after 5 s.
+   - Sockets live next to the records. A path over 103 bytes falls back to a locked `chdir`, which is process-wide,
+     so keep the registry path short.
+   - Not done yet: supervision beyond "the app spawns holders", the ring size and stall limits are untuned, Kitty
+     keyboard state is not tracked, the web bridge is not ported (step 3).
 3. **In-app backend** behind `SessionBackend`, with task-linked start and resume as the Ghostty backend does, and
    the bridge folded into `ShepherdWebKit`.
 4. **Dashboard window**: WKWebView with the glue from spike C2, sessions list plus terminal, attention-sorted, a
