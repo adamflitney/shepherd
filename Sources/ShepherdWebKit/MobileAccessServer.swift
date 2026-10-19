@@ -108,6 +108,7 @@ public actor MobileAccessServer {
         let pushDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".shepherd/web-push")
         let push = try PushService(directory: pushDirectory, subject: "https://github.com/adamflitney/shepherd")
         let api = SessionsAPI(backend: backend)
+        let tasksAPI = TasksAPI(backend: backend)
         let pushAPI = PushAPI(push: push)
         let publicDirectory = locatePublicDirectory()
         let tailscale = self.tailscale
@@ -154,6 +155,9 @@ public actor MobileAccessServer {
             router: { request in
                 if request.method == "GET", !request.path.hasPrefix("/api/") {
                     return serveStaticFile(request.path, from: publicDirectory)
+                }
+                if tasksAPI.handles(request.path) {
+                    return await tasksAPI.handle(request)
                 }
                 if request.path.hasPrefix("/api/push/") {
                     return await pushAPI.handle(request)

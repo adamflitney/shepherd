@@ -68,7 +68,7 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
         loaded = false
 
         if window == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1360, height: 780),
                                   styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
             window.title = "Shepherd"
             window.isReleasedWhenClosed = false
@@ -79,7 +79,8 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
             self.window = window
         }
         window?.contentView = web
-        web.load(URLRequest(url: URL(string: newOrigin + "/dashboard.html")!))
+        let fragment = ProcessInfo.processInfo.environment["SHEPHERD_DASHBOARD_HASH"].map { "#" + $0 } ?? ""
+        web.load(URLRequest(url: URL(string: newOrigin + "/dashboard.html" + fragment)!))
     }
 
     func windowDidBecomeKey(_ notification: Notification) {

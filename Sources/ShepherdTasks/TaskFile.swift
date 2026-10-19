@@ -4,6 +4,11 @@ public enum TaskStatus: String, CaseIterable, Sendable {
     case inbox, ready, active, review, done
 }
 
+public struct PlanStep: Equatable, Sendable {
+    public var text: String
+    public var done: Bool
+}
+
 public struct PlanProgress: Equatable, Sendable {
     public var done: Int
     public var total: Int
@@ -151,6 +156,25 @@ public struct TaskFile: Sendable {
         }
         throw TaskError("no plan item \(n)")
     }
+
+    /// The Plan checklist, in order.
+    public var plan: [PlanStep] {
+        let lines = doc.body.components(separatedBy: "\n")
+        guard let range = Self.findSection(lines, "Plan") else { return [] }
+        return ((range.start + 1)..<range.end).compactMap { i in
+            guard Self.isPlanItem(lines[i]) else { return nil }
+            return PlanStep(text: String(lines[i].dropFirst(6)), done: lines[i].dropFirst(3).first != " ")
+        }
+    }
+
+    /// The Log lines (oldest first), without their leading "- ".
+    public var logEntries: [String] {
+        section("Log").map { $0.hasPrefix("- ") ? String($0.dropFirst(2)) : $0 }
+    }
+
+    /// When the file was last changed, as written in its frontmatter.
+    public var updated: String? { str("updated") }
+    public var created: String? { str("created") }
 
     public var progress: PlanProgress {
         let lines = doc.body.components(separatedBy: "\n")

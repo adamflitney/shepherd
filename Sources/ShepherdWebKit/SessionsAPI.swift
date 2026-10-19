@@ -18,6 +18,7 @@ private struct SessionWire: Encodable {
     let isFocused: Bool
     let canPrompt: Bool
     let canRespond: Bool
+    let taskID: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, title, agent
@@ -28,6 +29,7 @@ private struct SessionWire: Encodable {
         case isFocused = "is_focused"
         case canPrompt = "can_prompt"
         case canRespond = "can_respond"
+        case taskID = "task_id"
     }
 }
 
@@ -44,7 +46,8 @@ private func wire(_ session: Session) -> SessionWire {
         workingDirectory: session.workingDirectory?.path,
         isFocused: session.isFocused,
         canPrompt: session.capabilities.contains(.prompt),
-        canRespond: session.attention.blocker != nil
+        canRespond: session.attention.blocker != nil,
+        taskID: session.group.flatMap { $0.id.hasPrefix("task-") ? Int($0.id.dropFirst(5)) : nil }
     )
 }
 

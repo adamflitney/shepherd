@@ -176,3 +176,15 @@ struct TaskStoreTests {
         #expect(slug(String(repeating: "word ", count: 20)).count <= 40)
     }
 }
+
+@Test func exposesThePlanStepsTheLogAndTheUpdatedStamp() throws {
+    var t = TaskFile.create(id: 9, title: "Expose", now: Date(timeIntervalSince1970: 1_800_000_000))
+    t.setPlan(["first", "second", "third"])
+    try t.setPlanItem(2, done: true)
+    t.appendLog("one", now: Date(timeIntervalSince1970: 1_800_000_100))
+    t.appendLog("two", now: Date(timeIntervalSince1970: 1_800_000_200))
+    #expect(t.plan == [PlanStep(text: "first", done: false), PlanStep(text: "second", done: true), PlanStep(text: "third", done: false)])
+    #expect(t.logEntries.count == 2 && t.logEntries[0].hasSuffix("one") && t.logEntries[1].hasSuffix("two"))
+    #expect(t.updated != nil && t.created != nil)
+    #expect(TaskFile.create(id: 1, title: "Empty").plan.isEmpty)
+}

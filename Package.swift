@@ -82,7 +82,7 @@ let package = Package(
         // iterated on and restarted without relaunching the GUI.
         .target(
             name: "ShepherdWebKit",
-            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdUI", "ShepherdTerminalBridge"],
+            dependencies: ["ShepherdCore", "ShepherdHerdr", "ShepherdUI", "ShepherdTerminalBridge", "ShepherdTasks"],
             path: "Sources/ShepherdWebKit",
             resources: [.copy("Public")]
         ),

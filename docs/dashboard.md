@@ -394,5 +394,35 @@ tech, not from Electron"). The spikes above were run to settle it.
    - Not done: the task label is only the title (a task field and group headings come with the board), no answer buttons
      for a blocked session (the terminal is right there; the phone page is the place for buttons), no unseen-badge on the
      Dock or menu bar beyond what the panel already shows, `shepherd-holder attach` still exists for use from any terminal.
-5. **Tasks board** in the same window.
+5. **Tasks board.** **First version built 2026-10-16, not yet committed.** A second view in the dashboard page (Sessions |
+   Board tabs, ⌘B). Checked the same way as the window: the real app against a scratch registry and scratch task files,
+   a snapshot of the board with tasks in every column, and the API driven with curl (start a task that has a live
+   session returns that session; start a ready task creates one, links it and moves the task to In progress; a folder
+   the server doesn't offer is refused). Not checked by hand: dragging a card, the keyboard, the drawer and the
+   new-task box in the live window.
+   - **Columns** as in `docs/task-board.md`: Inbox, Ready, Needs you, In progress, Review, Done (the 15 latest).
+     An active task is in Needs you when any of its sessions is blocked, finished and unseen, or **interrupted** (not in
+     the original table: an interrupted session needs you to resume it), otherwise In progress. A live session with no
+     task shows as a dashed card in the same two columns with **Make a task**, which creates the task from the session's
+     title and folder, links it and marks it active.
+   - **Cards:** number and title, the objective (two lines), plan progress (a bar and n/m), the best state of the task's
+     live sessions or "No live session", the folder, a PR badge when the task has one (set by hand or by a later PR
+     step; nothing detects PRs yet).
+   - **Moving:** drag between Inbox, Ready, In progress, Review and Done (Needs you is computed, so it takes no drops);
+     `[` and `]` step a card back and forward; the drawer has a status menu. Moving a card to Done is allowed from the
+     board because it is the user's call (agents still can't).
+   - **Starting:** double-click, Enter, or the drawer's button (Start, Resume or Go to session). It goes to the task's live
+     session if there is one, otherwise starts or resumes one in the task's folder (the default directory when the task
+     has none) and moves an inbox or ready task to In progress, exactly what the panel's Tasks tab does.
+   - **Drawer:** objective, the plan checklist, sessions with their state, folder and branch, and the log, newest first.
+     Read-only: the agent keeps the plan and log current through `crook`.
+   - **New task:** the box at the top, Enter to add to the Inbox, with a folder picker (the server's start targets).
+   - **API** (`TasksAPI.swift`): `GET /api/tasks`, `GET /api/tasks/<id>`, `POST /api/tasks`, `POST /api/tasks/<id>/status`,
+     `POST /api/tasks/<id>/start`, `POST /api/tasks/from-session`; sessions now carry `task_id`. The folder rule is the
+     phone's: a task is created or started only in a folder offered at `/api/projects`.
+   - **How it stays live:** the page re-reads tasks every 3 seconds while the board is showing and whenever a session
+     event arrives. Nothing watches the task files, so an agent's `crook` update shows within 3 seconds, not instantly.
+   - Not done: PR detection and the automatic move to Review when a PR is marked ready, worktree-per-task, several
+     sessions on one task shown separately (the card shows the best state; the drawer lists them all), deleting a task,
+     editing the objective or plan from the board, task groups in the Sessions list.
 6. **Trim the panel** back to glance and go, once the board has replaced its Tasks tab.
