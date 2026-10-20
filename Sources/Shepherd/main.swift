@@ -45,8 +45,10 @@ MainActor.assumeIsolated {
     let useHerdr = args.contains("--herdr")
         || environmentBackend == "herdr"
         || (!args.contains("--ghostty") && ShepherdConfig.load().backend.isHerdr)
-    let useHolder = !useHerdr && !args.contains("--ghostty")
-        && (args.contains("--holder") || environmentBackend == "holder" || ShepherdConfig.load().backend.isHolder)
+    // Holders are the default; `--ghostty` / `SHEPHERD_BACKEND=ghostty` / `backend.kind: "ghostty"` pick the Ghostty tabs.
+    let wantsGhostty = args.contains("--ghostty") || environmentBackend == "ghostty"
+        || (!args.contains("--holder") && environmentBackend != "holder" && ShepherdConfig.load().backend.isGhostty)
+    let useHolder = !useHerdr && !wantsGhostty
     if args.contains("--fake") {
         backend = FakeSessionBackend(sessions: DemoSessions.all)
     } else if useHolder {

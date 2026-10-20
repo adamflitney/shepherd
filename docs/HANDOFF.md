@@ -3,6 +3,60 @@
 Read this first when picking the work up on another machine. Everything described here is on the
 `swift-ghostty-host` branch of this repo (pushed to `origin`); `main` is untouched and nothing is merged.
 
+## Update 2026-10-20: the hybrid is built and installed
+
+**Read this first, then the 2026-10-15 section below for how it got here.** Steps 2 to 6 of `docs/dashboard.md` are built
+(PTY holder, holder-backed `SessionBackend`, terminal WebSocket bridge, dashboard window, task board, panel's Tasks tab
+replaced by a button to the board), the holder backend is the default, and `/Applications/Shepherd.app` is that build.
+The old app is backed up at `~/.shepherd/backups/Shepherd-0.8.2-ghostty.app`. The phone test and the mods Phase 0 are
+finished and recorded in `docs/dashboard.md` and `docs/mods-spike.md`. Everything is on `swift-ghostty-host`.
+
+- **Not yet used by hand:** the dashboard window with a keyboard and mouse (typing, paste, drag-and-drop, the hotkey, the
+  new-session sheet), dragging cards on the board, the board's keys, the drawer. The server side of each is tested.
+- **Open decisions:** whether Create, Ask and Review stay in the panel; whether to turn on `backend.remoteControlNames`
+  (the Claude mobile app showed sessions under their task names in the Phase 0 test); the mods spike's Phases 1 and 2
+  (a Claude Code mod for briefing, tools and state) are unstarted.
+- **Not built:** PR detection and the move to Review when a PR is marked ready, worktree per task, a file watcher so the
+  board updates instantly (it re-reads every 3 seconds), deleting or editing tasks from the board.
+- **Known quirks:** a test in `ShepherdHerdrTests` fails on any machine without Herdr's socket (it names one agent id
+  from another machine); a dev copy of the app run with a config that has Mobile Access on will publish itself through
+  Tailscale Serve (set `SHEPHERD_WEB_PORT` for a second copy and remove the entry with `tailscale serve --https=<port> off`).
+
+### Where this stopped (2026-10-20), and how to pick it up
+
+- **Git:** branch `swift-ghostty-host`, last pushed commit `f50fef0` (the panel's Board button). **Uncommitted, on disk
+  only:** making the holder the default (`Config.swift`, `main.swift`, `ConfigTests.swift`, `README.md`) and the doc
+  updates (`docs/dashboard.md`, this file). The installed app was built from that working tree. Commit and push them first.
+- **Installed:** `/Applications/Shepherd.app` is the holder-default build; old app at
+  `~/.shepherd/backups/Shepherd-0.8.2-ghostty.app`. Hooks were not reinstalled (the `crook` in `~/.shepherd/bin` is a
+  hand-copied build of the same source; the old copy is `crook.bak-20261016` beside it).
+- **Next:** Adam is about to use the dashboard, board and panel by hand and has "numerous issues with the GUI" to report.
+  Start from what he reports. Likely places: `Sources/ShepherdWebKit/Public/dashboard.html` (all page behaviour),
+  `Sources/Shepherd/DashboardWindow.swift` (window, menu, drops), `Sources/ShepherdUI/SessionsListView.swift` (panel).
+- **Tests:** `swift test`, about a minute. Everything passes except
+  `herdrBackendLiveReconciliationTrustsWorkingOverAStaleHookFile`, which needs Herdr and a hard-coded agent id.
+
+**Dev workflow that worked (the scripts lived in a temp folder and are gone):**
+
+- *Run a throwaway copy without touching the real install:*
+  `SHEPHERD_HOME=/tmp/shd SHEPHERD_WEB_PORT=18911 SHEPHERD_DASHBOARD_HASH=board SHEPHERD_DASHBOARD_SNAPSHOT=/tmp/shd/snap.png
+  .build/debug/Shepherd --holder --show-dashboard`. `SHEPHERD_HOME` moves the sessions registry and the task files; the
+  snapshot is a PNG of the window (read it to look at the layout; it is rewritten after each show). **Always set
+  `SHEPHERD_WEB_PORT`**, and remove any serve entry afterwards (`tailscale serve status`, then
+  `tailscale serve --https=<port> off`), because the real config has Mobile Access on and the copy publishes itself.
+- *Make fixtures:* `.build/debug/crook task new/status/plan/log ...` and `.build/debug/shepherd-holder spawn --claude
+  --cwd <repo> [--task N] --registry /tmp/shd/sessions`. `crook` refuses `status N done` when `CLAUDE_CODE_SESSION_ID` is
+  set (inside a Claude session); use `env -u CLAUDE_CODE_SESSION_ID` for fixtures.
+- *Drive the server from outside:* `curl` against `/api/sessions`, `/api/tasks`, `/api/projects`, POSTs for `focus`,
+  `close`, task `start` and `status`. For the WebSocket, a short node script with `ws@8.18.0` installed in a scratch
+  folder (`NODE_PATH=<folder>/node_modules`), origin header `http://127.0.0.1:<port>`, subprotocol `shepherd-v1`.
+- *Clean up after:* `shepherd-holder list --registry <dir>`, `kill <id>` for each live one, then delete the scratch folder
+  by literal path (a delete whose target comes from a command's output is blocked by the safety check).
+- *Gotchas:* running the installed binary with an argument it does not know (for example `--help`) starts a second full
+  app instance; the WebKit delegate methods must be `@MainActor @Sendable` or WebKit never calls them; the holder must
+  keep draining its PTY while waiting for a session to exit (a stuck exit otherwise wedges both); `swift build` finishes
+  in seconds when nothing changed, so a fast "Build complete" is normal.
+
 ## Update 2026-10-15: direction, spikes, and what is in flight
 
 **Read this section first.** The rest of the file describes the Ghostty-backend code as of 2026-10-12 and is still

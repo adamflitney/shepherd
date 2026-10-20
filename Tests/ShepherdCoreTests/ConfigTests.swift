@@ -185,14 +185,15 @@ import Foundation
     #expect(decoded.web == WebConfig(enabled: true, port: 9000, keepAwake: false, alertsOnlyWhenAway: true))
 }
 
-@Test func theBackendDefaultsToGhosttyAndOldConfigFilesStillLoad() throws {
+@Test func theBackendDefaultsToHoldersAndOldConfigFilesStillLoad() throws {
     // a config file written before `backend` existed
     let old = #"{"projects":{"directories":["~/dev"],"exclude":[]}}"#.data(using: .utf8)!
     let config = try JSONDecoder().decode(ShepherdConfig.self, from: old)
-    #expect(config.backend == BackendConfig(kind: "ghostty"))
-    #expect(!config.backend.isHerdr)
-    #expect(BackendConfig(kind: "Herdr").isHerdr)
-    #expect(!BackendConfig(kind: "anything-else").isHerdr)
+    #expect(config.backend == BackendConfig(kind: "holder"))
+    #expect(config.backend.isHolder && !config.backend.isHerdr && !config.backend.isGhostty)
+    #expect(BackendConfig(kind: "Herdr").isHerdr && !BackendConfig(kind: "Herdr").isHolder)
+    #expect(BackendConfig(kind: "ghostty").isGhostty && !BackendConfig(kind: "ghostty").isHolder)
+    #expect(BackendConfig(kind: "anything-else").isHolder)   // an unknown value means the default
 }
 
 @Test func theDashboardHotkeyDefaultsAndOlderConfigsStillDecode() throws {

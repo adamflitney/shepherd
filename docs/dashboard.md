@@ -1,9 +1,13 @@
 # Dashboard: the main app window
 
-**Status: direction agreed 2026-10-12. Architecture revisited and spiked 2026-10-12/13; Adam accepted the hybrid
-(Swift app, web UI in a WKWebView, PTYs held outside the app) as the direction on 2026-10-13, to be revisited if a
-blocker turns up. Nothing built yet.** This restores a goal that was dropped by accident during the pivot to Ghostty on 2026-10-11 (see
-[How this got lost](#how-this-got-lost)).
+**Status (2026-10-20): built and installed.** Direction agreed 2026-10-12, hybrid architecture (Swift app, web UI in a
+WKWebView, PTYs held outside the app) accepted 2026-10-13, then built in steps 2 to 6 below between 2026-10-16 and
+2026-10-20. **The holder backend is now the default and is what the installed `/Applications/Shepherd.app` runs.** Ghostty
+tabs remain available with `"backend": {"kind": "ghostty"}`, `--ghostty` or `SHEPHERD_BACKEND=ghostty`. The previous
+app (0.8.2, Ghostty backend) is kept at `~/.shepherd/backups/Shepherd-0.8.2-ghostty.app`; to go back, quit Shepherd and
+copy it over `/Applications/Shepherd.app`, or install an older release. Not yet used by hand in daily work: expect rough
+edges in the dashboard window, the board and the trimmed panel (see each step's "not checked by hand" list). This restores
+a goal that was dropped by accident during the pivot to Ghostty on 2026-10-11 (see [How this got lost](#how-this-got-lost)).
 
 Shepherd gets a main window that is where you work with agents, with the modal panel kept as a small quick-look
 launcher. The goal is to break free of the TUI and Herdr limits while keeping the full Claude Code experience in

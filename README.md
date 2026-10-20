@@ -214,7 +214,7 @@ crook task find --session <id>                  # which task a session belongs t
   "review": { "includeBots": false, "hideOlderThanDays": null },
   "agent": { "kind": "claude" },
   "web": { "enabled": false, "port": 8787, "keepAwake": true, "alertsOnlyWhenAway": true },
-  "backend": { "kind": "ghostty" }
+  "backend": { "kind": "holder" }
 }
 ```
 
@@ -229,7 +229,7 @@ You can edit this field directly, or change it from the app: right-click the men
 
 `notifications.enabled` toggles whether shepherd posts a notification on blocked/done transitions — also available as a checkbox in the same right-click menu (**Notifications**). Turning it off doesn't revoke the OS-level permission, so re-enabling it later never needs a fresh authorization prompt.
 
-`backend.kind` is where agents run: `"ghostty"` (the default, see [How agents run](#how-agents-run)) or `"herdr"` (legacy). `--herdr` / `--ghostty` on the command line, or `SHEPHERD_BACKEND`, override it. The next three settings apply to the Herdr backend only.
+`backend.kind` is where agents run: `"holder"` (the default: each session runs in a small background process that outlives the app and is shown in the dashboard window, see `docs/dashboard.md`), `"ghostty"` (ordinary Ghostty tabs, see [How agents run](#how-agents-run)) or `"herdr"` (legacy). `--holder` / `--ghostty` / `--herdr` on the command line, or `SHEPHERD_BACKEND`, override it. With `"holder"`, `backend.remoteControlNames: true` starts each session as `claude --remote-control "<task title>"` so it shows up under that name in the Claude mobile app. The next three settings apply to the Herdr backend only.
 
 `terminal.appName` is which app shepherd brings to the front (via AppleScript `activate`) after switching to a session — defaults to `"Ghostty"`. Rather than editing this by hand (iTerm2's actual AppleScript name is `"iTerm"`, not `"iTerm2"` — it's literally `iTerm.app` under the hood, easy to get wrong as free text), pick it from the right-click menu's **Terminal** submenu, which only offers verified-correct names and applies immediately, no restart. Only AppleScript-scriptable terminals are supported (Ghostty, Terminal, iTerm2); GPU terminals like Alacritty, kitty, and WezTerm aren't.
 
