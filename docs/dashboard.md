@@ -425,4 +425,9 @@ tech, not from Electron"). The spikes above were run to settle it.
    - Not done: PR detection and the automatic move to Review when a PR is marked ready, worktree-per-task, several
      sessions on one task shown separately (the card shows the best state; the drawer lists them all), deleting a task,
      editing the objective or plan from the board, task groups in the Sessions list.
-6. **Trim the panel** back to glance and go, once the board has replaced its Tasks tab.
+6. **Trim the panel** back to glance and go, once the board has replaced its Tasks tab. **Started 2026-10-19, not yet
+   committed: the Tasks tab only.** With the holder backend the panel's Tasks tab is replaced by a "Board ↗" button that
+   opens the dashboard on the board, and Tab skips it; with the Ghostty backend (no dashboard) the tab stays. Not checked
+   by eye (the panel can't be driven without the hotkey), only built and the suite run. Left as it was, for you to decide:
+   **Create** (also in the dashboard as ⌘N), **Ask** (inline `claude -p`), and **Review** (PRs; the plan lists a Review
+   view in the dashboard as optional). Each is a feature in daily use, so none was removed unasked.

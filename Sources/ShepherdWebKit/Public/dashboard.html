@@ -454,6 +454,7 @@
     /** The host asks to show a session (a notification, the hotkey, "go to" in the panel). */
     show(id) { if (view !== "sessions") setView("sessions"); if (id) { if (!sessionById(id)) { refresh(); } selected = id; render(); ensureAttached(); } if (document.hasFocus()) term.focus(); },
     focusTerminal() { term.focus(); },
+    showBoard() { setView("board"); },
   };
 
 

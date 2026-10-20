@@ -112,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onFinishTask: { task in
                 _ = try? TaskStore().update(task.id) { $0.setStatus(.done) }
             },
+            onOpenBoard: backend is HolderSessionBackend ? { [weak self] in self?.openBoard() } : nil,
             demoStart: Self.demoStartFromArguments()
         )
 
@@ -280,6 +281,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             panel.presentCentered()
         }
+    }
+
+    /// The panel's "Board" button: the task board lives in the dashboard window.
+    private func openBoard() {
+        guard let dashboard else { return }
+        Task { await dashboard.show(board: true) }
     }
 
     private func focusSession(_ id: SessionID) {

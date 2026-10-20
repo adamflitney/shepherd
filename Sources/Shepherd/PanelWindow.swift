@@ -36,6 +36,7 @@ final class PanelWindow: NSPanel {
         onStartTask: @escaping (TaskSummary) async throws -> Void = { _ in },
         onCreateTask: @escaping (String) async throws -> Void = { _ in },
         onFinishTask: @escaping (TaskSummary) -> Void = { _ in },
+        onOpenBoard: (() -> Void)? = nil,
         demoStart: PanelDemoStart? = nil
     ) {
         let box = ClosureBox()
@@ -59,6 +60,7 @@ final class PanelWindow: NSPanel {
             onStartTask: onStartTask,
             onCreateTask: onCreateTask,
             onFinishTask: onFinishTask,
+            onOpenBoard: onOpenBoard,
             demoStart: demoStart
         )
         hostingController = NSHostingController(rootView: view)

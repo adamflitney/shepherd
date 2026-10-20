@@ -13,6 +13,7 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
     private var origin: String?
     private var loaded = false
     private var pendingSelection: String?
+    private var pendingBoard = false
 
     /// `serverPort` makes sure the web server is running and returns its port (nil if it could not start).
     init(serverPort: @escaping () async -> UInt16?) {
@@ -24,7 +25,7 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
     private var isFrontmost: Bool { window?.isKeyWindow == true && NSApp.isActive }
 
     /// Shows the window (creating it on first use) and, if given, selects that session.
-    func show(selecting sessionID: String? = nil) async {
+    func show(selecting sessionID: String? = nil, board: Bool = false) async {
         guard let port = await serverPort() else {
             let alert = NSAlert()
             alert.alertStyle = .warning
@@ -37,6 +38,10 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
         if let sessionID {
             pendingSelection = sessionID
             if loaded { selectPending() }
+        }
+        if board {
+            pendingBoard = true
+            if loaded { showBoardPending() }
         }
         guard let window else { return }
         window.makeKeyAndOrderFront(nil)
@@ -95,6 +100,12 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
         web?.evaluateJavaScript("window.shepherd && window.shepherd.show(\(literal))", completionHandler: nil)
     }
 
+    private func showBoardPending() {
+        guard pendingBoard else { return }
+        pendingBoard = false
+        web?.evaluateJavaScript("window.shepherd && window.shepherd.showBoard()", completionHandler: nil)
+    }
+
     /// Types text into the terminal the page is showing (the page owns the connection).
     private func typeIntoTerminal(_ text: String) {
         guard let literal = jsonLiteral(text) else { return }
@@ -123,6 +134,7 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
         selectPending()
+        showBoardPending()
         if let path = ProcessInfo.processInfo.environment["SHEPHERD_DASHBOARD_SNAPSHOT"] { snapshot(to: path, after: 3) }
     }
 

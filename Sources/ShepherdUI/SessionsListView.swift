@@ -26,6 +26,8 @@ public struct SessionsListView: View {
     let onStartTask: (TaskSummary) async throws -> Void
     let onCreateTask: (String) async throws -> Void
     let onFinishTask: (TaskSummary) -> Void
+    /// Set when the dashboard's board exists: the Tasks tab gives way to a button that opens it there.
+    let onOpenBoard: (() -> Void)?
 
     private enum Mode: Equatable {
         case sessions
@@ -92,8 +94,10 @@ public struct SessionsListView: View {
         onStartTask: @escaping (TaskSummary) async throws -> Void = { _ in },
         onCreateTask: @escaping (String) async throws -> Void = { _ in },
         onFinishTask: @escaping (TaskSummary) -> Void = { _ in },
+        onOpenBoard: (() -> Void)? = nil,
         demoStart: PanelDemoStart? = nil
     ) {
+        self.onOpenBoard = onOpenBoard
         self.demoStart = demoStart
         self.store = store
         self.onFocusSession = onFocusSession
@@ -255,9 +259,12 @@ public struct SessionsListView: View {
         .padding(.vertical, 10)
     }
 
+    /// With the board in the dashboard, the panel does not keep a task list of its own.
+    private var boardReplacesTasks: Bool { onOpenBoard != nil }
+
     private var headerIconName: String {
         switch mode {
-        case .sessions: "checklist"
+        case .sessions: boardReplacesTasks ? "bubble.left.and.text.bubble.right" : "checklist"
         case .tasks: "plus.circle"
         case .createProject: "bubble.left.and.text.bubble.right"
         case .prompt: "checklist"
@@ -267,7 +274,7 @@ public struct SessionsListView: View {
 
     private var headerHelpText: String {
         switch mode {
-        case .sessions: "Tasks (Tab)"
+        case .sessions: boardReplacesTasks ? "New session in a project (Tab)" : "Tasks (Tab)"
         case .tasks: "New session in a project (Tab)"
         case .createProject: askTabAvailable ? "Ask Claude directly (Tab)" : "Review a PR (Tab)"
         case .prompt: "Review a PR (Tab)"
@@ -290,13 +297,29 @@ public struct SessionsListView: View {
     private var modeTabBar: some View {
         HStack(spacing: 4) {
             modeTab("Switch", mode: .sessions)
-            modeTab("Tasks", mode: .tasks)
+            if boardReplacesTasks {
+                actionTab("Board ↗") { onOpenBoard?(); onDismiss() }
+            } else {
+                modeTab("Tasks", mode: .tasks)
+            }
             modeTab("Create", mode: .createProject)
             modeTab("Ask", mode: .prompt, enabled: askTabAvailable)
             modeTab("Review", mode: .review)
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+
+    private func actionTab(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(Color.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .help("Open the task board in the dashboard")
     }
 
     private func modeTab(_ title: String, mode targetMode: Mode, enabled: Bool = true) -> some View {
@@ -326,7 +349,7 @@ public struct SessionsListView: View {
     /// from any sub-mode without completing the cycle.
     private func advanceMode() {
         switch mode {
-        case .sessions: setMode(.tasks)
+        case .sessions: setMode(boardReplacesTasks ? .createProject : .tasks)
         case .tasks: setMode(.createProject)
         case .createProject: setMode(askTabAvailable ? .prompt : .review)
         case .prompt: setMode(.review)
@@ -337,6 +360,7 @@ public struct SessionsListView: View {
     private func setMode(_ newMode: Mode) {
         guard newMode != mode else { return }
         guard newMode != .prompt || askTabAvailable else { return }
+        guard newMode != .tasks || !boardReplacesTasks else { return }
         query = ""
         selectedIndex = 0
         // Deliberately NOT resetting inline-prompt state here - switching
