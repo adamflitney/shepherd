@@ -141,6 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let dashboard = DashboardWindowController(serverPort: { await mobileAccess.ensureServer() })
             self.dashboard = dashboard
             DashboardMenu.install()
+            StallLog.watchMainThread()
             statusItemController.onShowDashboard = { Task { await dashboard.show() } }
             Task { await holderBackend.setShowSession { id in await dashboard.show(selecting: id.rawValue) } }
             Task { await dashboard.show() }
@@ -428,8 +429,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let prs = try await GitHubReviewFetcher.fetchReviewPRs()
             let config = ShepherdConfig.load()
-            let projects = findGitProjects(in: config.resolvedDirectories).filter { !config.isExcluded($0.path) }
-            let localRepos = LocalRepoScanner.scan(projects)
+            // One `git` per project, so it never runs on the main thread (59 projects froze the dashboard for seconds).
+            let localRepos = await Task.detached(priority: .utility) {
+                let projects = findGitProjects(in: config.resolvedDirectories).filter { !config.isExcluded($0.path) }
+                return LocalRepoScanner.scan(projects)
+            }.value
             let options = ReviewFilterOptions(includeBots: config.review.includeBots, hideOlderThanDays: config.review.hideOlderThanDays)
             let filtered = filterReviewPRs(prs, ignored: [], options: options)
             cachedReviewPRs = filtered.map { pr in

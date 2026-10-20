@@ -14,6 +14,7 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
     private var loaded = false
     private var pendingSelection: String?
     private var pendingBoard = false
+    private var pendingBar = false
 
     /// `serverPort` makes sure the web server is running and returns its port (nil if it could not start).
     init(serverPort: @escaping () async -> UInt16?) {
@@ -22,7 +23,6 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
     }
 
     var isVisible: Bool { window?.isVisible == true }
-    private var isFrontmost: Bool { window?.isKeyWindow == true && NSApp.isActive }
 
     /// Shows the window (creating it on first use) and, if given, selects that session.
     func show(selecting sessionID: String? = nil, board: Bool = false) async {
@@ -43,6 +43,10 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
             pendingBoard = true
             if loaded { showBoardPending() }
         }
+        if sessionID == nil, !board {
+            pendingBar = true
+            if loaded { focusBarPending() }
+        }
         guard let window else { return }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -50,9 +54,10 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
         if let path = ProcessInfo.processInfo.environment["SHEPHERD_DASHBOARD_SNAPSHOT"], loaded { snapshot(to: path, after: 1.5) }
     }
 
-    /// The hotkey: bring it up, or put it away when it is already what you are looking at.
+    /// The hotkey: bring the dashboard up with the cursor in its omnibar. Pressing it again while it is showing just puts
+    /// the cursor back in the bar; closing the window is ⌘W or the Dock.
     func toggle() async {
-        if isFrontmost { window?.orderOut(nil) } else { await show() }
+        await show()
     }
 
     // MARK: window
@@ -88,9 +93,6 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
         web.load(URLRequest(url: URL(string: newOrigin + "/dashboard.html" + fragment)!))
     }
 
-    func windowDidBecomeKey(_ notification: Notification) {
-        web?.evaluateJavaScript("window.shepherd && window.shepherd.focusTerminal()", completionHandler: nil)
-    }
 
     // MARK: talking to the page
 
@@ -98,6 +100,12 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
         guard let id = pendingSelection, let literal = jsonLiteral(id) else { return }
         pendingSelection = nil
         web?.evaluateJavaScript("window.shepherd && window.shepherd.show(\(literal))", completionHandler: nil)
+    }
+
+    private func focusBarPending() {
+        guard pendingBar else { return }
+        pendingBar = false
+        web?.evaluateJavaScript("window.shepherd && window.shepherd.focusOmnibar()", completionHandler: nil)
     }
 
     private func showBoardPending() {
@@ -120,6 +128,8 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
         switch type {
+        case "stall":
+            if let ms = body["ms"] as? Int { StallLog.write("page did not draw for \(ms) ms, after: \(body["after"] as? String ?? "?")") }
         case "openURL":
             if let text = body["uri"] as? String, let url = URL(string: text), ["http", "https"].contains(url.scheme?.lowercased()) {
                 NSWorkspace.shared.open(url)
@@ -135,6 +145,7 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
         loaded = true
         selectPending()
         showBoardPending()
+        focusBarPending()
         if let path = ProcessInfo.processInfo.environment["SHEPHERD_DASHBOARD_SNAPSHOT"] { snapshot(to: path, after: 3) }
     }
 
@@ -186,6 +197,57 @@ final class DashboardWindowController: NSObject, NSWindowDelegate, WKScriptMessa
             }
         }
     }
+}
+
+/// Where the dashboard writes what it notices about its own freezes (`~/.shepherd/stalls.log`), and, when the main thread
+/// stops answering for long enough, a `sample` of the app taken while it is stuck (`~/.shepherd/stall-<time>.txt`).
+enum StallLog {
+    private static let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".shepherd")
+    private static let queue = DispatchQueue(label: "shepherd.stall-log", qos: .utility)
+    nonisolated(unsafe) private static var lastSample = Date.distantPast
+
+    static func write(_ line: String) {
+        queue.async {
+            let stamp = ISO8601DateFormatter().string(from: Date())
+            let url = directory.appendingPathComponent("stalls.log")
+            let data = Data("\(stamp) \(line)\n".utf8)
+            if let handle = try? FileHandle(forWritingTo: url) {
+                handle.seekToEndOfFile(); handle.write(data); try? handle.close()
+            } else {
+                try? data.write(to: url)
+            }
+        }
+    }
+
+    /// Pings the main thread every 100 ms from a background queue; a reply that takes over 300 ms is logged, and over
+    /// 500 ms starts a 3 second sample of this process (at most one a minute).
+    static func watchMainThread() {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 5, repeating: .milliseconds(100))
+        timer.setEventHandler {
+            let sent = Date()
+            let answered = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { answered.signal() }
+            if answered.wait(timeout: .now() + 0.5) == .timedOut {
+                if Date().timeIntervalSince(lastSample) > 60 {
+                    lastSample = Date()
+                    let name = "stall-\(Int(Date().timeIntervalSince1970)).txt"
+                    let p = Process()
+                    p.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+                    p.arguments = ["\(ProcessInfo.processInfo.processIdentifier)", "3", "-file", directory.appendingPathComponent(name).path]
+                    try? p.run()
+                    write("main thread stuck over 500 ms; sampling to \(name)")
+                }
+                answered.wait()
+                write("main thread was stuck for \(Int(Date().timeIntervalSince(sent) * 1000)) ms")
+            } else if Date().timeIntervalSince(sent) > 0.3 {
+                write("main thread answered after \(Int(Date().timeIntervalSince(sent) * 1000)) ms")
+            }
+        }
+        timer.resume()
+        retained = timer
+    }
+    nonisolated(unsafe) private static var retained: DispatchSourceTimer?
 }
 
 /// A web view that takes dropped files natively. WebKit would hand the page a file with no path; the terminal wants the

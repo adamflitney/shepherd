@@ -14,7 +14,24 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px -apple-system, system-ui, sans-serif; overflow: hidden; }
   button, select { font: inherit; color: var(--fg); }
-  #app { display: flex; height: 100%; }
+  body { display: flex; flex-direction: column; }
+  #app { display: flex; flex: 1; min-height: 0; }
+
+  /* omnibar */
+  #omniBar { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); z-index: 15; }
+  #omniModes { display: flex; gap: 2px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+  .omniMode { background: transparent; border: 0; border-radius: 6px; padding: 3px 10px; color: var(--dim); cursor: pointer; }
+  .omniMode.on { background: var(--raised); color: var(--fg); }
+  #omni { flex: 1; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--fg); padding: 7px 11px; font: inherit; outline: none; }
+  #omni:focus { border-color: var(--accent); }
+  #omniHint { color: var(--dim); font-size: 11px; white-space: nowrap; }
+  #omniList { position: absolute; left: 14px; right: 14px; top: calc(100% + 4px); max-height: 60vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px #0008; padding: 4px; display: none; }
+  #omniList.show { display: block; }
+  .omniItem { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 7px; cursor: default; }
+  .omniItem.sel { background: var(--raised); }
+  .omniItem .oTitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .omniItem .oSub { color: var(--dim); font-size: 11px; white-space: nowrap; }
+  .omniEmpty { color: var(--dim); padding: 10px; }
 
   /* sidebar */
   #side { width: 290px; flex: 0 0 290px; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); }
@@ -133,6 +150,12 @@
 </style>
 </head>
 <body>
+<div id="omniBar">
+  <div id="omniModes"><button class="omniMode on" data-mode="switch" title="Find a session or task">Switch</button><button class="omniMode" data-mode="new" title="New session (+)">New</button><button class="omniMode" data-mode="task" title="Capture a task (#)">Task</button></div>
+  <input id="omni" autocomplete="off" spellcheck="false">
+  <span id="omniHint"></span>
+  <div id="omniList"></div>
+</div>
 <div id="app">
   <aside id="side">
     <div id="sideHead"><div id="tabs"><button class="tab on" id="tabSessions">Sessions</button><button class="tab" id="tabBoard" title="⌘B">Board</button></div><button id="newBtn" title="New session (⌘N)">+ New</button></div>
@@ -221,7 +244,7 @@
 
   function proposed() { try { const d = fit.proposeDimensions(); return d && d.cols > 1 ? { cols: d.cols, rows: d.rows } : { cols: 100, rows: 30 }; } catch { return { cols: 100, rows: 30 }; } }
   let view = "sessions";
-  function focusTerm() { if (view === "sessions" && !$("sheetBack").classList.contains("show") && document.hasFocus()) term.focus(); }
+  function focusTerm() { if (document.activeElement && document.activeElement.id === "omni") return; if (view === "sessions" && !$("sheetBack").classList.contains("show") && document.hasFocus()) term.focus(); }
   function sendCtl(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
   function sendBytes(str) { if (ws && ws.readyState === 1 && attachedHolder) ws.send(enc.encode(str)); }
   window.__send = sendBytes;   // the native host types dropped file paths through this
@@ -234,7 +257,7 @@
     // handler for keydown and for the keypress after it, so both are swallowed or the keypress still submits.
     if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) { if (e.type === "keydown") sendBytes("\x1b\r"); return false; }
     // our own shortcuts must not also be typed into the agent
-    if (e.metaKey && !e.ctrlKey && !e.altKey && (/^[1-9]$/.test(e.key) || e.key === "n" || e.key === "b")) return false;
+    if (e.metaKey && !e.ctrlKey && !e.altKey && (/^[1-9]$/.test(e.key) || e.key === "n" || e.key === "b" || e.key === "k")) return false;
     return true;
   });
   // Cmd+V with an image and no text: Ctrl+V makes Claude Code read the clipboard image itself.
@@ -467,6 +490,7 @@
     /** The host asks to show a session (a notification, the hotkey, "go to" in the panel). */
     show(id) { if (view !== "sessions") setView("sessions"); if (id) { if (!sessionById(id)) { refresh(); } selected = id; render(); ensureAttached(); } if (document.hasFocus()) term.focus(); },
     focusTerminal() { term.focus(); },
+    focusOmnibar() { focusOmni(); },
     showBoard() { setView("board"); },
   };
 
@@ -728,6 +752,126 @@
   }, true);
 
   setInterval(() => { if (view === "board") loadTasks(); }, 3000);
+
+  // ---- omnibar ------------------------------------------------------------------------------------
+  const MODES = ["switch", "new", "task"];
+  const PLACEHOLDER = { switch: "Go to a session or task…", new: "Start a session in a project…", task: "Capture a task: type its title, then ⌘⏎ to add it" };
+  const HINT = { switch: "⏎ go · ⇥ next mode", new: "⏎ start · ⇥ next mode", task: "⏎ add · ⌘⏎ add and start · ⇥ next mode" };
+  let omniMode = "switch", omniItems = [], omniIndex = 0, projectList = [];
+
+  function fuzzy(text, query) {
+    if (!query) return 1;
+    text = text.toLowerCase(); query = query.toLowerCase();
+    const at = text.indexOf(query); if (at >= 0) return 100 - at;
+    let i = 0, score = 0; for (const c of text) { if (c === query[i]) { i++; score++; if (i === query.length) return score; } }
+    return 0;
+  }
+  function omniQuery() { return $("omni").value.trim(); }
+  function setOmniMode(m, keepText) {
+    omniMode = m; omniIndex = 0;
+    if (!keepText) $("omni").value = "";
+    $("omni").placeholder = PLACEHOLDER[m]; $("omniHint").textContent = HINT[m];
+    for (const b of document.querySelectorAll(".omniMode")) b.classList.toggle("on", b.dataset.mode === m);
+    if (m === "new" && !projectList.length) api("/api/projects").then((l) => { projectList = l; renderOmni(); }).catch(() => {});
+    if (m === "switch") loadTasks();
+    renderOmni();
+  }
+  function buildOmniItems() {
+    const q = omniQuery();
+    if (omniMode === "switch") {
+      const out = [];
+      for (const x of sessions) { const f = fuzzy(x.title + " " + folder(x.working_directory), q); if (f) out.push({ f, kind: "session", id: x.id, title: x.title, sub: stateText(stateOf(x)), state: stateOf(x), run: () => openSession(x.id) }); }
+      for (const t of tasks) {
+        if (t.status === "done" || sessionsOf(t).length) continue;
+        const f = fuzzy("#" + t.id + " " + t.title, q); if (f) out.push({ f: f - 0.5, kind: "task", title: "#" + t.id + " " + t.title, sub: t.session_ids.length ? "resume" : "start", state: "idle", run: () => startTask(t) });
+      }
+      return q ? out.sort((a, b) => b.f - a.f) : out;
+    }
+    if (omniMode === "new") {
+      return projectList.map((p) => ({ f: fuzzy(p.name + " " + p.path, q), title: p.name, sub: p.path.replace(/^\/Users\/[^/]+/, "~"), run: () => startSessionIn(p.path) })).filter((x) => x.f).sort((a, b) => b.f - a.f);
+    }
+    return [];
+  }
+  function renderOmni() {
+    const list = $("omniList"); list.textContent = "";
+    omniItems = buildOmniItems();
+    if (omniIndex >= omniItems.length) omniIndex = Math.max(0, omniItems.length - 1);
+    if (omniMode === "task") {
+      const e = document.createElement("div"); e.className = "omniEmpty";
+      e.textContent = omniQuery() ? 'Add "' + omniQuery() + '" to the board' : "Type a title for the task.";
+      list.appendChild(e);
+    } else if (!omniItems.length) {
+      const e = document.createElement("div"); e.className = "omniEmpty"; e.textContent = "Nothing matches."; list.appendChild(e);
+    }
+    omniItems.forEach((it, i) => {
+      const row = document.createElement("div"); row.className = "omniItem" + (i === omniIndex ? " sel" : "");
+      if (it.state) { const d = document.createElement("span"); d.className = "dot " + it.state; row.appendChild(d); }
+      const t = document.createElement("span"); t.className = "oTitle"; t.textContent = it.title;
+      const sub = document.createElement("span"); sub.className = "oSub"; sub.textContent = it.sub || "";
+      row.append(t, sub);
+      row.addEventListener("mousedown", (e) => { e.preventDefault(); omniIndex = i; runOmni(); });
+      list.appendChild(row);
+    });
+    list.classList.add("show");
+    const sel = list.querySelector(".sel"); if (sel) sel.scrollIntoView({ block: "nearest" });
+  }
+  function closeOmni() { $("omniList").classList.remove("show"); }
+  function startSessionIn(cwd) {
+    const d = proposed();
+    setView("sessions");
+    sendCtl({ type: "spawn", cwd, cols: d.cols, rows: d.rows });
+  }
+  async function addTask(andStart) {
+    const title = omniQuery(); if (!title) return;
+    try {
+      const t = await api("/api/tasks", "POST", { title });
+      toast("Task #" + t.id + " added");
+      $("omni").value = ""; setOmniMode("switch");
+      if (andStart) { await startTask(t); leaveOmni(); } else { loadTasks(); }
+    } catch (e) { toast(e.message); }
+  }
+  function runOmni() {
+    if (omniMode === "task") return addTask(false);
+    const it = omniItems[omniIndex]; if (!it) return;
+    closeOmni(); $("omni").value = ""; setOmniMode("switch");
+    it.run(); leaveOmni();
+  }
+  // Leaves the bar for whatever it started: the terminal, unless the board is what is showing.
+  function leaveOmni() { $("omni").blur(); closeOmni(); setTimeout(focusTerm, 60); }
+  function focusOmni() { $("omni").focus(); $("omni").select(); setOmniMode(omniMode, true); }
+
+  $("omni").addEventListener("focus", () => { if (omniMode === "switch") loadTasks(); renderOmni(); });
+  $("omni").addEventListener("blur", () => closeOmni());
+  $("omni").addEventListener("input", () => {
+    const v = $("omni").value;
+    if (omniMode === "switch" && v.length === 1 && (v === "+" || v === "#")) { setOmniMode(v === "+" ? "new" : "task"); return; }
+    omniIndex = 0; renderOmni();
+  });
+  $("omni").addEventListener("keydown", (e) => {
+    if (e.key === "Tab") { e.preventDefault(); const i = MODES.indexOf(omniMode); setOmniMode(MODES[(i + (e.shiftKey ? MODES.length - 1 : 1)) % MODES.length]); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); omniIndex = Math.min(omniItems.length - 1, omniIndex + 1); renderOmni(); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); omniIndex = Math.max(0, omniIndex - 1); renderOmni(); return; }
+    if (e.key === "Enter") { e.preventDefault(); if (omniMode === "task" && e.metaKey) addTask(true); else runOmni(); return; }
+    if (e.key === "Backspace" && !$("omni").value && omniMode !== "switch") { e.preventDefault(); setOmniMode("switch"); return; }
+    if (e.key === "Escape") { e.preventDefault(); if ($("omni").value) { $("omni").value = ""; renderOmni(); } else leaveOmni(); }
+  });
+  for (const b of document.querySelectorAll(".omniMode")) b.addEventListener("mousedown", (e) => { e.preventDefault(); setOmniMode(b.dataset.mode); $("omni").focus(); });
+  window.addEventListener("keydown", (e) => {
+    if (e.metaKey && !e.ctrlKey && !e.altKey && e.key === "k") { e.preventDefault(); focusOmni(); }
+  }, true);
+  setOmniMode("switch");
+  closeOmni();
+
+  // Reports a stretch where the page did not draw, with what it had just been asked to do (the host writes it to a log).
+  let lastFrame = performance.now(), lastAction = "";
+  const noteAction = (what) => { lastAction = what + " @" + Math.round(performance.now()); };
+  for (const type of ["keydown", "mousedown"]) window.addEventListener(type, (e) => noteAction(type + " " + (e.key || "")), true);
+  document.addEventListener("visibilitychange", () => { lastFrame = performance.now(); });
+  (function watchFrames(now) {
+    const gap = now - lastFrame; lastFrame = now;
+    if (gap > 300 && document.visibilityState === "visible" && document.hasFocus()) native({ type: "stall", ms: Math.round(gap), after: lastAction });
+    requestAnimationFrame(watchFrames);
+  })(performance.now());
 
   if (location.hash === "#board") setView("board");
   watchEvents();

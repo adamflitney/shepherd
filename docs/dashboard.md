@@ -435,3 +435,28 @@ tech, not from Electron"). The spikes above were run to settle it.
    by eye (the panel can't be driven without the hotkey), only built and the suite run. Left as it was, for you to decide:
    **Create** (also in the dashboard as ⌘N), **Ask** (inline `claude -p`), and **Review** (PRs; the plan lists a Review
    view in the dashboard as optional). Each is a feature in daily use, so none was removed unasked.
+
+7. **Omnibar (decided 2026-10-20, first version built).** The launcher panel's job moves into a bar across the top of the
+   dashboard, so one surface does everything and the whole flow works from the keyboard.
+   - **Summoning:** the dashboard hotkey (`hotkey.dashboard`, default hyper+d), the Dock icon or the menu item bring the
+     window up with the cursor in the bar. Pressing the hotkey while the dashboard is showing keeps the window and
+     returns the cursor to the bar (it no longer hides it; ⌘W or the Dock closes it). ⌘K does the same from inside the
+     page. Esc with an empty bar returns to the terminal.
+   - **Modes** (chips on the bar; Tab and Shift+Tab cycle them, or start with a prefix; Backspace on an empty bar goes back
+     to Switch): **Switch** (default) fuzzy-finds sessions, then tasks with no live session (Enter goes to the session, or
+     starts or resumes the task's); **New** (`+`) lists the server's folders and Enter starts a session there; **Task**
+     (`#`) takes a title, Enter adds it to the Inbox and ⌘Enter adds it and starts it. ⌘N keeps the modal sheet (folder
+     and title) for starting a session.
+   - **After Enter on a session or a new session**, focus goes straight into the terminal; the bar never takes focus back
+     by itself (a session arriving or attaching used to be able to; `focusTerm` now refuses while the bar has focus).
+   - **Not in the first version:** **Ask** (a one-off `claude -p` answered inline, ⌘Enter to continue it as a session)
+     and **Review** (the PR list, ignore and restore, start a review session). Both are native code today
+     (`ClaudeCLIRunner`, `GitHubReviewFetcher`, `PRWorktree`), so each needs a server endpoint, passed in as a closure the
+     way session spawning is. Until they exist the panel stays on its own hotkey (hyper+w) for exactly those two.
+   - **Decision:** the panel is removed once Ask and Review work in the bar. Rejected: keeping it as an optional compact
+     mode (two UIs to maintain for one job, and it cannot show a terminal); a hotkey that toggles the dashboard away
+     (the point is summon-and-type; hiding has ⌘W); sending focus into the terminal on every summon (it makes the bar
+     unreachable without the mouse).
+   - **Open:** whether Switch should also search finished tasks, project names and PR titles; recent-first ordering for
+     New (the panel ranks folders by use, the bar uses the server's order); a Task-mode folder picker (it uses the default
+     folder today); whether ⌘K should also be reachable while the terminal has a program that wants ⌘K (none known).
