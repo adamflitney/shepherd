@@ -8,7 +8,7 @@
 <style>
   :root {
     color-scheme: dark;
-    --bg: #0f1115; --panel: #161920; --raised: #1d212a; --line: #262b36; --fg: #e6e8ee; --dim: #8b93a3;
+    --bg: #222436; --panel: #1e2030; --raised: #2f334d; --line: #3b4261; --fg: #c8d3f5; --dim: #828bb8;
     --accent: #6aa9ff; --needs: #ff8a5c; --done: #4ade80; --working: #6aa9ff; --idle: #6b7280; --warn: #f5c451;
   }
   * { box-sizing: border-box; }
@@ -205,9 +205,13 @@
   // ---- terminal -----------------------------------------------------------------------------------
   function openLink(uri) { if (hosted) native({ type: "openURL", uri }); else window.open(uri, "_blank"); }
   const term = new Terminal({
-    fontSize: 13, fontFamily: '"SF Mono", Menlo, ui-monospace, monospace', scrollback: 5000, cursorBlink: true,
+    fontSize: 15, fontFamily: '"JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace', fontWeight: "500", fontWeightBold: "700", scrollback: 5000, cursorBlink: true,
     allowProposedApi: true, macOptionIsMeta: true, macOptionClickForcesSelection: true,
-    theme: { background: "#0f1115", foreground: "#e6e8ee", cursor: "#e6e8ee", selectionBackground: "#3a4a6b" },
+    theme: {
+      background: "#222436", foreground: "#c8d3f5", cursor: "#c8d3f5", cursorAccent: "#222436", selectionBackground: "#2d3f76", selectionForeground: "#c8d3f5",
+      black: "#1b1d2b", red: "#ff757f", green: "#c3e88d", yellow: "#ffc777", blue: "#82aaff", magenta: "#c099ff", cyan: "#86e1fc", white: "#828bb8",
+      brightBlack: "#444a73", brightRed: "#ff757f", brightGreen: "#c3e88d", brightYellow: "#ffc777", brightBlue: "#82aaff", brightMagenta: "#c099ff", brightCyan: "#86e1fc", brightWhite: "#c8d3f5",
+    },
     linkHandler: { activate: (_e, text) => openLink(text), allowNonHttpProtocols: false },
   });
   const fit = new FitAddon.FitAddon();
@@ -216,6 +220,8 @@
   term.open($("term"));
 
   function proposed() { try { const d = fit.proposeDimensions(); return d && d.cols > 1 ? { cols: d.cols, rows: d.rows } : { cols: 100, rows: 30 }; } catch { return { cols: 100, rows: 30 }; } }
+  let view = "sessions";
+  function focusTerm() { if (view === "sessions" && !$("sheetBack").classList.contains("show") && document.hasFocus()) term.focus(); }
   function sendCtl(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
   function sendBytes(str) { if (ws && ws.readyState === 1 && attachedHolder) ws.send(enc.encode(str)); }
   window.__send = sendBytes;   // the native host types dropped file paths through this
@@ -240,7 +246,7 @@
   function onResize() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-      if (!attachedHolder) return;
+      if (!attachedHolder || $("termWrap").clientWidth < 50 || $("termWrap").clientHeight < 50) return;
       try { fit.fit(); } catch {}
       const d = proposed();
       sendCtl({ type: "resize", cols: d.cols, rows: d.rows });
@@ -272,10 +278,10 @@
         case "sessions": holders = m.sessions || []; render(); ensureAttached(); break;
         case "spawned": pendingSelectHolder = m.id; sendCtl({ type: "list" }); refresh(); closeSheet(); break;
         case "attached": term.reset(); term.resize(m.cols, m.rows); break;
-        case "ready": if (document.hasFocus()) term.focus(); onResize(); break;
+        case "ready": focusTerm(); onResize(); break;
         case "size": driver = m.driver; term.resize(m.cols, m.rows); $("meta").textContent = m.cols + "×" + m.rows; break;
         case "reset": term.reset(); break;
-        case "detached": attachedHolder = null; sendCtl({ type: "list" }); refresh(); break;
+        case "detached": if (m.reason === "holder closed") attachedHolder = null; sendCtl({ type: "list" }); refresh(); break;
         case "error": $("sheetError").textContent = m.message; break;
       }
     };
@@ -368,7 +374,7 @@
     else { showPlaceholder("Connecting…"); }
   }
   function showPlaceholder(text) { $("placeholderText").textContent = text; $("placeholderText").style.whiteSpace = "pre-line"; $("placeholder").classList.add("show"); $("termWrap").style.visibility = "hidden"; }
-  function hidePlaceholder() { $("placeholder").classList.remove("show"); $("termWrap").style.visibility = "visible"; }
+  function hidePlaceholder() { $("placeholder").classList.remove("show"); $("termWrap").style.visibility = "visible"; focusTerm(); }
 
   // ---- selecting and attaching --------------------------------------------------------------------
   function select(id, { announce }) {
@@ -395,6 +401,7 @@
     attachedHolder = h.id;
     term.reset();
     hidePlaceholder();
+    focusTerm();
     try { fit.fit(); } catch {}
     const d = proposed();
     sendCtl({ type: "attach", id: h.id, cols: d.cols, rows: d.rows });
@@ -427,7 +434,7 @@
     $("sheetBack").classList.add("show");
     setTimeout(() => $("proj").focus(), 30);
   }
-  function closeSheet() { $("sheetBack").classList.remove("show"); if (document.hasFocus()) term.focus(); }
+  function closeSheet() { $("sheetBack").classList.remove("show"); focusTerm(); }
   $("newBtn").addEventListener("click", openSheet);
   $("sheetCancel").addEventListener("click", closeSheet);
   $("sheetBack").addEventListener("mousedown", (e) => { if (e.target === $("sheetBack")) closeSheet(); });
@@ -459,7 +466,6 @@
 
 
   // ---- views --------------------------------------------------------------------------------------
-  let view = "sessions";
   function setView(v) {
     view = v;
     document.body.classList.toggle("board", v === "board");

@@ -35,6 +35,7 @@ public struct SessionsListView: View {
         case createProject
         case prompt
         case review
+        case board
     }
 
     private struct Exchange: Identifiable, Equatable {
@@ -195,6 +196,8 @@ public struct SessionsListView: View {
             "⏎ new session · ⇥ next tab · esc back"
         case .prompt:
             "⏎ ask · ⌘⏎ continue in a session · ⇥ next tab · esc back"
+        case .board:
+            "⏎ open the board · ⇥ next tab · esc back"
         case .review:
             switch reviewView(forQuery: query).view {
             case .toReview: "⏎ GitHub · ⌘⏎ session · ⌘⌫ ignore · esc back"
@@ -268,7 +271,8 @@ public struct SessionsListView: View {
         case .tasks: "plus.circle"
         case .createProject: "bubble.left.and.text.bubble.right"
         case .prompt: "checklist"
-        case .review: "xmark.circle"
+        case .review: boardReplacesTasks ? "rectangle.split.3x1" : "xmark.circle"
+        case .board: "xmark.circle"
         }
     }
 
@@ -278,7 +282,8 @@ public struct SessionsListView: View {
         case .tasks: "New session in a project (Tab)"
         case .createProject: askTabAvailable ? "Ask Claude directly (Tab)" : "Review a PR (Tab)"
         case .prompt: "Review a PR (Tab)"
-        case .review: "Back to sessions (Tab/Esc)"
+        case .review: boardReplacesTasks ? "Task board (Tab)" : "Back to sessions (Tab/Esc)"
+        case .board: "Back to sessions (Tab/Esc)"
         }
     }
 
@@ -297,29 +302,14 @@ public struct SessionsListView: View {
     private var modeTabBar: some View {
         HStack(spacing: 4) {
             modeTab("Switch", mode: .sessions)
-            if boardReplacesTasks {
-                actionTab("Board ↗") { onOpenBoard?(); onDismiss() }
-            } else {
-                modeTab("Tasks", mode: .tasks)
-            }
+            if !boardReplacesTasks { modeTab("Tasks", mode: .tasks) }
             modeTab("Create", mode: .createProject)
             modeTab("Ask", mode: .prompt, enabled: askTabAvailable)
             modeTab("Review", mode: .review)
+            if boardReplacesTasks { modeTab("Board", mode: .board) }
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
-    }
-
-    private func actionTab(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(Color.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
-        }
-        .buttonStyle(.plain)
-        .help("Open the task board in the dashboard")
     }
 
     private func modeTab(_ title: String, mode targetMode: Mode, enabled: Bool = true) -> some View {
@@ -353,8 +343,23 @@ public struct SessionsListView: View {
         case .tasks: setMode(.createProject)
         case .createProject: setMode(askTabAvailable ? .prompt : .review)
         case .prompt: setMode(.review)
-        case .review: setMode(.sessions)
+        case .review: setMode(boardReplacesTasks ? .board : .sessions)
+        case .board: setMode(.sessions)
         }
+    }
+
+    private var boardPrompt: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "rectangle.split.3x1").font(.largeTitle).foregroundStyle(.secondary)
+            Text("Task board").font(.headline)
+            Text("Press ⏎ to open it in the dashboard").font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func openBoard() {
+        onOpenBoard?()
+        onDismiss()
     }
 
     private func setMode(_ newMode: Mode) {
@@ -406,6 +411,7 @@ public struct SessionsListView: View {
         case .createProject: "New session in project..."
         case .prompt: "Ask Claude anything..."
         case .review: "Filter PRs (@ mine, % ignored)..."
+        case .board: "Task board"
         }
     }
 
@@ -495,6 +501,8 @@ public struct SessionsListView: View {
             promptConversation
         case .review:
             reviewList
+        case .board:
+            boardPrompt
         }
     }
 
@@ -911,6 +919,7 @@ public struct SessionsListView: View {
 
     private func installKeyMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.window is NSPanel else { return event }
             switch Int(event.keyCode) {
             case 125: moveSelection(by: 1); return nil // down arrow
             case 126: moveSelection(by: -1); return nil // up arrow
@@ -926,6 +935,9 @@ public struct SessionsListView: View {
                 } else {
                     activateSelected()
                 }
+                return nil
+            case 11 where boardReplacesTasks && event.modifierFlags.contains(.command): // cmd+b - the task board
+                openBoard()
                 return nil
             case 53: handleEscape(); return nil // escape
             case 48: advanceMode(); return nil // tab - cycle sessions/new-project/prompt mode
@@ -1001,6 +1013,7 @@ public struct SessionsListView: View {
         case .createProject: displayedProjects.count
         case .prompt: 0
         case .review: displayedReviewPRs.count
+        case .board: 0
         }
     }
 
@@ -1029,6 +1042,8 @@ public struct SessionsListView: View {
             let matches = displayedReviewPRs
             guard matches.indices.contains(selectedIndex) else { return }
             onOpenReviewPRInBrowser(matches[selectedIndex])
+        case .board:
+            openBoard()
         }
     }
 

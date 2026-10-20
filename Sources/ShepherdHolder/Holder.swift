@@ -245,8 +245,12 @@ public final class Holder: @unchecked Sendable {
 
     private func resize(cols: UInt16, rows: UInt16) {
         guard let child, !ended, cols > 0, rows > 0 else { return }
+        let changed = Int(cols) != record.cols || Int(rows) != record.rows
         setWindowSize(child.master, cols: cols, rows: rows)
         record.cols = Int(cols); record.rows = Int(rows)
+        // The child has no controlling terminal (the slave is opened before the new session exists), so the kernel never
+        // sends it SIGWINCH.
+        if changed { killpg(child.pid, SIGWINCH) }
     }
 
     // MARK: lifecycle
