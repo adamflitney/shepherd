@@ -169,3 +169,28 @@ private func array(_ response: HTTPServer.Response) -> [[String: Any]] {
     #expect(rig.store.list().count == 1)
     #expect((await api.handle(request("POST", "/api/tasks/from-session", body: rig.json(["session_id": "ghost"])))).status == 404)
 }
+
+@Test func editsATasksTitleAndObjectiveAndRefusesAnEmptyTitle() async throws {
+    let rig = try Rig()
+    let t = try rig.store.create(NewTask(title: "Old", objective: "Before"))
+    let api = rig.api(RecordingBackend())
+    let edited = await api.handle(request("POST", "/api/tasks/\(t.id)/edit", body: rig.json(["title": " Better ", "objective": "After"])))
+    #expect(edited.status == 200)
+    #expect(rig.store.get(t.id)?.title == "Better" && rig.store.get(t.id)?.objective == "After")
+    #expect((await api.handle(request("POST", "/api/tasks/\(t.id)/edit", body: rig.json(["title": "  "])))).status == 400)
+    #expect((await api.handle(request("POST", "/api/tasks/999/edit", body: rig.json(["title": "x"])))).status == 404)
+}
+
+@Test func deletesATaskUnlessASessionIsStillRunningIt() async throws {
+    let rig = try Rig()
+    let gone = try rig.store.create(NewTask(title: "Bin me"))
+    let busy = try rig.store.create(NewTask(title: "Busy"))
+    let live = Session(id: SessionID(rawValue: "live-9"), title: "Running", agent: .claude, attention: .idle(),
+                       group: SessionGroup(id: "task-\(busy.id)", label: "Busy"))
+    let api = rig.api(RecordingBackend(sessions: [live]))
+    #expect((await api.handle(request("POST", "/api/tasks/\(busy.id)/delete"))).status == 409)
+    #expect(rig.store.get(busy.id) != nil)
+    #expect((await api.handle(request("POST", "/api/tasks/\(gone.id)/delete"))).status == 200)
+    #expect(rig.store.get(gone.id) == nil)
+    #expect((await api.handle(request("POST", "/api/tasks/\(gone.id)/delete"))).status == 404)
+}

@@ -9,6 +9,8 @@ public struct RingBuffer: Sendable {
 
     public var count: Int { bytes.count }
 
+    public mutating func removeAll() { bytes = [] }
+
     public mutating func append(_ chunk: [UInt8]) {
         bytes += chunk
         if bytes.count > capacity { bytes.removeFirst(bytes.count - capacity) }

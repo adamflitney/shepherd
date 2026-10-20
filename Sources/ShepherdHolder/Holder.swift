@@ -232,8 +232,14 @@ public final class Holder: @unchecked Sendable {
             drop(c)
         case "attach":
             guard !ended else { reply(c, ["ok": false, "error": "session has ended"]); drop(c); return }
+            var wanted = (cols: UInt16(record.cols), rows: UInt16(record.rows))
             if let cols = request["cols"] as? Int, let rows = request["rows"] as? Int, (1...1000).contains(cols), (1...1000).contains(rows) {
-                resize(cols: UInt16(cols), rows: UInt16(rows))
+                wanted = (UInt16(cols), UInt16(rows))
+            }
+            if modes.activeModes.contains(where: { [47, 1047, 1049].contains($0) }) {
+                redrawFresh(cols: wanted.cols, rows: wanted.rows)
+            } else {
+                resize(cols: wanted.cols, rows: wanted.rows)
             }
             reply(c, ["ok": true, "replay": ring.count, "modes": modes.activeModes, "cols": record.cols, "rows": record.rows])
             if !writeBounded(c.fd, ring.bytes, budgetMs: 2000) { drop(c); return }
@@ -241,6 +247,27 @@ public final class Holder: @unchecked Sendable {
         default:
             reply(c, ["ok": false, "error": "unknown op"]); drop(c)
         }
+    }
+
+    /// A full-screen program's output is a series of changes to a screen the client has not seen, and a ring that has
+    /// wrapped (or spans several window sizes) replays as garbage. So the ring is thrown away and the program is made to draw
+    /// itself again: it only does that when the size changes, hence the one-column nudge.
+    private func redrawFresh(cols: UInt16, rows: UInt16) {
+        guard let child, !ended else { return }
+        func settle(_ milliseconds: UInt32) {
+            usleep(milliseconds * 1000)
+            while true {
+                var p = pollfd(fd: child.master, events: Int16(POLLIN), revents: 0)
+                guard Darwin.poll(&p, 1, 0) > 0, p.revents & Int16(POLLIN) != 0, pumpMaster() else { break }
+            }
+        }
+        record.cols = Int(cols) - 1; record.rows = Int(rows)
+        setWindowSize(child.master, cols: max(1, cols - 1), rows: rows)
+        killpg(child.pid, SIGWINCH)
+        settle(60)
+        ring.removeAll()
+        resize(cols: cols, rows: rows)
+        settle(120)
     }
 
     private func resize(cols: UInt16, rows: UInt16) {

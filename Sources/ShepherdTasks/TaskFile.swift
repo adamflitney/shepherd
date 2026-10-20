@@ -105,6 +105,21 @@ public struct TaskFile: Sendable {
         touch(now: now)
     }
 
+    public mutating func setBranch(_ name: String, now: Date = Date()) {
+        doc.set("branch", .string(name))
+        touch(now: now)
+    }
+
+    public mutating func setPR(_ url: String, now: Date = Date()) {
+        doc.set("pr", .string(url))
+        touch(now: now)
+    }
+
+    public mutating func setTitle(_ text: String, now: Date = Date()) {
+        doc.set("title", .string(text))
+        touch(now: now)
+    }
+
     public mutating func touch(now: Date = Date()) {
         doc.set("updated", .string(formatStamp(now)))
     }
@@ -228,6 +243,9 @@ public struct TaskFile: Sendable {
 
 /// Text injected into a session that works on this task: header, the whole Plan, and as much of the
 /// most recent Log as fits in `max` characters.
+/// Sessions started without a task get one titled "New task in <folder>" until there is more to go on.
+public let placeholderTitlePrefix = "New task in "
+
 public func taskContext(_ t: TaskFile, max: Int = 9000, crook: String = "crook") -> String {
     var head: [String] = ["You are working on shepherd task #\(t.id): \(t.title)"]
     if let o = t.objective { head.append("Objective: \(o)") }
@@ -240,6 +258,9 @@ public func taskContext(_ t: TaskFile, max: Int = 9000, crook: String = "crook")
 
     let plan = t.section("Plan")
     let log = t.section("Log")
+    if t.title.hasPrefix(placeholderTitlePrefix) {
+        head.append("The title is a placeholder because the session started without a prompt. Once you know what the user wants, give the task a real title with `\(crook) task title \(t.id) <text>`.")
+    }
     var missing: [String] = []
     if t.objective == nil { missing.append("an objective") }
     if plan.isEmpty { missing.append("a plan") }

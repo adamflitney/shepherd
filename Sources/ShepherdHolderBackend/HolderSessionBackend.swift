@@ -26,6 +26,7 @@ public actor HolderSessionBackend: SessionBackend {
     private let registry: SessionRegistry
     private let launcher: HolderLauncher
     private let taskStore: TaskStore
+    private let prSync: TaskPRSync?
     private let hookStates: HookStateStore
     private let seen: SeenStore
     private let home: URL
@@ -57,12 +58,14 @@ public actor HolderSessionBackend: SessionBackend {
         crookPath: String? = nil,
         loginShell: String? = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
         remoteControlNames: Bool = false,
+        prSync: TaskPRSync? = nil,
         pace: Pace = Pace(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.registry = registry; self.launcher = launcher; self.taskStore = taskStore; self.hookStates = hookStates
         self.seen = seen; self.home = home; self.claudeCommand = claudeCommand; self.crookPath = crookPath
         self.loginShell = loginShell; self.remoteControlNames = remoteControlNames; self.pace = pace; self.now = now
+        self.prSync = prSync
         self.lastSeen = seen.load()
     }
 
@@ -103,6 +106,14 @@ public actor HolderSessionBackend: SessionBackend {
         }
         let cwd = request.workingDirectory.path
         guard cwd.hasPrefix("/") else { throw BackendError.remote(code: "no_directory", message: "no working directory") }
+        var madeForThisSession = false
+        if task == nil, let explicit = request.resumeSessionID { task = taskStore.findBySession(explicit) }
+        if task == nil {
+            madeForThisSession = true
+            let title = request.title ?? placeholderTitlePrefix + URL(fileURLWithPath: cwd).lastPathComponent
+            task = try? taskStore.create(NewTask(title: title, projectPath: cwd))
+            if let made = task { task = (try? taskStore.update(made.id) { $0.setStatus(.active) }) ?? made }
+        }
 
         // A task with an earlier conversation on disk picks it up; anything else starts fresh under an id of our own,
         // so the link to the task exists before the agent has printed a thing.
@@ -120,8 +131,8 @@ public actor HolderSessionBackend: SessionBackend {
             return SessionID(rawValue: sessionID)   // already running: nothing to start
         }
 
-        let title = request.title ?? task.map { "#\($0.id) \($0.title)" } ?? URL(fileURLWithPath: cwd).lastPathComponent
-        let prompt = resuming ? nil : (request.initialPrompt ?? (task != nil ? Self.defaultTaskPrompt : nil))
+        let title = task.map { "#\($0.id) \($0.title)" } ?? request.title ?? URL(fileURLWithPath: cwd).lastPathComponent
+        let prompt = resuming ? nil : (request.initialPrompt ?? (task != nil && !madeForThisSession ? Self.defaultTaskPrompt : nil))
         var extra: [String] = remoteControlNames ? ["--remote-control", title] : []
         if let prompt { extra.append(prompt) }
 
@@ -214,7 +225,8 @@ public actor HolderSessionBackend: SessionBackend {
         try? FileManager.default.createDirectory(at: hookStates.directoryURL, withIntermediateDirectories: true)
         try? registry.prepare()
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        watchers = [hookStates.directoryURL, registry.directory].compactMap { DirectoryWatcher(url: $0) { continuation.yield() } }
+        try? FileManager.default.createDirectory(at: taskStore.directory, withIntermediateDirectories: true)
+        watchers = [hookStates.directoryURL, registry.directory, taskStore.directory].compactMap { DirectoryWatcher(url: $0) { continuation.yield() } }
 
         loops.append(Task { [weak self] in
             await self?.refresh(full: true)
@@ -225,6 +237,15 @@ public actor HolderSessionBackend: SessionBackend {
                 await self?.republish()
             }
         })
+        if let prSync {
+            let store = taskStore
+            loops.append(Task.detached(priority: .utility) {
+                while !Task.isCancelled {
+                    prSync.sync(store)
+                    try? await Task.sleep(nanoseconds: 60_000_000_000)
+                }
+            })
+        }
         loops.append(Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -285,11 +306,11 @@ public actor HolderSessionBackend: SessionBackend {
             }
             attention.since = since(for: sid, attention: attention, fallback: hook?.updatedAt ?? r.startedAt)
 
-            let task = r.taskID.flatMap { taskStore.get($0) }
+            let task = r.taskID.flatMap { taskStore.get($0) } ?? taskStore.findBySession(sid) ?? adoptIntoTask(r, sessionID: sid)
             let group = task.map { SessionGroup(id: "task-\($0.id)", label: "#\($0.id) \($0.title)") }
                 ?? SessionGroup(id: r.cwd, label: URL(fileURLWithPath: r.cwd).lastPathComponent)
             return Session(
-                id: SessionID(rawValue: sid), title: r.title ?? group.label, agent: .claude, workingDirectory: URL(fileURLWithPath: r.cwd),
+                id: SessionID(rawValue: sid), title: task != nil ? group.label : (r.title ?? group.label), agent: .claude, workingDirectory: URL(fileURLWithPath: r.cwd),
                 attention: attention, isFocused: false, group: group, lastActivityAt: hook?.updatedAt,
                 capabilities: interrupted ? [.focus, .close] : [.focus, .prompt, .close])
         }.sorted { ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast) }
@@ -348,6 +369,14 @@ public actor HolderSessionBackend: SessionBackend {
     private func persistSeen() { seen.save(lastSeen) }
 
     /// The task's newest conversation that has a transcript and is not already running.
+    /// A session from before every session had a task (or one started with the command line) gets one the first time it
+    /// is listed, so nothing on the board is without a task.
+    private func adoptIntoTask(_ record: SessionRecord, sessionID: String) -> TaskFile? {
+        let title = record.title ?? placeholderTitlePrefix + URL(fileURLWithPath: record.cwd).lastPathComponent
+        guard let made = try? taskStore.create(NewTask(title: title, projectPath: record.cwd)) else { return nil }
+        return try? taskStore.update(made.id) { $0.linkSession(sessionID); $0.setStatus(.active) }
+    }
+
     private func resumableSession(of task: TaskFile?, in cwd: String) -> String? {
         guard let task else { return nil }
         let running = Set(registry.all().filter { registry.liveness($0) == .live }.compactMap(\.claudeSessionID))

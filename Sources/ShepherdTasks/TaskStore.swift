@@ -73,6 +73,11 @@ public struct TaskStore: Sendable {
         return task
     }
 
+    public func delete(_ id: Int) throws {
+        guard let file = files().first(where: { $0.id == id }) else { throw TaskError("no task \(id)") }
+        try FileManager.default.removeItem(at: file.url)
+    }
+
     private func withLock<T>(_ fn: () throws -> T) throws -> T {
         let lock = directory.appendingPathComponent(".lock")
         var tries = 0

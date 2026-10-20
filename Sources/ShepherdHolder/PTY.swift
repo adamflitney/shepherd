@@ -34,7 +34,12 @@ func spawnPTY(argv: [String], cwd: String, env: [String: String], cols: UInt16, 
     var attributes: posix_spawnattr_t? = nil
     posix_spawnattr_init(&attributes)
     defer { posix_spawnattr_destroy(&attributes) }
-    posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
+    // Signals the parent ignores stay ignored across exec; the child should start with the defaults.
+    var defaults = sigset_t(), none = sigset_t()
+    sigfillset(&defaults); sigemptyset(&none)
+    posix_spawnattr_setsigdefault(&attributes, &defaults)
+    posix_spawnattr_setsigmask(&attributes, &none)
+    posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK))
 
     let cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) } + [nil]
     let cenv: [UnsafeMutablePointer<CChar>?] = env.map { strdup("\($0.key)=\($0.value)") } + [nil]

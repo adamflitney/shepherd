@@ -103,9 +103,22 @@ struct HolderSessionBackendTests {
         let snapshot = try await backend.snapshot()
         let session = try #require(snapshot.sessions.first)
         #expect(session.id == id)
-        #expect(session.title == "scratch")
+        #expect(session.title == "#1 scratch")
+        #expect(session.group?.id == "task-1")
         #expect(session.capabilities.contains(.prompt))
         #expect(rig.waitForScreen(id.rawValue, containing: "argv: --session-id \(id.rawValue)"))
+    }
+
+    @Test func aSessionWithoutATaskGetsOneAndWaitsForTheUser() async throws {
+        let rig = try Rig(); defer { rig.teardown() }
+        let backend = rig.backend()
+        let id = try await backend.createSession(request("/tmp"))
+        let task = try #require(rig.tasks.findBySession(id.rawValue))
+        #expect(task.title == "New task in tmp")
+        #expect(task.status == .active)
+        let snapshot = try await backend.snapshot()
+        #expect(snapshot.sessions.first?.title == "#\(task.id) New task in tmp")
+        #expect(rig.screen(of: id.rawValue).contains("Start on the task") == false)
     }
 
     @Test func linksATaskBeforeTheAgentStartsAndPassesItsEnvironment() async throws {
@@ -124,7 +137,7 @@ struct HolderSessionBackendTests {
         let rig = try Rig(); defer { rig.teardown() }
         let backend = rig.backend(remoteControl: true)
         let id = try await backend.createSession(request(title: "task: fix login"))
-        #expect(rig.waitForScreen(id.rawValue, containing: "--remote-control task: fix login"))
+        #expect(rig.waitForScreen(id.rawValue, containing: "task: fix login"))
     }
 
     @Test func promptTypesTextAndSubmitsIt() async throws {
@@ -231,5 +244,63 @@ struct HolderSessionBackendTests {
         let id = try await backend.createSession(request(task: task.id))
         #expect(id.rawValue == prior)
         #expect(rig.waitForScreen(prior, containing: "argv: --resume \(prior)"))
+    }
+
+    @Test func aTaskFileEditedOutsideTheAppReachesTheSessionList() async throws {
+        let rig = try Rig(); defer { rig.teardown() }
+        let backend = rig.backend()
+        await backend.startListening()
+        let id = try await backend.createSession(request("/tmp"))
+        let task = try #require(rig.tasks.findBySession(id.rawValue))
+        let stream = backend.events()
+        _ = try rig.tasks.update(task.id) { $0.setTitle("Fixing the login bug") }
+        var title = ""
+        let deadline = Date().addingTimeInterval(4)
+        while Date() < deadline, title != "#\(task.id) Fixing the login bug" {
+            title = try await backend.snapshot().sessions.first?.title ?? ""
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        _ = stream
+        #expect(title == "#\(task.id) Fixing the login bug")
+    }
+}
+
+@Suite("Task PR sync") struct TaskPRSyncTests {
+    private func store() -> TaskStore { TaskStore(directory: URL(fileURLWithPath: "/tmp/pr-\(UUID().uuidString.prefix(6))")) }
+    private func sync(_ results: [String: String]) -> TaskPRSync {
+        TaskPRSync(run: { exe, args, _ in
+            if exe == "git" { return results["git"] }
+            return results[args.joined(separator: " ").contains("--head") ? "gh" : ""]
+        }, gitPath: "git", ghPath: "gh")
+    }
+
+    @Test func aTaskOnItsOwnBranchWithAnOpenPRMovesToReview() throws {
+        let store = store()
+        let t = try store.create(NewTask(title: "Feature", projectPath: "/tmp"))
+        _ = try store.update(t.id) { $0.setStatus(.active) }
+        sync(["git": "fix-login\n", "gh": #"[{"url":"https://github.com/o/r/pull/7","state":"OPEN"}]"#]).sync(store)
+        let after = try #require(store.get(t.id))
+        #expect(after.branch == "fix-login" && after.pr == "https://github.com/o/r/pull/7" && after.status == .review)
+    }
+
+    @Test func aSharedBranchOrTwoTasksInOneFolderRecordNothing() throws {
+        let store = store()
+        let a = try store.create(NewTask(title: "A", projectPath: "/tmp"))
+        sync(["git": "main\n", "gh": "[]"]).sync(store)
+        #expect(store.get(a.id)?.branch == nil)
+        _ = try store.create(NewTask(title: "B", projectPath: "/tmp"))
+        sync(["git": "some-branch\n", "gh": "[]"]).sync(store)
+        #expect(store.list().allSatisfy { $0.branch == nil })
+    }
+
+    @Test func aMergedPRIsLoggedOnceAndTheTaskIsNotClosed() throws {
+        let store = store()
+        let t = try store.create(NewTask(title: "Shipped", projectPath: "/tmp", branch: "ship"))
+        _ = try store.update(t.id) { $0.setStatus(.review) }
+        let runner = sync(["gh": #"[{"url":"https://github.com/o/r/pull/9","state":"MERGED"}]"#])
+        runner.sync(store); runner.sync(store)
+        let after = try #require(store.get(t.id))
+        #expect(after.status == .review)
+        #expect(after.logEntries.filter { $0.contains("PR merged") }.count == 1)
     }
 }

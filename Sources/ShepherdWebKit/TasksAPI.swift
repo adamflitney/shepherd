@@ -57,6 +57,10 @@ private struct NewTaskBody: Decodable {
     enum CodingKeys: String, CodingKey { case title, objective, projectPath = "project_path" }
 }
 private struct StatusBody: Decodable { let status: String }
+private struct EditBody: Decodable {
+    let title: String?
+    let objective: String?
+}
 private struct FromSessionBody: Decodable {
     let sessionID: String
     enum CodingKeys: String, CodingKey { case sessionID = "session_id" }
@@ -84,6 +88,8 @@ struct TasksAPI {
                 if request.method == "GET", parts.count == 3 { return try detail(id) }
                 if request.method == "POST", parts.count == 4, parts[3] == "status" { return try setStatus(id, request) }
                 if request.method == "POST", parts.count == 4, parts[3] == "start" { return try await start(id) }
+                if request.method == "POST", parts.count == 4, parts[3] == "edit" { return try edit(id, request) }
+                if request.method == "POST", parts.count == 4, parts[3] == "delete" { return try await delete(id) }
             }
             return .notFound()
         } catch let error as TaskError {
@@ -133,6 +139,29 @@ struct TasksAPI {
         guard store().get(id) != nil else { return fail("no task \(id)", 404) }
         let task = try store().update(id) { $0.setStatus(status) }
         return .json(try JSONEncoder().encode(wire(task)))
+    }
+
+    private func edit(_ id: Int, _ request: HTTPServer.Request) throws -> HTTPServer.Response {
+        let body = try JSONDecoder().decode(EditBody.self, from: request.body)
+        guard store().get(id) != nil else { return fail("no task \(id)", 404) }
+        let title = body.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let title, title.isEmpty || title.count > 200 { return fail("a task needs a title of up to 200 characters", 400) }
+        let task = try store().update(id) {
+            if let title { $0.setTitle(title) }
+            if let objective = body.objective?.trimmingCharacters(in: .whitespacesAndNewlines), !objective.isEmpty { $0.setObjective(objective) }
+        }
+        return .json(try JSONEncoder().encode(wire(task, detail: true)))
+    }
+
+    /// A task with a session still running is not deleted from under it.
+    private func delete(_ id: Int) async throws -> HTTPServer.Response {
+        guard store().get(id) != nil else { return fail("no task \(id)", 404) }
+        let snapshot = try await backend.snapshot()
+        if snapshot.sessions.contains(where: { $0.group?.id == "task-\(id)" }) {
+            return fail("end this task's session first", 409)
+        }
+        try store().delete(id)
+        return .json(Data("{}".utf8))
     }
 
     /// Goes to the task's live session if it has one; otherwise starts (or resumes) one in its project and moves the task

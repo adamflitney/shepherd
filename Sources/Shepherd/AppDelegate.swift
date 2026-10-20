@@ -65,6 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return PanelDemoStart(tab: tab, query: value("--demo-query") ?? "")
     }
 
+    /// Clicking the Dock icon brings the dashboard back after it has been closed.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let dashboard, !dashboard.isVisible { Task { await dashboard.show() } }
+        return true
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let store = SessionsStore(backend: backend)
         self.store = store
@@ -137,7 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DashboardMenu.install()
             statusItemController.onShowDashboard = { Task { await dashboard.show() } }
             Task { await holderBackend.setShowSession { id in await dashboard.show(selecting: id.rawValue) } }
-            if CommandLine.arguments.contains("--show-dashboard") { Task { await dashboard.show() } }
+            Task { await dashboard.show() }
         }
 
         statusItemController.currentHotkeyBinding = { ShepherdConfig.load().hotkey.switchSession }

@@ -226,7 +226,9 @@
   function sendBytes(str) { if (ws && ws.readyState === 1 && attachedHolder) ws.send(enc.encode(str)); }
   window.__send = sendBytes;   // the native host types dropped file paths through this
 
-  term.onData(sendBytes);
+  let typedAt = 0, sizeText = "";
+  term.onData((d) => { if (!typedAt) typedAt = performance.now(); sendBytes(d); });
+  function showMeta(extra) { $("meta").textContent = sizeText + (extra ? " · " + extra : ""); }
   term.attachCustomKeyEventHandler((e) => {
     // Shift+Enter: Claude Code expects ESC CR (what Option+Enter sends) for a newline; a plain CR submits. xterm runs this
     // handler for keydown and for the keypress after it, so both are swallowed or the keypress still submits.
@@ -271,7 +273,11 @@
     ws.onerror = () => {};
     ws.onmessage = (ev) => {
       lastRx = Date.now();
-      if (typeof ev.data !== "string") { term.write(new Uint8Array(ev.data)); return; }
+      if (typeof ev.data !== "string") {
+        const echo = typedAt ? Math.round(performance.now() - typedAt) : 0; typedAt = 0;
+        term.write(new Uint8Array(ev.data), () => { if (echo) showMeta("echo " + echo + " ms"); });
+        return;
+      }
       let m; try { m = JSON.parse(ev.data); } catch { return; }
       switch (m.type) {
         case "hello": myId = m.you; break;
@@ -279,7 +285,7 @@
         case "spawned": pendingSelectHolder = m.id; sendCtl({ type: "list" }); refresh(); closeSheet(); break;
         case "attached": term.reset(); term.resize(m.cols, m.rows); break;
         case "ready": focusTerm(); onResize(); break;
-        case "size": driver = m.driver; term.resize(m.cols, m.rows); $("meta").textContent = m.cols + "×" + m.rows; break;
+        case "size": driver = m.driver; term.resize(m.cols, m.rows); sizeText = m.cols + "×" + m.rows; showMeta(); break;
         case "reset": term.reset(); break;
         case "detached": if (m.reason === "holder closed") attachedHolder = null; sendCtl({ type: "list" }); refresh(); break;
         case "error": $("sheetError").textContent = m.message; break;
@@ -567,9 +573,7 @@
     const actions = document.createElement("div"); actions.className = "cardActions";
     const open = document.createElement("button"); open.className = "btn"; open.textContent = "Open";
     open.addEventListener("click", (e) => { e.stopPropagation(); openSession(x.id); });
-    const promote = document.createElement("button"); promote.className = "btn"; promote.textContent = "Make a task";
-    promote.addEventListener("click", async (e) => { e.stopPropagation(); try { const t = await api("/api/tasks/from-session", "POST", { session_id: x.id }); await loadTasks(); selectCard({ kind: "task", id: t.id }, true); } catch (err) { toast(err.message); } });
-    actions.append(open, promote); el.appendChild(actions);
+    actions.append(open); el.appendChild(actions);
     el.addEventListener("click", () => selectCard({ kind: "session", id: x.id }, false));
     el.addEventListener("dblclick", () => openSession(x.id));
     return el;
@@ -621,9 +625,11 @@
 
   // ---- task drawer --------------------------------------------------------------------------------
   function openDrawerFor(id) { drawerId = id; $("drawer").classList.add("show"); loadDrawer(id, false); }
-  function closeDrawer() { drawerId = null; $("drawer").classList.remove("show"); }
+  function closeDrawer() { editingDrawer = false; drawerId = null; $("drawer").classList.remove("show"); }
   $("drawerClose").addEventListener("click", closeDrawer);
+  let editingDrawer = false;
   async function loadDrawer(id, quiet) {
+    if (editingDrawer && quiet) return;
     let t; try { t = await api("/api/tasks/" + id); } catch (e) { if (!quiet) toast(e.message); return; }
     if (drawerId !== id) return;
     $("drawerTitle").textContent = "#" + t.id + " " + t.title;
@@ -642,13 +648,40 @@
     if (t.log && t.log.length) { section("Log"); for (const l of t.log.slice().reverse().slice(0, 20)) { const d = document.createElement("div"); d.className = "logLine"; d.textContent = l; body.appendChild(d); } }
 
     const buttons = $("drawerButtons"); buttons.textContent = "";
+    const editBtn = document.createElement("button"); editBtn.className = "btn"; editBtn.textContent = "Edit";
+    editBtn.addEventListener("click", () => editTask(t));
+    const delBtn = document.createElement("button"); delBtn.className = "btn"; delBtn.textContent = "Delete";
+    delBtn.addEventListener("click", async () => {
+      if (!window.confirm('Delete task #' + t.id + ' "' + t.title + '"?')) return;
+      try { await api("/api/tasks/" + t.id + "/delete", "POST"); closeDrawer(); boardSel = null; await loadTasks(); } catch (e) { toast(e.message); }
+    });
     const go = document.createElement("button"); go.className = "btn primary";
     go.textContent = live.length ? "Go to session" : (t.session_ids.length ? "Resume" : "Start");
     go.addEventListener("click", () => startTask(t));
     const sel = document.createElement("select");
     for (const st of FLOW) { const o = document.createElement("option"); o.value = st; o.textContent = st === "active" ? "In progress" : st[0].toUpperCase() + st.slice(1); if (st === t.status) o.selected = true; sel.appendChild(o); }
     sel.addEventListener("change", () => setStatus(t.id, sel.value));
-    buttons.append(go, sel);
+    buttons.append(go, sel, editBtn, delBtn);
+  }
+
+  function editTask(t) {
+    editingDrawer = true;
+    const body = $("drawerBody"); body.textContent = "";
+    const title = document.createElement("input"); title.value = t.title; title.style.width = "100%"; title.maxLength = 200;
+    const objective = document.createElement("textarea"); objective.value = t.objective || ""; objective.rows = 6; objective.style.cssText = "width:100%;margin-top:10px;resize:vertical";
+    for (const el of [title, objective]) el.style.cssText += ";background:var(--raised);border:1px solid var(--line);border-radius:7px;color:var(--fg);padding:7px 9px;font:inherit;box-sizing:border-box";
+    const label = (text, node) => { const h = document.createElement("h4"); h.textContent = text; body.append(h, node); };
+    label("Title", title); label("Objective", objective);
+    const buttons = $("drawerButtons"); buttons.textContent = "";
+    const save = document.createElement("button"); save.className = "btn primary"; save.textContent = "Save";
+    const cancel = document.createElement("button"); cancel.className = "btn"; cancel.textContent = "Cancel";
+    const finish = () => { editingDrawer = false; loadDrawer(t.id, false); };
+    save.addEventListener("click", async () => {
+      try { await api("/api/tasks/" + t.id + "/edit", "POST", { title: title.value, objective: objective.value }); await loadTasks(); finish(); } catch (e) { toast(e.message); }
+    });
+    cancel.addEventListener("click", finish);
+    buttons.append(save, cancel);
+    title.focus();
   }
 
   // ---- new task -----------------------------------------------------------------------------------

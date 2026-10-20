@@ -22,9 +22,6 @@
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
-    <!-- Hides the app from the Dock and App Switcher; menubar-only -->
-    <key>LSUIElement</key>
-    <true/>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright © 2026 Adam Flitney</string>
 </dict>

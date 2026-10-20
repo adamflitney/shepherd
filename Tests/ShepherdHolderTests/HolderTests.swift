@@ -64,6 +64,19 @@ struct HolderTests {
         a.detach()
     }
 
+    @Test func aFullScreenProgramIsMadeToDrawItselfAgainForALateClient() throws {
+        let script = "printf '\\033[?1049h'; for i in 1 2 3 4 5; do echo STALE$i; done; trap 'printf \"DRAW %s\\n\" \"$(stty size)\"' WINCH; while true; do sleep 0.05; done"
+        let h = RunningHolder(script: script, cols: 80, rows: 24)
+        defer { h.stopAndWait() }
+        for _ in 0..<50 where (HolderClient.info(socketPath: h.socket)?.ringBytes ?? 0) < 30 { usleep(20_000) }
+        let a = try #require(HolderClient.attach(socketPath: h.socket, cols: 100, rows: 30))
+        let text = String(decoding: a.replay, as: UTF8.self)
+        #expect(!text.contains("STALE"))
+        #expect(text.contains("DRAW 30 100"))
+        #expect(!text.contains("DRAW 30 99"))
+        a.detach()
+    }
+
     @Test func appliesTheSizeAClientAsksFor() throws {
         let h = RunningHolder(script: "sleep 0.2; stty size; sleep 30", cols: 80, rows: 24)
         defer { h.stopAndWait() }

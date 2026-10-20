@@ -34,7 +34,6 @@ if CommandLine.arguments.contains("--uninstall-hooks") {
 // lets us call @MainActor-isolated AppKit APIs without an async context.
 MainActor.assumeIsolated {
     let app = NSApplication.shared
-    app.setActivationPolicy(.accessory)
 
     let backend: any SessionBackend
     var onTerminalAppNameChanged: ((String) -> Void)?
@@ -49,6 +48,8 @@ MainActor.assumeIsolated {
     let wantsGhostty = args.contains("--ghostty") || environmentBackend == "ghostty"
         || (!args.contains("--holder") && environmentBackend != "holder" && ShepherdConfig.load().backend.isGhostty)
     let useHolder = !useHerdr && !wantsGhostty
+    // The holder backend has a window of its own (the dashboard), so it gets a Dock icon; the others stay menu-bar only.
+    app.setActivationPolicy(useHolder ? .regular : .accessory)
     if args.contains("--fake") {
         backend = FakeSessionBackend(sessions: DemoSessions.all)
     } else if useHolder {
@@ -60,7 +61,8 @@ MainActor.assumeIsolated {
             registry: registry,
             launcher: HolderLauncher(registry: registry, holderExecutable: holderExecutable),
             crookPath: FileManager.default.isExecutableFile(atPath: crook) ? crook : nil,
-            remoteControlNames: ShepherdConfig.load().backend.remoteControlNames ?? false)
+            remoteControlNames: ShepherdConfig.load().backend.remoteControlNames ?? true,
+            prSync: TaskPRSync())
         Task { await holderBackend.startListening() }
         backend = holderBackend
         // Browsers (the phone, later the dashboard) attach to the same holders over /ws, and may start sessions in the
