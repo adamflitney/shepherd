@@ -26,6 +26,7 @@ final class MobileAccessModel {
     private let backend: any SessionBackend
     private let terminals: TerminalBridgeConfig?
     private var server: MobileAccessServer?
+    private var starting: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     /// Publishing is attempted automatically once, as soon as the
     /// prerequisites are met; after a failure it waits for the user to retry
@@ -179,22 +180,38 @@ final class MobileAccessModel {
         return server == nil ? nil : port
     }
 
+    /// Everything that wants the server goes through here. Two callers at launch (Mobile Access and the dashboard) used to
+    /// both see no server while the first was still binding the port, and the second one's bind failed.
     private func startServer() async {
+        if let starting { await starting.value; return }
         guard server == nil else { return }
-        let candidate = MobileAccessServer(
-            backend: backend,
-            options: .init(port: port, keepAwake: config.enabled && config.keepAwake, onlyWhenAway: config.alertsOnlyWhenAway),
-            terminals: terminals
-        )
-        do {
-            try await candidate.start()
-            server = candidate
-        } catch {
-            problem = Problem(
-                message: "Couldn't start on port \(config.port) - is something else (such as the standalone ShepherdWeb service) already using it?",
-                url: nil
+        let task = Task { await bindServer() }
+        starting = task
+        await task.value
+        starting = nil
+    }
+
+    private func bindServer() async {
+        guard server == nil else { return }
+        // A previous copy of the app that is still shutting down holds the port for a moment, so a busy port is retried.
+        for attempt in 1...6 {
+            let candidate = MobileAccessServer(
+                backend: backend,
+                options: .init(port: port, keepAwake: config.enabled && config.keepAwake, onlyWhenAway: config.alertsOnlyWhenAway),
+                terminals: terminals
             )
+            do {
+                try await candidate.start()
+                server = candidate
+                return
+            } catch {
+                if attempt < 6 { try? await Task.sleep(nanoseconds: 500_000_000) }
+            }
         }
+        problem = Problem(
+            message: "Couldn't start on port \(config.port) - is something else (such as the standalone ShepherdWeb service) already using it?",
+            url: nil
+        )
     }
 
     private func publishAutomaticallyIfReady() async {

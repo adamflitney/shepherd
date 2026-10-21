@@ -180,7 +180,7 @@
       <div id="boardBar">
         <input id="newTask" placeholder="New task, then Enter" autocomplete="off">
         <select id="newTaskProject" title="Folder the task starts in"></select>
-        <span id="boardHint">Drag to move · Enter starts · [ ] changes status</span>
+        <span id="boardHint">Tab or arrows move · Space details · Enter opens · E edit · [ ] status</span>
       </div>
       <div id="columns"></div>
       <div id="drawer">
@@ -501,7 +501,11 @@
     document.body.classList.toggle("board", v === "board");
     $("tabSessions").classList.toggle("on", v === "sessions");
     $("tabBoard").classList.toggle("on", v === "board");
-    if (v === "board") { loadTasks(); loadProjectChoices(); }
+    if (v === "board") {
+      if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+      loadTasks().then(() => { if (view === "board" && !boardSel) { const c = cardKeys.findIndex((k) => k.length); if (c >= 0) selectKey(cardKeys[c][0], false); } });
+      loadProjectChoices();
+    }
     else { setTimeout(() => { try { fit.fit(); } catch {} onResize(); if (document.hasFocus()) term.focus(); }, 30); }
   }
   $("tabSessions").addEventListener("click", () => setView("sessions"));
@@ -630,6 +634,7 @@
     }
   }
 
+  function selectKey(key, openDrawer) { const [kind, id] = key.split(/:(.*)/s); selectCard({ kind, id: kind === "task" ? Number(id) : id }, openDrawer); }
   function selectCard(sel, openDrawer) {
     boardSel = sel; renderBoard();
     if (sel.kind === "task" && openDrawer) openDrawerFor(sel.id); else if (sel.kind !== "task") closeDrawer();
@@ -704,6 +709,10 @@
       try { await api("/api/tasks/" + t.id + "/edit", "POST", { title: title.value, objective: objective.value }); await loadTasks(); finish(); } catch (e) { toast(e.message); }
     });
     cancel.addEventListener("click", finish);
+    for (const el of [title, objective]) el.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(); }
+      else if (e.key === "Enter" && (e.metaKey || el === title)) { e.preventDefault(); save.click(); }
+    });
     buttons.append(save, cancel);
     title.focus();
   }
@@ -742,7 +751,21 @@
       else { const step = e.key === "ArrowLeft" ? -1 : 1; let c = where.c + step; while (c >= 0 && c < cardKeys.length && !cardKeys[c].length) c += step; if (c >= 0 && c < cardKeys.length) pick(c, Math.min(where.r, cardKeys[c].length - 1)); }
       return;
     }
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const flat = cardKeys.flat(); if (!flat.length) return;
+      const here = boardSel ? flat.indexOf(boardSel.kind + ":" + boardSel.id) : -1;
+      const next = flat[here < 0 ? (e.shiftKey ? flat.length - 1 : 0) : (here + (e.shiftKey ? flat.length - 1 : 1)) % flat.length];
+      selectKey(next, boardSel && boardSel.kind === "task" && drawerId != null);
+      return;
+    }
     if (!boardSel) return;
+    if (e.key === " " && boardSel.kind === "task") { e.preventDefault(); if (drawerId === boardSel.id) closeDrawer(); else openDrawerFor(boardSel.id); return; }
+    if ((e.key === "e" || e.key === "E") && boardSel.kind === "task") {
+      e.preventDefault();
+      api("/api/tasks/" + boardSel.id).then((t) => { drawerId = t.id; $("drawer").classList.add("show"); $("drawerTitle").textContent = "#" + t.id + " " + t.title; editTask(t); }).catch((err) => toast(err.message));
+      return;
+    }
     if (e.key === "Enter") { e.preventDefault(); if (boardSel.kind === "task") { const t = tasks.find((x) => x.id === boardSel.id); if (t) startTask(t); } else openSession(boardSel.id); return; }
     if ((e.key === "]" || e.key === "[") && boardSel.kind === "task") {
       const t = tasks.find((x) => x.id === boardSel.id); if (!t) return;

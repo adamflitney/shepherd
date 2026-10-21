@@ -25,11 +25,14 @@ public struct TaskPRSync: Sendable {
             // Two open tasks in one folder share its checked-out branch, so it says nothing about either.
             let alone = open.filter { $0.projectPath == folder }.count == 1
             var branch = task.branch
-            if branch == nil, alone, let current = currentBranch(in: folder) {
+            if branch == nil, alone, let current = currentBranch(in: folder), hasWork(on: current, in: folder, since: task.created) {
                 branch = current
                 _ = try? store.update(task.id) { $0.setBranch(current) }
             }
             guard let branch, let ghPath, let pr = pullRequest(for: branch, in: folder, gh: ghPath) else { continue }
+            let movesToReview = pr.state == "OPEN" && [.inbox, .ready, .active].contains(task.status)
+            let logsMerge = pr.state == "MERGED" && !task.logEntries.contains(where: { $0.contains("PR merged") })
+            guard task.pr != pr.url || movesToReview || logsMerge else { continue }
             _ = try? store.update(task.id) { t in
                 if t.pr != pr.url { t.setPR(pr.url) }
                 if pr.state == "OPEN", [.inbox, .ready, .active].contains(t.status) {
@@ -41,6 +44,23 @@ public struct TaskPRSync: Sendable {
                 }
             }
         }
+    }
+
+    /// A folder that happens to be on an old branch is not evidence about the task: the branch only counts when something
+    /// was committed on it after the task was created.
+    func hasWork(on branch: String, in folder: String, since created: String?) -> Bool {
+        guard let created, let start = Self.parseStamp(created),
+              let out = run(gitPath, ["log", "-1", "--format=%ct", branch], folder)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let seconds = TimeInterval(out) else { return false }
+        return Date(timeIntervalSince1970: seconds) > start
+    }
+
+    static func parseStamp(_ text: String) -> Date? {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return f.date(from: text)
     }
 
     func currentBranch(in folder: String) -> String? {

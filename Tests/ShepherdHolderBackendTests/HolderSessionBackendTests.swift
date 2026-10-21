@@ -246,6 +246,25 @@ struct HolderSessionBackendTests {
         #expect(rig.waitForScreen(prior, containing: "argv: --resume \(prior)"))
     }
 
+    @Test func aPlaceholderTitleBecomesClaudesOwnTitleButAChosenOneDoesNot() async throws {
+        let rig = try Rig(); defer { rig.teardown() }
+        let backend = rig.backend()
+        let placeholder = try await backend.createSession(request("/tmp"))
+        let chosen = try await backend.createSession(request("/tmp", title: "My own title"))
+        func write(_ id: SessionID, _ title: String) throws {
+            let url = TranscriptPeek.transcriptURL(workingDirectory: "/tmp", sessionID: id.rawValue, home: rig.root.appendingPathComponent("home"))
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("{\"type\":\"user\"}\n{\"type\":\"ai-title\",\"aiTitle\":\"\(title)\"}\n".utf8).write(to: url)
+        }
+        try write(placeholder, "Subscription limit work")
+        try write(chosen, "Something else")
+        let titles = Dictionary(uniqueKeysWithValues: try await backend.snapshot().sessions.map { ($0.id, $0.title) })
+        let a = try #require(rig.tasks.findBySession(placeholder.rawValue)), b = try #require(rig.tasks.findBySession(chosen.rawValue))
+        #expect(titles[placeholder] == "#\(a.id) Subscription limit work")
+        #expect(rig.tasks.get(a.id)?.title == "Subscription limit work")
+        #expect(titles[chosen] == "#\(b.id) My own title")
+    }
+
     @Test func aTaskFileEditedOutsideTheAppReachesTheSessionList() async throws {
         let rig = try Rig(); defer { rig.teardown() }
         let backend = rig.backend()
@@ -269,7 +288,7 @@ struct HolderSessionBackendTests {
     private func store() -> TaskStore { TaskStore(directory: URL(fileURLWithPath: "/tmp/pr-\(UUID().uuidString.prefix(6))")) }
     private func sync(_ results: [String: String]) -> TaskPRSync {
         TaskPRSync(run: { exe, args, _ in
-            if exe == "git" { return results["git"] }
+            if exe == "git" { return args.first == "log" ? results["commit"] ?? "\(Int(Date().timeIntervalSince1970) + 60)" : results["git"] }
             return results[args.joined(separator: " ").contains("--head") ? "gh" : ""]
         }, gitPath: "git", ghPath: "gh")
     }
@@ -281,6 +300,14 @@ struct HolderSessionBackendTests {
         sync(["git": "fix-login\n", "gh": #"[{"url":"https://github.com/o/r/pull/7","state":"OPEN"}]"#]).sync(store)
         let after = try #require(store.get(t.id))
         #expect(after.branch == "fix-login" && after.pr == "https://github.com/o/r/pull/7" && after.status == .review)
+    }
+
+    @Test func aBranchWithNoCommitsSinceTheTaskWasCreatedIsNotTheTasks() throws {
+        let store = store()
+        let t = try store.create(NewTask(title: "Fresh", projectPath: "/tmp"))
+        sync(["git": "old-branch\n", "commit": "1000", "gh": #"[{"url":"https://github.com/o/r/pull/1","state":"MERGED"}]"#]).sync(store)
+        let after = try #require(store.get(t.id))
+        #expect(after.branch == nil && after.pr == nil)
     }
 
     @Test func aSharedBranchOrTwoTasksInOneFolderRecordNothing() throws {

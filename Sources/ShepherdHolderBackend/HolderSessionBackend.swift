@@ -40,6 +40,7 @@ public actor HolderSessionBackend: SessionBackend {
 
     private var liveness: [String: SessionLiveness] = [:]   // holder id -> last probe
     private var lastSeen: [String: Date]
+    private var titleChecked: [String: Date] = [:]
     private var published: [String: Session] = [:]
     private var attentionSince: [String: (key: String, since: Date)] = [:]
     private var connection: ConnectionState = .idle
@@ -306,7 +307,8 @@ public actor HolderSessionBackend: SessionBackend {
             }
             attention.since = since(for: sid, attention: attention, fallback: hook?.updatedAt ?? r.startedAt)
 
-            let task = r.taskID.flatMap { taskStore.get($0) } ?? taskStore.findBySession(sid) ?? adoptIntoTask(r, sessionID: sid)
+            var task = r.taskID.flatMap { taskStore.get($0) } ?? taskStore.findBySession(sid) ?? adoptIntoTask(r, sessionID: sid)
+            if let found = task { task = retitledFromTranscript(found, record: r, sessionID: sid) }
             let group = task.map { SessionGroup(id: "task-\($0.id)", label: "#\($0.id) \($0.title)") }
                 ?? SessionGroup(id: r.cwd, label: URL(fileURLWithPath: r.cwd).lastPathComponent)
             return Session(
@@ -375,6 +377,24 @@ public actor HolderSessionBackend: SessionBackend {
         let title = record.title ?? placeholderTitlePrefix + URL(fileURLWithPath: record.cwd).lastPathComponent
         guard let made = try? taskStore.create(NewTask(title: title, projectPath: record.cwd)) else { return nil }
         return try? taskStore.update(made.id) { $0.linkSession(sessionID); $0.setStatus(.active) }
+    }
+
+    /// A task that still has the placeholder title takes the title Claude Code itself generates for the conversation (the
+    /// `ai-title` entries in its transcript) as soon as there is one. After that the title is the user's to change.
+    private func retitledFromTranscript(_ task: TaskFile, record: SessionRecord, sessionID: String) -> TaskFile {
+        guard task.title.hasPrefix(placeholderTitlePrefix) else { return task }
+        let url = TranscriptPeek.transcriptURL(workingDirectory: record.cwd, sessionID: sessionID, home: home)
+        guard let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+              titleChecked[sessionID] != modified else { return task }
+        titleChecked[sessionID] = modified
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return task }
+        var title: String?
+        for line in text.split(separator: "\n") where line.contains("\"ai-title\"") {
+            if let data = line.data(using: .utf8), let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               let candidate = object["aiTitle"] as? String { title = candidate }
+        }
+        guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title.count <= 200 else { return task }
+        return (try? taskStore.update(task.id) { $0.setTitle(title) }) ?? task
     }
 
     private func resumableSession(of task: TaskFile?, in cwd: String) -> String? {
