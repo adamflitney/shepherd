@@ -228,7 +228,7 @@
   // ---- terminal -----------------------------------------------------------------------------------
   function openLink(uri) { if (hosted) native({ type: "openURL", uri }); else window.open(uri, "_blank"); }
   const term = new Terminal({
-    fontSize: 15, fontFamily: '"JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace', fontWeight: "500", fontWeightBold: "700", scrollback: 5000, cursorBlink: true,
+    fontSize: 15, fontFamily: '"JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace', fontWeight: "500", fontWeightBold: "700", scrollback: 5000, cursorBlink: true, scrollSensitivity: 2, fastScrollSensitivity: 6,
     allowProposedApi: true, macOptionIsMeta: true, macOptionClickForcesSelection: true,
     theme: {
       background: "#222436", foreground: "#c8d3f5", cursor: "#c8d3f5", cursorAccent: "#222436", selectionBackground: "#2d3f76", selectionForeground: "#c8d3f5",
@@ -260,6 +260,24 @@
     if (e.metaKey && !e.ctrlKey && !e.altKey && (/^[1-9]$/.test(e.key) || e.key === "n" || e.key === "b" || e.key === "k")) return false;
     return true;
   });
+  // A full-screen program that tracks the mouse scrolls itself, so the wheel has to reach it as mouse events. xterm sends
+  // one per whole line of movement, which feels slow with a trackpad; this sends one per fraction of a line instead.
+  let wheelRemainder = 0;
+  $("term").addEventListener("wheel", (e) => {
+    if (term.modes.mouseTrackingMode === "none" || e.ctrlKey) return;
+    e.preventDefault(); e.stopPropagation();
+    const screen = term.element.querySelector(".xterm-screen"); if (!screen) return;
+    const box = screen.getBoundingClientRect(), cellH = box.height / term.rows, cellW = box.width / term.cols;
+    const px = e.deltaMode === 1 ? e.deltaY * cellH : e.deltaMode === 2 ? e.deltaY * box.height : e.deltaY;
+    wheelRemainder += px / (cellH * 0.6);
+    const n = Math.max(-8, Math.min(8, Math.trunc(wheelRemainder)));
+    if (!n) return;
+    wheelRemainder -= n;
+    const col = Math.max(1, Math.min(term.cols, Math.floor((e.clientX - box.left) / cellW) + 1));
+    const row = Math.max(1, Math.min(term.rows, Math.floor((e.clientY - box.top) / cellH) + 1));
+    sendBytes(("\x1b[<" + (n < 0 ? 64 : 65) + ";" + col + ";" + row + "M").repeat(Math.abs(n)));
+  }, { capture: true, passive: false });
+
   // Cmd+V with an image and no text: Ctrl+V makes Claude Code read the clipboard image itself.
   $("term").addEventListener("paste", (e) => {
     const cd = e.clipboardData;
