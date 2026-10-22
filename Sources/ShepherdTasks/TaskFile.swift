@@ -105,6 +105,28 @@ public struct TaskFile: Sendable {
         touch(now: now)
     }
 
+    /// What the task came to, written when it is finished (the "## Result" section, replaced whole).
+    public var result: String? {
+        let lines = section("Result")
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    public mutating func setResult(_ text: String, now: Date = Date()) {
+        var lines = doc.body.components(separatedBy: "\n")
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
+            .map { $0.hasPrefix("## ") ? "- " + $0.dropFirst(3) : $0 }.joined(separator: "\n")
+        if let range = Self.findSection(lines, "Result") {
+            lines.replaceSubrange((range.start + 1)..<range.end, with: [body, ""])
+            doc.body = lines.joined(separator: "\n")
+        } else {
+            var existing = doc.body
+            if !existing.isEmpty && !existing.hasSuffix("\n") { existing += "\n" }
+            if !existing.isEmpty { existing += "\n" }
+            doc.body = "\(existing)## Result\n\(body)\n"
+        }
+        touch(now: now)
+    }
+
     public mutating func setBranch(_ name: String, now: Date = Date()) {
         doc.set("branch", .string(name))
         touch(now: now)
@@ -254,7 +276,7 @@ public func taskContext(_ t: TaskFile, max: Int = 9000, crook: String = "crook")
     if let b = t.branch { status += " | Branch: \(b)" }
     if let pr = t.pr { status += " | PR: \(pr)" }
     head.append(status)
-    head.append("Keep the task current with the crook CLI: `\(crook) task objective <id> <text>`, `\(crook) task plan <id> add|check|uncheck`, or rewrite the whole plan by piping one step per line into `\(crook) task plan <id> set` (checked steps keep their ticks), `\(crook) task log <id> <text>`, `\(crook) task status <id> review` when the work is ready for the user to look at. Never mark a task done yourself: that is the user's call. When you move a task to review, or hit a decision you cannot make without the user, call the PushNotification tool with a one-line message that leads with what they would act on; skip it for routine progress.")
+    head.append("Keep the task current with the crook CLI: `\(crook) task objective <id> <text>`, `\(crook) task plan <id> add|check|uncheck`, or rewrite the whole plan by piping one step per line into `\(crook) task plan <id> set` (checked steps keep their ticks), `\(crook) task log <id> <text>`, `\(crook) task status <id> review` when the work is ready for the user to look at. When the user asks you to wrap up, record what the task found, decided or changed (a few sentences, with any links) using `\(crook) task result <id> <text>`. Never mark a task done yourself: that is the user's call. When you move a task to review, or hit a decision you cannot make without the user, call the PushNotification tool with a one-line message that leads with what they would act on; skip it for routine progress.")
 
     let plan = t.section("Plan")
     let log = t.section("Log")

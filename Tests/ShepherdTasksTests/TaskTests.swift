@@ -19,6 +19,17 @@ struct TaskFileTests {
         #expect(t.serialize().contains("- 2026-10-11 09:30: started\n- 2026-10-11 09:30: more\n"))
     }
 
+    @Test func writesAResultSectionAndReplacesItWholeWithoutTouchingTheRest() {
+        var t = TaskFile.parse("---\nid: 1\ntitle: T\n---\n\n## Plan\n- [ ] a\n\n## Log\n- 2026-10-11 09:30: started\n")
+        #expect(t.result == nil)
+        t.setResult("First answer.\n## Not a heading", now: now)
+        #expect(t.result == "First answer.\n- Not a heading")
+        t.setResult("Second answer.", now: now)
+        #expect(t.result == "Second answer.")
+        #expect(t.serialize().components(separatedBy: "## Result").count == 2)
+        #expect(t.section("Plan") == ["- [ ] a"] && t.section("Log").count == 1)
+    }
+
     @Test func keepsTextAfterTheLogSectionsLastEntryInOrder() {
         var t = TaskFile.parse("---\nid: 1\n---\n## Log\n- old\n\n## Notes\nkeep\n")
         t.appendLog("new", now: now)

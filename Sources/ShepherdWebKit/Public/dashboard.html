@@ -168,7 +168,8 @@
       <span id="spacer"></span>
       <span id="meta"></span>
       <button id="resumeBtn" class="btn primary" hidden>Resume</button>
-      <button id="closeBtn" class="btn danger" hidden title="End this session">Close session</button>
+      <button id="doneBtn" class="btn primary" hidden title="Finish this task: its session writes a result, then ends">Done</button>
+      <button id="closeBtn" class="btn" hidden title="End this session but keep the task open">End session</button>
     </div>
     <div id="stage">
       <div id="banner">Disconnected, reconnecting…</div>
@@ -180,7 +181,7 @@
       <div id="boardBar">
         <input id="newTask" placeholder="New task, then Enter" autocomplete="off">
         <select id="newTaskProject" title="Folder the task starts in"></select>
-        <span id="boardHint">Tab or arrows move · Space details · Enter opens · E edit · [ ] status</span>
+        <span id="boardHint">Tab or arrows move · Space details · Enter opens · E edit · D done · [ ] status</span>
       </div>
       <div id="columns"></div>
       <div id="drawer">
@@ -406,7 +407,7 @@
     const s = selected && sessionById(selected);
     const chip = $("chip");
     if (!s) {
-      $("title").textContent = "Shepherd"; chip.hidden = true; $("resumeBtn").hidden = true; $("closeBtn").hidden = true;
+      $("title").textContent = "Shepherd"; chip.hidden = true; $("resumeBtn").hidden = true; $("closeBtn").hidden = true; $("doneBtn").hidden = true;
       showPlaceholder(sessions.length ? "Pick a session." : "No sessions yet.\nStart one with + New.");
       return;
     }
@@ -414,6 +415,7 @@
     $("title").textContent = s.title;
     chip.hidden = false; chip.className = kind; chip.textContent = labelOf(kind, s);
     $("closeBtn").hidden = false;
+    $("doneBtn").hidden = s.task_id == null;
     const live = !!holderOf(s.id);
     $("resumeBtn").hidden = live || kind !== "interrupted";
     if (live) { hidePlaceholder(); }
@@ -464,6 +466,7 @@
       .then(() => { let n = 0; const poll = setInterval(() => { sendCtl({ type: "list" }); refresh(); if (++n > 12 || (selected && holderOf(selected))) { clearInterval(poll); $("resumeBtn").disabled = false; } }, 500); })
       .catch(() => { $("resumeBtn").disabled = false; });
   });
+  $("doneBtn").addEventListener("click", () => { const s = selected && sessionById(selected); if (s && s.task_id != null) doDone(s.task_id, "#" + s.task_id + " " + s.title.replace(/^#\d+ /, "")); });
   $("closeBtn").addEventListener("click", () => {
     if (!selected) return;
     const s = sessionById(selected);
@@ -595,7 +598,8 @@
       meta.append(bar, n);
     }
     const live = bestState(sessionsOf(t));
-    if (live) meta.appendChild(chip(live.kind, stateText(live.kind)));
+    if (t.finishing) meta.appendChild(chip("working", "Wrapping up…"));
+    else if (live) meta.appendChild(chip(live.kind, stateText(live.kind)));
     else if (t.status === "active") meta.appendChild(chip("idle", "No live session"));
     if (t.project_path) { const f = document.createElement("span"); f.textContent = folder(t.project_path); meta.appendChild(f); }
     if (t.pr) { const a = document.createElement("a"); a.className = "pr"; a.href = t.pr; a.textContent = "PR"; a.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); openLink(t.pr); }); meta.appendChild(a); }
@@ -668,6 +672,23 @@
       loadTasks();
     } catch (e) { toast(e.message); }
   }
+  // Finishing a task: its session is asked to write a result, then the session ends and the task is done.
+  async function doDone(id, label, now) {
+    if (!now && !window.confirm("Mark " + label + " done? Its session is asked to write a result, then ended.")) return;
+    try {
+      const r = await api("/api/tasks/" + id + "/done" + (now ? "?now=1" : ""), "POST");
+      if (r.state === "wrapping") { toast("Wrapping up…"); pollDone(id); } else { toast(label + " is done"); }
+      loadTasks(); refresh();
+    } catch (e) { toast(e.message); }
+  }
+  function pollDone(id) {
+    let n = 0;
+    const timer = setInterval(async () => {
+      await loadTasks(); refresh();
+      const t = tasks.find((x) => x.id === id);
+      if (++n > 120 || !t || !t.finishing) { clearInterval(timer); if (t && t.status === "done") toast("#" + id + " is done"); }
+    }, 1000);
+  }
   function openSession(id) { setView("sessions"); select(id, { announce: true }); }
 
   // ---- task drawer --------------------------------------------------------------------------------
@@ -687,6 +708,7 @@
       section("Plan  " + t.progress_done + "/" + t.progress_total);
       for (const s of t.plan) { const d = document.createElement("div"); d.className = "step" + (s.done ? " done" : ""); d.textContent = (s.done ? "☑ " : "☐ ") + s.text; body.appendChild(d); }
     } else { section("Plan"); const p = document.createElement("p"); p.style.color = "var(--dim)"; p.textContent = "None yet. The agent writes it as it works."; body.appendChild(p); }
+    if (t.result) { section("Result"); const p = document.createElement("p"); p.textContent = t.result; body.appendChild(p); }
     const live = sessionsOf(t);
     section("Sessions");
     if (!live.length) { const p = document.createElement("p"); p.style.color = "var(--dim)"; p.textContent = t.session_ids.length ? "None running. Start picks the conversation back up." : "None yet."; body.appendChild(p); }
@@ -708,7 +730,11 @@
     const sel = document.createElement("select");
     for (const st of FLOW) { const o = document.createElement("option"); o.value = st; o.textContent = st === "active" ? "In progress" : st[0].toUpperCase() + st.slice(1); if (st === t.status) o.selected = true; sel.appendChild(o); }
     sel.addEventListener("change", () => setStatus(t.id, sel.value));
-    buttons.append(go, sel, editBtn, delBtn);
+    const doneBtn = document.createElement("button"); doneBtn.className = "btn";
+    if (t.finishing) { doneBtn.textContent = "Done now"; doneBtn.title = "Skip waiting for the result"; doneBtn.addEventListener("click", () => doDone(t.id, "#" + t.id, true)); }
+    else if (t.status === "done") { doneBtn.textContent = "Reopen"; doneBtn.addEventListener("click", async () => { try { await api("/api/tasks/" + t.id + "/reopen", "POST"); await loadTasks(); } catch (e) { toast(e.message); } }); }
+    else { doneBtn.textContent = "Done"; doneBtn.addEventListener("click", () => doDone(t.id, "#" + t.id + " " + t.title)); }
+    buttons.append(go, sel, doneBtn, editBtn, delBtn);
   }
 
   function editTask(t) {
@@ -778,6 +804,11 @@
       return;
     }
     if (!boardSel) return;
+    if ((e.key === "d" || e.key === "D") && boardSel.kind === "task") {
+      e.preventDefault();
+      const t = tasks.find((x) => x.id === boardSel.id); if (t && t.status !== "done" && !t.finishing) doDone(t.id, "#" + t.id + " " + t.title);
+      return;
+    }
     if (e.key === " " && boardSel.kind === "task") { e.preventDefault(); if (drawerId === boardSel.id) closeDrawer(); else openDrawerFor(boardSel.id); return; }
     if ((e.key === "e" || e.key === "E") && boardSel.kind === "task") {
       e.preventDefault();
@@ -797,7 +828,7 @@
   // ---- omnibar ------------------------------------------------------------------------------------
   const MODES = ["switch", "new", "task"];
   const PLACEHOLDER = { switch: "Go to a session or task…", new: "Start a session in a project…", task: "Capture a task: type its title, then ⌘⏎ to add it" };
-  const HINT = { switch: "⏎ go · ⇥ next mode", new: "⏎ start · ⇥ next mode", task: "⏎ add · ⌘⏎ add and start · ⇥ next mode" };
+  const HINT = { switch: "⏎ go · ⌘D done · ⇥ next mode", new: "⏎ start · ⇥ next mode", task: "⏎ add · ⌘⏎ add and start · ⇥ next mode" };
   let omniMode = "switch", omniItems = [], omniIndex = 0, projectList = [];
 
   function fuzzy(text, query) {
@@ -821,10 +852,10 @@
     const q = omniQuery();
     if (omniMode === "switch") {
       const out = [];
-      for (const x of sessions) { const f = fuzzy(x.title + " " + folder(x.working_directory), q); if (f) out.push({ f, kind: "session", id: x.id, title: x.title, sub: stateText(stateOf(x)), state: stateOf(x), run: () => openSession(x.id) }); }
+      for (const x of sessions) { const f = fuzzy(x.title + " " + folder(x.working_directory), q); if (f) out.push({ f, kind: "session", id: x.id, taskId: x.task_id, title: x.title, sub: stateText(stateOf(x)), state: stateOf(x), run: () => openSession(x.id) }); }
       for (const t of tasks) {
         if (t.status === "done" || sessionsOf(t).length) continue;
-        const f = fuzzy("#" + t.id + " " + t.title, q); if (f) out.push({ f: f - 0.5, kind: "task", title: "#" + t.id + " " + t.title, sub: t.session_ids.length ? "resume" : "start", state: "idle", run: () => startTask(t) });
+        const f = fuzzy("#" + t.id + " " + t.title, q); if (f) out.push({ f: f - 0.5, kind: "task", taskId: t.id, title: "#" + t.id + " " + t.title, sub: t.session_ids.length ? "resume" : "start", state: "idle", run: () => startTask(t) });
       }
       return q ? out.sort((a, b) => b.f - a.f) : out;
     }
@@ -893,6 +924,11 @@
     if (e.key === "ArrowDown") { e.preventDefault(); omniIndex = Math.min(omniItems.length - 1, omniIndex + 1); renderOmni(); return; }
     if (e.key === "ArrowUp") { e.preventDefault(); omniIndex = Math.max(0, omniIndex - 1); renderOmni(); return; }
     if (e.key === "Enter") { e.preventDefault(); if (omniMode === "task" && e.metaKey) addTask(true); else runOmni(); return; }
+    if (e.key === "d" && e.metaKey && omniMode === "switch") {
+      e.preventDefault();
+      const it = omniItems[omniIndex]; if (it && it.taskId != null) { closeOmni(); doDone(it.taskId, it.title); }
+      return;
+    }
     if (e.key === "Backspace" && !$("omni").value && omniMode !== "switch") { e.preventDefault(); setOmniMode("switch"); return; }
     if (e.key === "Escape") { e.preventDefault(); if ($("omni").value) { $("omni").value = ""; renderOmni(); } else leaveOmni(); }
   });

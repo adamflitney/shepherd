@@ -379,22 +379,39 @@ public actor HolderSessionBackend: SessionBackend {
         return try? taskStore.update(made.id) { $0.linkSession(sessionID); $0.setStatus(.active) }
     }
 
-    /// A task that still has the placeholder title takes the title Claude Code itself generates for the conversation (the
-    /// `ai-title` entries in its transcript) as soon as there is one. After that the title is the user's to change.
+    /// A task started from a bare session has nothing but a placeholder title. Once the conversation exists it takes Claude
+    /// Code's own title for it (the `ai-title` entries in the transcript) and, if it has no objective, the first thing the
+    /// user typed. After that both are the user's to change, so neither is ever overwritten.
     private func retitledFromTranscript(_ task: TaskFile, record: SessionRecord, sessionID: String) -> TaskFile {
-        guard task.title.hasPrefix(placeholderTitlePrefix) else { return task }
+        let needsTitle = task.title.hasPrefix(placeholderTitlePrefix)
+        guard needsTitle || task.objective == nil else { return task }
         let url = TranscriptPeek.transcriptURL(workingDirectory: record.cwd, sessionID: sessionID, home: home)
         guard let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
               titleChecked[sessionID] != modified else { return task }
         titleChecked[sessionID] = modified
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return task }
         var title: String?
-        for line in text.split(separator: "\n") where line.contains("\"ai-title\"") {
-            if let data = line.data(using: .utf8), let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-               let candidate = object["aiTitle"] as? String { title = candidate }
+        var firstPrompt: String?
+        for line in text.split(separator: "\n") {
+            let isTitle = line.contains("\"ai-title\""), isUser = firstPrompt == nil && line.contains("\"type\":\"user\"")
+            guard isTitle || isUser,
+                  let data = line.data(using: .utf8), let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
+            if isTitle, let candidate = object["aiTitle"] as? String { title = candidate }
+            if firstPrompt == nil, object["type"] as? String == "user", (object["origin"] as? [String: Any])?["kind"] as? String == "human",
+               let message = object["message"] as? [String: Any], let content = message["content"] as? String {
+                let words = content.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+                if !words.isEmpty, !words.hasPrefix("<"), words != Self.defaultTaskPrompt {
+                    firstPrompt = words.count > 500 ? String(words.prefix(500)) + "…" : words
+                }
+            }
         }
-        guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title.count <= 200 else { return task }
-        return (try? taskStore.update(task.id) { $0.setTitle(title) }) ?? task
+        let newTitle = needsTitle ? title?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        let newObjective = task.objective == nil ? firstPrompt : nil
+        guard (newTitle?.isEmpty == false && newTitle!.count <= 200) || newObjective != nil else { return task }
+        return (try? taskStore.update(task.id) {
+            if let newTitle, !newTitle.isEmpty, newTitle.count <= 200 { $0.setTitle(newTitle) }
+            if let newObjective { $0.setObjective(newObjective) }
+        }) ?? task
     }
 
     private func resumableSession(of task: TaskFile?, in cwd: String) -> String? {

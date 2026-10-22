@@ -8,6 +8,8 @@ import Testing
 private actor RecordingBackend: SessionBackend {
     let inner: FakeSessionBackend
     private(set) var created: [CreateSessionRequest] = []
+    private(set) var prompts: [String] = []
+    private(set) var closed: [SessionID] = []
     init(sessions: [Session] = []) { inner = FakeSessionBackend(sessions: sessions) }
     func snapshot() async throws -> SessionsSnapshot { try await inner.snapshot() }
     nonisolated func events() -> AsyncStream<BackendEvent> { inner.events() }
@@ -16,8 +18,8 @@ private actor RecordingBackend: SessionBackend {
         created.append(request)
         return try await inner.createSession(request)
     }
-    func close(_ id: SessionID) async throws { try await inner.close(id) }
-    func prompt(_ id: SessionID, text: String) async throws { try await inner.prompt(id, text: text) }
+    func close(_ id: SessionID) async throws { closed.append(id); try await inner.close(id) }
+    func prompt(_ id: SessionID, text: String) async throws { prompts.append(text); try await inner.prompt(id, text: text) }
     func peek(_ id: SessionID) async throws -> String { try await inner.peek(id) }
     func respond(_ id: SessionID, keys: [String]) async throws { try await inner.respond(id, keys: keys) }
 }
@@ -193,4 +195,74 @@ private func array(_ response: HTTPServer.Response) -> [[String: Any]] {
     #expect((await api.handle(request("POST", "/api/tasks/\(gone.id)/delete"))).status == 200)
     #expect(rig.store.get(gone.id) == nil)
     #expect((await api.handle(request("POST", "/api/tasks/\(gone.id)/delete"))).status == 404)
+}
+
+private func liveSession(_ id: Int, summary: String? = nil, kind: AttentionState.Kind = .idle) -> Session {
+    Session(id: SessionID(rawValue: "live-\(id)"), title: "Running", agent: .claude, attention: AttentionState(kind: kind, summary: summary),
+            group: SessionGroup(id: "task-\(id)", label: "Task"), capabilities: [.focus, .prompt, .close])
+}
+
+@Test func doneOnATaskWithNothingRunningFinishesAtOnce() async throws {
+    let rig = try Rig()
+    let t = try rig.store.create(NewTask(title: "Quiet"))
+    let response = await rig.api(RecordingBackend()).handle(request("POST", "/api/tasks/\(t.id)/done"))
+    #expect(object(response)["state"] as? String == "done")
+    #expect(rig.store.get(t.id)?.status == .done)
+}
+
+@Test func doneAsksTheSessionForAResultThenEndsItAndFinishesTheTask() async throws {
+    let rig = try Rig()
+    let t = try rig.store.create(NewTask(title: "Investigate"))
+    let backend = RecordingBackend(sessions: [liveSession(t.id, summary: "fallback line")])
+    var api = rig.api(backend)
+    api.finishWait = 5
+    let response = await api.handle(request("POST", "/api/tasks/\(t.id)/done"))
+    #expect(object(response)["state"] as? String == "wrapping")
+    #expect(array(await api.handle(request("GET", "/api/tasks"))).first?["finishing"] as? Bool == true)
+
+    try await Task.sleep(nanoseconds: 700_000_000)
+    _ = try rig.store.update(t.id) { $0.setResult("Found it: the limit lives in the basket service.") }
+    for _ in 0..<40 where rig.store.get(t.id)?.status != .done { try await Task.sleep(nanoseconds: 100_000_000) }
+    #expect(rig.store.get(t.id)?.status == .done)
+    #expect(rig.store.get(t.id)?.result == "Found it: the limit lives in the basket service.")
+    #expect(await backend.prompts.count == 1)
+    #expect(await backend.closed.count == 1)
+    #expect(array(await api.handle(request("GET", "/api/tasks"))).first?["finishing"] as? Bool == false)
+}
+
+@Test func doneFallsBackToTheSessionSummaryWhenNoResultIsWritten() async throws {
+    let rig = try Rig()
+    let t = try rig.store.create(NewTask(title: "Silent agent"))
+    var api = rig.api(RecordingBackend(sessions: [liveSession(t.id, summary: "Counted 14 resellers.")]))
+    api.finishWait = 0.6
+    _ = await api.handle(request("POST", "/api/tasks/\(t.id)/done"))
+    for _ in 0..<40 where rig.store.get(t.id)?.status != .done { try await Task.sleep(nanoseconds: 100_000_000) }
+    #expect(rig.store.get(t.id)?.status == .done)
+    #expect(rig.store.get(t.id)?.result == "Counted 14 resellers.")
+}
+
+@Test func aBlockedSessionIsNotTypedAtAndDoneNowSkipsTheWait() async throws {
+    let rig = try Rig()
+    let t = try rig.store.create(NewTask(title: "Waiting on you"))
+    let backend = RecordingBackend(sessions: [liveSession(t.id, kind: .blocked)])
+    var api = rig.api(backend)
+    api.finishWait = 0.3
+    _ = await api.handle(request("POST", "/api/tasks/\(t.id)/done"))
+    for _ in 0..<40 where rig.store.get(t.id)?.status != .done { try await Task.sleep(nanoseconds: 100_000_000) }
+    #expect(await backend.prompts.isEmpty)
+    #expect(rig.store.get(t.id)?.status == .done)
+
+    let u = try rig.store.create(NewTask(title: "Now"))
+    let quick = rig.api(RecordingBackend(sessions: [liveSession(u.id)]))
+    let response = await quick.handle(HTTPServer.Request(method: "POST", path: "/api/tasks/\(u.id)/done", query: ["now": "1"], headers: [:], body: Data()))
+    #expect(object(response)["state"] as? String == "done")
+}
+
+@Test func reopenPutsADoneTaskBackToActive() async throws {
+    let rig = try Rig()
+    let t = try rig.store.create(NewTask(title: "Again"))
+    _ = try rig.store.update(t.id) { $0.setStatus(.done) }
+    let response = await rig.api(RecordingBackend()).handle(request("POST", "/api/tasks/\(t.id)/reopen"))
+    #expect(response.status == 200)
+    #expect(rig.store.get(t.id)?.status == .active)
 }

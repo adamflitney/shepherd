@@ -12,6 +12,7 @@ crook task <command>
   link <id> [--session <id>]     (defaults to $CLAUDE_CODE_SESSION_ID)
   status <id> <\(TaskStatus.allCases.map(\.rawValue).joined(separator: "|"))>
   title <id> <text>
+  result <id> <text>             (what the task came to, written when it is wrapped up)
   objective <id> <text>
   log <id> <text>
   plan <id> add <text> | check <n> | uncheck <n> | set   (set reads one step per line from stdin)
@@ -146,6 +147,10 @@ func main() {
             let text = rest.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
             if text.isEmpty { fail("title needs text") }
             try store.update(taskID(rest.first)) { $0.setTitle(text) }
+        case "result":
+            let text = rest.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            if text.isEmpty { fail("result needs text") }
+            try store.update(taskID(rest.first)) { $0.setResult(text) }
         case "log":
             let text = rest.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
             if text.isEmpty { fail("log needs text") }

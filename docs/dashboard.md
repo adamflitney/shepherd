@@ -460,3 +460,40 @@ tech, not from Electron"). The spikes above were run to settle it.
    - **Open:** whether Switch should also search finished tasks, project names and PR titles; recent-first ordering for
      New (the panel ranks folders by use, the bar uses the server's order); a Task-mode folder picker (it uses the default
      folder today); whether ⌘K should also be reachable while the terminal has a program that wants ⌘K (none known).
+
+8. **Task structure and finishing (designed 2026-10-22; Done, Reopen and the stored result are built, the rest is not).** Tasks are of very different shapes, and
+   everything so far is tuned for one-and-done ones. The shapes (from the user): a **quick question** whose answer is
+   definitive and whose session is not needed again but must stay findable; a **long-lived topic** (the reseller
+   investigation: many questions, MCP calls, scripts) that must be pickable up again with its findings, scripts and
+   conversation; a **change across several repos** that needs coordinating; a **complex feature in one repo** broken into
+   several tasks and PRs, worked **one after the other** (stacked PRs rejected: review changes make them too painful).
+   - **One structure, not four types:** a task that can contain tasks. Every task starts as a leaf; "split into
+     subtasks" turns it into a parent. The properties that differ (what it produces: an answer, a PR or an artefact; its
+     folders; whether it is ordered) live on the task, nothing is classified up front. Quick question = a leaf. Topic =
+     a parent that stays open with a child per question. Multi-repo = a parent with a child per repo. Sequential
+     feature = a parent whose children are PR-sized and ordered.
+   - **Finishing (built first, because it does not depend on the hierarchy).** One **Done** action, the same on every
+     task, from the session header, `D` on the board, the drawer, and the omnibar. It (1) asks the task's live session to
+     write a short result (`crook task result <id> <text>`, stored in a `## Result` section), waiting up to about a
+     minute and falling back to the session's own summary line so Done can never hang; (2) ends the task's sessions
+     (their conversations stay resumable in Claude's history); (3) sets the status to done. **Reopen** puts a done task
+     back to active and shows Resume. Only the user can mark a task done; agents still cannot. The session header's
+     "Close session" (which ended the session but left its task active) becomes Done plus a quieter "End session".
+     On a **parent with open children**, Done asks and defaults to finishing all of them.
+   - **Next, in order:** (2) parent link, a Subtasks list in the drawer, roll-up on the card, "new subtask here" in the
+     omnibar; (3) a Notes section agents append to, a per-task **workspace folder** (`~/.shepherd/workspaces/<id>/`) for
+     scripts that belong to no repo, and **Pick up**: resume the old conversation, or start a fresh session handed the
+     notes and workspace (a very long conversation is often better replaced than resumed); (4) ordered children: only the
+     next one is startable, a merged PR (already detected) offers "start the next", each child begins from fresh main;
+     (5) multi-repo: a lead session *proposes* sessions in other folders, shown as "Needs you" on the board, and they start
+     only when approved.
+   - **Rejected:** a separate project/epic entity (one more concept; a task that grows into a parent is more natural);
+     labels only (no roll-up of progress or state); a global parent session across tasks (it accumulates unrelated
+     context; the task file is the durable state); agents splitting work and spawning sessions unasked (cost multiplies and
+     nobody notices); worktrees and stacked PRs for the one-repo feature (sequential children make them unnecessary).
+   - **Open:** how a long-lived topic is shown so it does not sit in the board's flow forever (an ongoing state, or its own
+     view); whether a parent's status is derived from its children (leaning yes); real dependencies between children versus
+     telling the agents; the Notes and handoff size (task context is capped near 9,000 characters, so parents need a
+     maintained summary); what Done does to a task with an open PR (warn, do not block); searching done tasks from the omnibar.
+   - **Optional:** an "End session only" shortcut; an automatic result when the agent does not answer; a Reference view
+     of finished tasks.

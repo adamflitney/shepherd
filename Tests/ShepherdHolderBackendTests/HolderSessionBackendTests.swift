@@ -254,7 +254,8 @@ struct HolderSessionBackendTests {
         func write(_ id: SessionID, _ title: String) throws {
             let url = TranscriptPeek.transcriptURL(workingDirectory: "/tmp", sessionID: id.rawValue, home: rig.root.appendingPathComponent("home"))
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data("{\"type\":\"user\"}\n{\"type\":\"ai-title\",\"aiTitle\":\"\(title)\"}\n".utf8).write(to: url)
+            let prompt = #"{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"look at the   limit\nplease"}}"#
+            try Data("\(prompt)\n{\"type\":\"ai-title\",\"aiTitle\":\"\(title)\"}\n".utf8).write(to: url)
         }
         try write(placeholder, "Subscription limit work")
         try write(chosen, "Something else")
@@ -262,6 +263,8 @@ struct HolderSessionBackendTests {
         let a = try #require(rig.tasks.findBySession(placeholder.rawValue)), b = try #require(rig.tasks.findBySession(chosen.rawValue))
         #expect(titles[placeholder] == "#\(a.id) Subscription limit work")
         #expect(rig.tasks.get(a.id)?.title == "Subscription limit work")
+        #expect(rig.tasks.get(a.id)?.objective == "look at the limit please")
+        #expect(rig.tasks.get(b.id)?.objective == "look at the limit please")
         #expect(titles[chosen] == "#\(b.id) My own title")
     }
 

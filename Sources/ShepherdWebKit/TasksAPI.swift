@@ -19,12 +19,14 @@ private struct TaskWire: Encodable {
     let branch: String?
     let pr: String?
     let updated: String?
+    var finishing = false
     /// Only in the detail response.
     var plan: [PlanStepWire]?
     var log: [String]?
+    var result: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, objective, status, branch, pr, updated, plan, log
+        case id, title, objective, status, branch, pr, updated, plan, log, finishing, result
         case projectPath = "project_path"
         case progressDone = "progress_done"
         case progressTotal = "progress_total"
@@ -32,12 +34,14 @@ private struct TaskWire: Encodable {
     }
 }
 
-private func wire(_ task: TaskFile, detail: Bool = false) -> TaskWire {
+private func wire(_ task: TaskFile, detail: Bool = false, finishing: Bool = false) -> TaskWire {
     let progress = task.progress
     var out = TaskWire(
         id: task.id, title: task.title, objective: task.objective, projectPath: task.projectPath, status: task.status.rawValue,
         progressDone: progress.done, progressTotal: progress.total, sessionIDs: task.sessions, branch: task.branch, pr: task.pr,
         updated: task.updated)
+    out.finishing = finishing
+    out.result = task.result
     if detail {
         out.plan = task.plan.map { PlanStepWire(text: $0.text, done: $0.done) }
         out.log = Array(task.logEntries.suffix(40))
@@ -69,8 +73,20 @@ private struct FromSessionBody: Decodable {
 /// The task board's data and actions. Tasks live in files (`ShepherdTasks`); this serves them to the dashboard page and
 /// does what the panel's Tasks tab does: start a task's session, or go to it when it has one. The server's rule is the
 /// same as for the phone: a session only starts in a folder the server offers (`startTargets`).
+/// Tasks whose sessions are being asked to write a result before they are ended. Shared by every copy of `TasksAPI`.
+actor FinishCoordinator {
+    private var running: Set<Int> = []
+    func begin(_ id: Int) -> Bool { running.insert(id).inserted }
+    func end(_ id: Int) { running.remove(id) }
+    func isFinishing(_ id: Int) -> Bool { running.contains(id) }
+    func all() -> Set<Int> { running }
+}
+
 struct TasksAPI {
     let backend: any SessionBackend
+    var finisher = FinishCoordinator()
+    /// How long a session gets to write its result before Done falls back to its own summary line.
+    var finishWait: TimeInterval = 60
     var store: @Sendable () -> TaskStore = { TaskStore() }
     var config: @Sendable () -> ShepherdConfig = { ShepherdConfig.load() }
     /// Done tasks shown on the board (most recently changed first).
@@ -81,15 +97,17 @@ struct TasksAPI {
     func handle(_ request: HTTPServer.Request) async -> HTTPServer.Response {
         let parts = request.path.split(separator: "/").map(String.init)
         do {
-            if request.method == "GET", parts == ["api", "tasks"] { return try list() }
+            if request.method == "GET", parts == ["api", "tasks"] { return try await list() }
             if request.method == "POST", parts == ["api", "tasks"] { return try create(request) }
             if request.method == "POST", parts == ["api", "tasks", "from-session"] { return try await promote(request) }
             if parts.count >= 3, parts[0] == "api", parts[1] == "tasks", let id = Int(parts[2]) {
-                if request.method == "GET", parts.count == 3 { return try detail(id) }
+                if request.method == "GET", parts.count == 3 { return try await detail(id) }
                 if request.method == "POST", parts.count == 4, parts[3] == "status" { return try setStatus(id, request) }
                 if request.method == "POST", parts.count == 4, parts[3] == "start" { return try await start(id) }
                 if request.method == "POST", parts.count == 4, parts[3] == "edit" { return try edit(id, request) }
                 if request.method == "POST", parts.count == 4, parts[3] == "delete" { return try await delete(id) }
+                if request.method == "POST", parts.count == 4, parts[3] == "done" { return try await finish(id, immediately: request.query["now"] == "1") }
+                if request.method == "POST", parts.count == 4, parts[3] == "reopen" { return try reopen(id) }
             }
             return .notFound()
         } catch let error as TaskError {
@@ -105,16 +123,17 @@ struct TasksAPI {
         .json((try? JSONEncoder().encode(ErrorWire(error: message))) ?? Data(), status: status)
     }
 
-    private func list() throws -> HTTPServer.Response {
+    private func list() async throws -> HTTPServer.Response {
+        let finishing = await finisher.all()
         let all = store().list()
         let open = all.filter { $0.status != .done }
         let done = all.filter { $0.status == .done }.sorted { ($0.updated ?? "") > ($1.updated ?? "") }.prefix(doneLimit)
-        return .json(try JSONEncoder().encode((open + done).map { wire($0) }))
+        return .json(try JSONEncoder().encode((open + done).map { wire($0, finishing: finishing.contains($0.id)) }))
     }
 
-    private func detail(_ id: Int) throws -> HTTPServer.Response {
+    private func detail(_ id: Int) async throws -> HTTPServer.Response {
         guard let task = store().get(id) else { return fail("no task \(id)", 404) }
-        return .json(try JSONEncoder().encode(wire(task, detail: true)))
+        return .json(try JSONEncoder().encode(wire(task, detail: true, finishing: await finisher.isFinishing(id))))
     }
 
     private func create(_ request: HTTPServer.Request) throws -> HTTPServer.Response {
@@ -151,6 +170,52 @@ struct TasksAPI {
             if let objective = body.objective?.trimmingCharacters(in: .whitespacesAndNewlines), !objective.isEmpty { $0.setObjective(objective) }
         }
         return .json(try JSONEncoder().encode(wire(task, detail: true)))
+    }
+
+    /// Done: the task's live sessions are asked to write a result, then ended, then the task is done. With `immediately`
+    /// (or when nothing is running) it skips the asking. The asking happens in the background so the page can show
+    /// "wrapping up" and a stuck agent can never hold the request.
+    private func finish(_ id: Int, immediately: Bool) async throws -> HTTPServer.Response {
+        guard let task = store().get(id) else { return fail("no task \(id)", 404) }
+        guard task.status != .done else { return .json(Data(#"{"state":"done"}"#.utf8)) }
+        let live = try await backend.snapshot().sessions.filter { $0.group?.id == "task-\(id)" }
+        if immediately || live.isEmpty {
+            await conclude(id, live: live, summary: nil)
+            return .json(Data(#"{"state":"done"}"#.utf8))
+        }
+        guard await finisher.begin(id) else { return .json(Data(#"{"state":"wrapping"}"#.utf8)) }
+        let before = task.result, wait = finishWait, store = store(), backend = backend, finisher = finisher
+        let me = self
+        Task.detached {
+            let asked = live.first { $0.capabilities.contains(.prompt) && $0.attention.kind != .blocked && $0.attention.kind != .unknown }
+            if let asked {
+                try? await backend.prompt(asked.id, text: "The user is marking task #\(id) done. Do not do anything else: record what the task found, decided or changed (two to five sentences, with any links) with the crook CLI exactly as your task context describes it (same path), as `task result \(id) \"<text>\"`. Then stop.")
+            }
+            let deadline = Date().addingTimeInterval(wait)
+            while asked != nil, Date() < deadline {
+                if let now = store.get(id)?.result, now != before { break }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+            await me.conclude(id, live: live, summary: asked?.attention.summary)
+            await finisher.end(id)
+        }
+        return .json(Data(#"{"state":"wrapping"}"#.utf8))
+    }
+
+    /// Ends the sessions, keeps a result (the session's own summary line when none was written) and marks the task done.
+    func conclude(_ id: Int, live: [Session], summary: String?) async {
+        for session in live { try? await backend.close(session.id) }
+        let current = store().get(id)
+        _ = try? store().update(id) {
+            if current?.result == nil, let summary, !summary.isEmpty { $0.setResult(summary) }
+            $0.setStatus(.done)
+        }
+    }
+
+    private func reopen(_ id: Int) throws -> HTTPServer.Response {
+        guard store().get(id) != nil else { return fail("no task \(id)", 404) }
+        let task = try store().update(id) { $0.setStatus(.active) }
+        return .json(try JSONEncoder().encode(wire(task)))
     }
 
     /// A task with a session still running is not deleted from under it.
