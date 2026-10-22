@@ -45,6 +45,23 @@ public enum TranscriptPeek {
         return messages
     }
 
+    /// The whole conversation as plain text (who said what), newest messages kept when it is longer than
+    /// `maxCharacters`. Reads the entire file, so it is for a deliberate "show me the transcript", not for polling.
+    public static func conversationText(at url: URL, maxCharacters: Int = 60_000) -> String? {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count < 60_000_000 else { return nil }
+        var parts: [String] = []
+        for line in String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let obj = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+                  let type = obj["type"] as? String, type == "user" || type == "assistant",
+                  let message = obj["message"] as? [String: Any],
+                  let text = plainText(message["content"]), !text.isEmpty else { continue }
+            parts.append((type == "user" ? "You" : "Claude") + "\n" + text)
+        }
+        var out = parts.joined(separator: "\n\n")
+        if out.count > maxCharacters { out = "… (earlier messages left out)\n\n" + out.suffix(maxCharacters) }
+        return out
+    }
+
     /// Text blocks only: tool calls and results are noise in a peek. Returns nil for a message that
     /// is nothing but tool traffic.
     private static func plainText(_ content: Any?) -> String? {

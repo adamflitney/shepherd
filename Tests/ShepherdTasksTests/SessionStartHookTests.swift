@@ -15,6 +15,18 @@ struct SessionStartHookTests {
         return h["additionalContext"] as? String
     }
 
+    @Test func aStartedSessionNotesWhereItRanOnce() throws {
+        let store = makeStore()
+        let t = try store.create(NewTask(title: "Board"))
+        try store.update(t.id) { $0.linkSession("s1") }
+        _ = sessionStartHookOutput(SessionStartInput(sessionID: "s1", cwd: "/Users/me/Dev/web"), env: [:], store: store)
+        let updated = store.get(t.id)?.updated
+        _ = sessionStartHookOutput(SessionStartInput(sessionID: "s1", cwd: "/Users/me/Dev/elsewhere"), env: [:], store: store)
+        let notes = try #require(store.get(t.id)).sessionNotes
+        #expect(notes.map(\.cwd) == ["/Users/me/Dev/web"])
+        #expect(store.get(t.id)?.updated == updated)
+    }
+
     @Test func injectsThePlanAndLogOfTheLinkedTask() throws {
         let store = makeStore()
         let t = try store.create(NewTask(title: "Board", objective: "ship it"))

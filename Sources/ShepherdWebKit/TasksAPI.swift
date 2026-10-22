@@ -1,6 +1,20 @@
 import Foundation
 import ShepherdCore
+import ShepherdGhostty
 import ShepherdTasks
+
+private struct SessionNoteWire: Encodable {
+    let id: String
+    let cwd: String
+    let started: String
+    let title: String?
+}
+
+private struct ChildWire: Encodable {
+    let id: Int
+    let title: String
+    let status: String
+}
 
 private struct PlanStepWire: Encodable {
     let text: String
@@ -20,13 +34,22 @@ private struct TaskWire: Encodable {
     let pr: String?
     let updated: String?
     var finishing = false
+    let parentID: Int?
+    var subtasksDone = 0
+    var subtasksTotal = 0
     /// Only in the detail response.
+    var sessionNotes: [SessionNoteWire]?
+    var children: [ChildWire]?
     var plan: [PlanStepWire]?
     var log: [String]?
     var result: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, objective, status, branch, pr, updated, plan, log, finishing, result
+        case id, title, objective, status, branch, pr, updated, plan, log, finishing, result, children
+        case parentID = "parent_id"
+        case subtasksDone = "subtasks_done"
+        case subtasksTotal = "subtasks_total"
+        case sessionNotes = "session_notes"
         case projectPath = "project_path"
         case progressDone = "progress_done"
         case progressTotal = "progress_total"
@@ -34,17 +57,21 @@ private struct TaskWire: Encodable {
     }
 }
 
-private func wire(_ task: TaskFile, detail: Bool = false, finishing: Bool = false) -> TaskWire {
+private func wire(_ task: TaskFile, detail: Bool = false, finishing: Bool = false, children: [TaskFile] = []) -> TaskWire {
     let progress = task.progress
     var out = TaskWire(
         id: task.id, title: task.title, objective: task.objective, projectPath: task.projectPath, status: task.status.rawValue,
         progressDone: progress.done, progressTotal: progress.total, sessionIDs: task.sessions, branch: task.branch, pr: task.pr,
-        updated: task.updated)
+        updated: task.updated, parentID: task.parent)
+    out.subtasksTotal = children.count
+    out.subtasksDone = children.filter { $0.status == .done }.count
     out.finishing = finishing
     out.result = task.result
     if detail {
         out.plan = task.plan.map { PlanStepWire(text: $0.text, done: $0.done) }
         out.log = Array(task.logEntries.suffix(40))
+        out.sessionNotes = task.sessionNotes.map { SessionNoteWire(id: $0.id, cwd: $0.cwd, started: $0.started, title: $0.title) }
+        out.children = children.map { ChildWire(id: $0.id, title: $0.title, status: $0.status.rawValue) }
     }
     return out
 }
@@ -58,7 +85,12 @@ private struct NewTaskBody: Decodable {
     let title: String
     let objective: String?
     let projectPath: String?
-    enum CodingKeys: String, CodingKey { case title, objective, projectPath = "project_path" }
+    let parentID: Int?
+    enum CodingKeys: String, CodingKey { case title, objective, projectPath = "project_path", parentID = "parent_id" }
+}
+private struct ResumeBody: Decodable {
+    let sessionID: String
+    enum CodingKeys: String, CodingKey { case sessionID = "session_id" }
 }
 private struct StatusBody: Decodable { let status: String }
 private struct EditBody: Decodable {
@@ -87,6 +119,7 @@ struct TasksAPI {
     var finisher = FinishCoordinator()
     /// How long a session gets to write its result before Done falls back to its own summary line.
     var finishWait: TimeInterval = 60
+    var home = FileManager.default.homeDirectoryForCurrentUser
     var store: @Sendable () -> TaskStore = { TaskStore() }
     var config: @Sendable () -> ShepherdConfig = { ShepherdConfig.load() }
     /// Done tasks shown on the board (most recently changed first).
@@ -106,8 +139,10 @@ struct TasksAPI {
                 if request.method == "POST", parts.count == 4, parts[3] == "start" { return try await start(id) }
                 if request.method == "POST", parts.count == 4, parts[3] == "edit" { return try edit(id, request) }
                 if request.method == "POST", parts.count == 4, parts[3] == "delete" { return try await delete(id) }
-                if request.method == "POST", parts.count == 4, parts[3] == "done" { return try await finish(id, immediately: request.query["now"] == "1") }
+                if request.method == "POST", parts.count == 4, parts[3] == "done" { return try await finish(id, immediately: request.query["now"] == "1", includeChildren: request.query["children"] == "1") }
                 if request.method == "POST", parts.count == 4, parts[3] == "reopen" { return try reopen(id) }
+                if request.method == "POST", parts.count == 4, parts[3] == "resume" { return try await resume(id, request) }
+                if request.method == "GET", parts.count == 4, parts[3] == "transcript" { return transcript(id, request) }
             }
             return .notFound()
         } catch let error as TaskError {
@@ -128,12 +163,13 @@ struct TasksAPI {
         let all = store().list()
         let open = all.filter { $0.status != .done }
         let done = all.filter { $0.status == .done }.sorted { ($0.updated ?? "") > ($1.updated ?? "") }.prefix(doneLimit)
-        return .json(try JSONEncoder().encode((open + done).map { wire($0, finishing: finishing.contains($0.id)) }))
+        let wires = (open + done).map { task in wire(task, finishing: finishing.contains(task.id), children: all.filter { $0.parent == task.id }) }
+        return .json(try JSONEncoder().encode(wires))
     }
 
     private func detail(_ id: Int) async throws -> HTTPServer.Response {
         guard let task = store().get(id) else { return fail("no task \(id)", 404) }
-        return .json(try JSONEncoder().encode(wire(task, detail: true, finishing: await finisher.isFinishing(id))))
+        return .json(try JSONEncoder().encode(wire(task, detail: true, finishing: await finisher.isFinishing(id), children: store().children(of: id))))
     }
 
     private func create(_ request: HTTPServer.Request) throws -> HTTPServer.Response {
@@ -147,8 +183,9 @@ struct TasksAPI {
             }
             project = target.path
         }
+        if project == nil, let parent = body.parentID, let inherited = store().get(parent)?.projectPath { project = inherited }
         let objective = body.objective?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let task = try store().create(NewTask(title: title, objective: (objective?.isEmpty ?? true) ? nil : objective, projectPath: project))
+        let task = try store().create(NewTask(title: title, objective: (objective?.isEmpty ?? true) ? nil : objective, projectPath: project, parent: body.parentID))
         return .json(try JSONEncoder().encode(wire(task)))
     }
 
@@ -175,9 +212,12 @@ struct TasksAPI {
     /// Done: the task's live sessions are asked to write a result, then ended, then the task is done. With `immediately`
     /// (or when nothing is running) it skips the asking. The asking happens in the background so the page can show
     /// "wrapping up" and a stuck agent can never hold the request.
-    private func finish(_ id: Int, immediately: Bool) async throws -> HTTPServer.Response {
+    private func finish(_ id: Int, immediately: Bool, includeChildren: Bool) async throws -> HTTPServer.Response {
         guard let task = store().get(id) else { return fail("no task \(id)", 404) }
         guard task.status != .done else { return .json(Data(#"{"state":"done"}"#.utf8)) }
+        if includeChildren {
+            for child in store().children(of: id) where child.status != .done { _ = try await finish(child.id, immediately: immediately, includeChildren: false) }
+        }
         let live = try await backend.snapshot().sessions.filter { $0.group?.id == "task-\(id)" }
         if immediately || live.isEmpty {
             await conclude(id, live: live, summary: nil)
@@ -212,6 +252,29 @@ struct TasksAPI {
         }
     }
 
+    /// Brings back one of the task's earlier conversations, in the folder it ran in.
+    private func resume(_ id: Int, _ request: HTTPServer.Request) async throws -> HTTPServer.Response {
+        let body = try JSONDecoder().decode(ResumeBody.self, from: request.body)
+        guard let task = store().get(id) else { return fail("no task \(id)", 404) }
+        guard task.sessions.contains(body.sessionID) || task.sessionNotes.contains(where: { $0.id == body.sessionID }) else {
+            return fail("that session isn't one of this task's", 400)
+        }
+        let cwd = task.sessionNotes.first { $0.id == body.sessionID }?.cwd ?? task.projectPath ?? config().resolvedDefaultSessionDirectory
+        let sessionID = try await backend.createSession(CreateSessionRequest(
+            workingDirectory: URL(fileURLWithPath: cwd), agent: config().resolvedAgentKind, resumeSessionID: body.sessionID, taskID: id))
+        if task.status == .done { _ = try? store().update(id) { $0.setStatus(.active) } }
+        return .json(try JSONEncoder().encode(SessionRef(sessionID: sessionID.rawValue)))
+    }
+
+    private func transcript(_ id: Int, _ request: HTTPServer.Request) -> HTTPServer.Response {
+        guard let task = store().get(id), let sid = request.query["session"],
+              task.sessions.contains(sid) || task.sessionNotes.contains(where: { $0.id == sid }) else { return fail("no such session on this task", 404) }
+        let cwd = task.sessionNotes.first { $0.id == sid }?.cwd ?? task.projectPath ?? config().resolvedDefaultSessionDirectory
+        let url = TranscriptPeek.transcriptURL(workingDirectory: cwd, sessionID: sid, home: home)
+        guard let text = TranscriptPeek.conversationText(at: url) else { return fail("the transcript is no longer on disk", 404) }
+        return .json((try? JSONEncoder().encode(["text": text])) ?? Data())
+    }
+
     private func reopen(_ id: Int) throws -> HTTPServer.Response {
         guard store().get(id) != nil else { return fail("no task \(id)", 404) }
         let task = try store().update(id) { $0.setStatus(.active) }
@@ -225,6 +288,7 @@ struct TasksAPI {
         if snapshot.sessions.contains(where: { $0.group?.id == "task-\(id)" }) {
             return fail("end this task's session first", 409)
         }
+        if !store().children(of: id).isEmpty { return fail("delete or finish its subtasks first", 409) }
         try store().delete(id)
         return .json(Data("{}".utf8))
     }
@@ -262,7 +326,7 @@ struct TasksAPI {
         if let existing = store().findBySession(body.sessionID) { return .json(try JSONEncoder().encode(wire(existing))) }
         let project = session.workingDirectory.map { canonicalPath($0.path) }
         let created = try store().create(NewTask(title: session.title, projectPath: project))
-        let task = try store().update(created.id) { $0.linkSession(body.sessionID); $0.setStatus(.active) }
+        let task = try store().update(created.id) { $0.linkSession(body.sessionID); $0.recordSession(id: body.sessionID, cwd: project ?? "", title: session.title); $0.setStatus(.active) }
         return .json(try JSONEncoder().encode(wire(task)))
     }
 }

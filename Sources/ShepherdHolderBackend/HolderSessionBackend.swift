@@ -105,7 +105,7 @@ public actor HolderSessionBackend: SessionBackend {
             guard let t = taskStore.get(taskID) else { throw BackendError.remote(code: "no_task", message: "no task \(taskID)") }
             task = t
         }
-        let cwd = request.workingDirectory.path
+        var cwd = request.workingDirectory.path
         guard cwd.hasPrefix("/") else { throw BackendError.remote(code: "no_directory", message: "no working directory") }
         var madeForThisSession = false
         if task == nil, let explicit = request.resumeSessionID { task = taskStore.findBySession(explicit) }
@@ -122,8 +122,9 @@ public actor HolderSessionBackend: SessionBackend {
         var resuming = false
         if let explicit = request.resumeSessionID {
             sessionID = explicit; resuming = true
+            if let ran = task?.sessionNotes.first(where: { $0.id == explicit })?.cwd { cwd = ran }
         } else if let prior = resumableSession(of: task, in: cwd) {
-            sessionID = prior; resuming = true
+            sessionID = prior.id; resuming = true; cwd = prior.cwd
         } else {
             sessionID = UUID().uuidString.lowercased()
         }
@@ -140,7 +141,12 @@ public actor HolderSessionBackend: SessionBackend {
         var env = ["SHEPHERD_SESSION_ID": sessionID]
         if let crookPath { env["SHEPHERD_CROOK"] = crookPath }
         if let task { env["SHEPHERD_TASK_ID"] = String(task.id) }
-        if let task, !resuming { _ = try? taskStore.update(task.id) { $0.linkSession(sessionID) } }
+        if let task {
+            _ = try? taskStore.update(task.id) {
+                if !resuming { $0.linkSession(sessionID) }
+                $0.recordSession(id: sessionID, cwd: cwd, title: request.title)
+            }
+        }
 
         let spec = SessionSpec(taskID: task?.id, agent: .claude, claudeSessionID: sessionID, cwd: cwd,
                                argv: ClaudeCommand.argv(claudePath: claudeCommand, sessionID: sessionID, resume: resuming, extra: extra, loginShell: loginShell),
@@ -308,7 +314,12 @@ public actor HolderSessionBackend: SessionBackend {
             attention.since = since(for: sid, attention: attention, fallback: hook?.updatedAt ?? r.startedAt)
 
             var task = r.taskID.flatMap { taskStore.get($0) } ?? taskStore.findBySession(sid) ?? adoptIntoTask(r, sessionID: sid)
-            if let found = task { task = retitledFromTranscript(found, record: r, sessionID: sid) }
+            if var found = task {
+                if !found.sessionNotes.contains(where: { $0.id == sid }) {
+                    found = (try? taskStore.update(found.id) { $0.recordSession(id: sid, cwd: r.cwd, title: r.title, now: r.startedAt) }) ?? found
+                }
+                task = retitledFromTranscript(found, record: r, sessionID: sid)
+            }
             let group = task.map { SessionGroup(id: "task-\($0.id)", label: "#\($0.id) \($0.title)") }
                 ?? SessionGroup(id: r.cwd, label: URL(fileURLWithPath: r.cwd).lastPathComponent)
             return Session(
@@ -376,7 +387,7 @@ public actor HolderSessionBackend: SessionBackend {
     private func adoptIntoTask(_ record: SessionRecord, sessionID: String) -> TaskFile? {
         let title = record.title ?? placeholderTitlePrefix + URL(fileURLWithPath: record.cwd).lastPathComponent
         guard let made = try? taskStore.create(NewTask(title: title, projectPath: record.cwd)) else { return nil }
-        return try? taskStore.update(made.id) { $0.linkSession(sessionID); $0.setStatus(.active) }
+        return try? taskStore.update(made.id) { $0.linkSession(sessionID); $0.recordSession(id: sessionID, cwd: record.cwd, title: record.title); $0.setStatus(.active) }
     }
 
     /// A task started from a bare session has nothing but a placeholder title. Once the conversation exists it takes Claude
@@ -414,12 +425,20 @@ public actor HolderSessionBackend: SessionBackend {
         }) ?? task
     }
 
-    private func resumableSession(of task: TaskFile?, in cwd: String) -> String? {
+    /// The newest earlier conversation of the task that is not running and whose transcript is still on disk, looked for
+    /// in the folder each session actually ran in (a task can have worked in several), and for sessions from before
+    /// folders were noted, in `cwd`.
+    private func resumableSession(of task: TaskFile?, in cwd: String) -> (id: String, cwd: String)? {
         guard let task else { return nil }
         let running = Set(registry.all().filter { registry.liveness($0) == .live }.compactMap(\.claudeSessionID))
-        return task.sessions.reversed().first { id in
-            !running.contains(id) && FileManager.default.fileExists(atPath: TranscriptPeek.transcriptURL(workingDirectory: cwd, sessionID: id, home: home).path)
+        let noted = Dictionary(task.sessionNotes.map { ($0.id, $0.cwd) }, uniquingKeysWith: { first, _ in first })
+        for id in task.sessions.reversed() where !running.contains(id) {
+            let ran = noted[id] ?? cwd
+            if FileManager.default.fileExists(atPath: TranscriptPeek.transcriptURL(workingDirectory: ran, sessionID: id, home: home).path) {
+                return (id, ran)
+            }
         }
+        return nil
     }
 }
 

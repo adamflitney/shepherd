@@ -9,6 +9,15 @@ public struct PlanStep: Equatable, Sendable {
     public var done: Bool
 }
 
+/// A session that worked on a task, with where it ran (Claude keeps a conversation under the folder it started in, so
+/// resuming or reading it later needs this).
+public struct SessionNote: Equatable, Sendable {
+    public var id: String
+    public var cwd: String
+    public var started: String
+    public var title: String?
+}
+
 public struct PlanProgress: Equatable, Sendable {
     public var done: Int
     public var total: Int
@@ -47,7 +56,7 @@ public struct TaskFile: Sendable {
 
     public var body: String { doc.body }
 
-    public static func create(id: Int, title: String, objective: String? = nil, projectPath: String? = nil, branch: String? = nil, now: Date = Date()) -> TaskFile {
+    public static func create(id: Int, title: String, objective: String? = nil, projectPath: String? = nil, branch: String? = nil, parent: Int? = nil, now: Date = Date()) -> TaskFile {
         var doc = Frontmatter.parse("---\nid: \(id)\n---\n## Plan\n\n## Log\n")
         let stamp = formatStamp(now)
         doc.set("title", .string(title))
@@ -56,6 +65,7 @@ public struct TaskFile: Sendable {
         doc.set("status", .string(TaskStatus.inbox.rawValue))
         doc.set("sessions", .list([]))
         doc.set("branch", branch.map { .string($0) })
+        doc.set("parent", parent.map { .int($0) })
         doc.set("created", .string(stamp))
         doc.set("updated", .string(stamp))
         return TaskFile(doc)
@@ -78,6 +88,39 @@ public struct TaskFile: Sendable {
     public var projectPath: String? { str("project_path") }
     public var branch: String? { str("branch") }
     public var pr: String? { str("pr") }
+    /// The task this one is part of (one level only: a parent has no parent).
+    public var parent: Int? {
+        if case .int(let n)? = doc.get("parent"), n > 0 { return n }
+        return nil
+    }
+
+    public mutating func setParent(_ id: Int?, now: Date = Date()) {
+        doc.set("parent", id.map { .int($0) })
+        touch(now: now)
+    }
+
+    private static let separator = " · "
+
+    /// The "## Sessions" section: one line per session, `- <id> · <folder> · <started> · <title>`.
+    public var sessionNotes: [SessionNote] {
+        section("Sessions").compactMap { line in
+            guard line.hasPrefix("- ") else { return nil }
+            let parts = line.dropFirst(2).components(separatedBy: Self.separator)
+            guard parts.count >= 3 else { return nil }
+            let title = parts.count > 3 ? parts[3...].joined(separator: Self.separator) : nil
+            return SessionNote(id: parts[0], cwd: parts[1], started: parts[2], title: (title?.isEmpty ?? true) ? nil : title)
+        }
+    }
+
+    /// Notes a session once; false when it was already there (so repeated starts do not rewrite the file).
+    @discardableResult
+    public mutating func recordSession(id: String, cwd: String, title: String? = nil, now: Date = Date()) -> Bool {
+        guard !id.isEmpty, !cwd.isEmpty, !sessionNotes.contains(where: { $0.id == id }) else { return false }
+        let cleanTitle = title?.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: Self.separator, with: " - ")
+        appendToSection("Sessions", "- \(id)\(Self.separator)\(cwd)\(Self.separator)\(formatStamp(now))" + (cleanTitle.map { Self.separator + $0 } ?? ""))
+        touch(now: now)
+        return true
+    }
     public var status: TaskStatus { str("status").flatMap(TaskStatus.init(rawValue:)) ?? .inbox }
     public var sessions: [String] {
         if case .list(let l)? = doc.get("sessions") { return l }
@@ -268,9 +311,17 @@ public struct TaskFile: Sendable {
 /// Sessions started without a task get one titled "New task in <folder>" until there is more to go on.
 public let placeholderTitlePrefix = "New task in "
 
-public func taskContext(_ t: TaskFile, max: Int = 9000, crook: String = "crook") -> String {
+public func taskContext(_ t: TaskFile, parent: TaskFile? = nil, children: [TaskFile] = [], max: Int = 9000, crook: String = "crook") -> String {
     var head: [String] = ["You are working on shepherd task #\(t.id): \(t.title)"]
     if let o = t.objective { head.append("Objective: \(o)") }
+    if let parent {
+        var line = "This task is part of #\(parent.id): \(parent.title)"
+        if let o = parent.objective { line += " (\(o))" }
+        head.append(line + ". Other work under it is tracked as separate tasks; stay on this one.")
+    }
+    if !children.isEmpty {
+        head.append("Subtasks: " + children.map { "#\($0.id) \($0.title) [\($0.status.rawValue)]" }.joined(separator: "; ") + ".")
+    }
     var status = "Status: \(t.status.rawValue)"
     if let p = t.projectPath { status += " | Project: \(p)" }
     if let b = t.branch { status += " | Branch: \(b)" }

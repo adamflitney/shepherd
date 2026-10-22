@@ -1,5 +1,6 @@
 import Foundation
 import ShepherdCore
+import ShepherdGhostty
 import ShepherdTasks
 import Testing
 @testable import ShepherdWebKit
@@ -265,4 +266,69 @@ private func liveSession(_ id: Int, summary: String? = nil, kind: AttentionState
     let response = await rig.api(RecordingBackend()).handle(request("POST", "/api/tasks/\(t.id)/reopen"))
     #expect(response.status == 200)
     #expect(rig.store.get(t.id)?.status == .active)
+}
+
+@Test func aSubtaskInheritsTheParentsFolderAndTheListCountsSubtasks() async throws {
+    let rig = try Rig()
+    let parent = try rig.store.create(NewTask(title: "Reseller work", projectPath: rig.repo.path))
+    let api = rig.api(RecordingBackend())
+    let created = await api.handle(request("POST", "/api/tasks", body: rig.json(["title": "Count them", "parent_id": parent.id])))
+    #expect(created.status == 200)
+    #expect(object(created)["parent_id"] as? Int == parent.id)
+    #expect(rig.store.get(object(created)["id"] as! Int)?.projectPath == rig.repo.path)
+    let second = try rig.store.create(NewTask(title: "Second", parent: parent.id))
+    _ = try rig.store.update(second.id) { $0.setStatus(.done) }
+
+    let listed = array(await api.handle(request("GET", "/api/tasks")))
+    let row = listed.first { $0["id"] as? Int == parent.id }
+    #expect(row?["subtasks_total"] as? Int == 2 && row?["subtasks_done"] as? Int == 1)
+    let detail = object(await api.handle(request("GET", "/api/tasks/\(parent.id)")))
+    #expect((detail["children"] as? [[String: Any]])?.count == 2)
+    #expect((await api.handle(request("POST", "/api/tasks", body: rig.json(["title": "Deep", "parent_id": second.id])))).status == 400)
+}
+
+@Test func aParentWithSubtasksCannotBeDeletedAndDoneCanTakeTheChildrenWithIt() async throws {
+    let rig = try Rig()
+    let parent = try rig.store.create(NewTask(title: "Parent"))
+    let childA = try rig.store.create(NewTask(title: "A", parent: parent.id))
+    let childB = try rig.store.create(NewTask(title: "B", parent: parent.id))
+    _ = try rig.store.update(childB.id) { $0.setStatus(.done) }
+    let api = rig.api(RecordingBackend())
+    #expect((await api.handle(request("POST", "/api/tasks/\(parent.id)/delete"))).status == 409)
+
+    let done = await api.handle(HTTPServer.Request(method: "POST", path: "/api/tasks/\(parent.id)/done", query: ["children": "1"], headers: [:], body: Data()))
+    #expect(object(done)["state"] as? String == "done")
+    #expect(rig.store.get(parent.id)?.status == .done && rig.store.get(childA.id)?.status == .done)
+}
+
+@Test func resumingAnEarlierSessionUsesTheFolderItRanInAndRefusesForeignSessions() async throws {
+    let rig = try Rig()
+    let t = try rig.store.create(NewTask(title: "Across repos", projectPath: rig.repo.path))
+    _ = try rig.store.update(t.id) { $0.linkSession("sess-1"); $0.recordSession(id: "sess-1", cwd: rig.projects.appendingPathComponent("other").path) }
+    let backend = RecordingBackend()
+    let api = rig.api(backend)
+    let ok = await api.handle(request("POST", "/api/tasks/\(t.id)/resume", body: rig.json(["session_id": "sess-1"])))
+    #expect(ok.status == 200)
+    let made = await backend.created.first
+    #expect(made?.resumeSessionID == "sess-1" && made?.taskID == t.id)
+    #expect(made?.workingDirectory.path == rig.projects.appendingPathComponent("other").path)
+    #expect((await api.handle(request("POST", "/api/tasks/\(t.id)/resume", body: rig.json(["session_id": "someone-elses"])))).status == 400)
+}
+
+@Test func theTranscriptOfATasksSessionIsReadFromWhereItRan() async throws {
+    let rig = try Rig()
+    let t = try rig.store.create(NewTask(title: "Read back", projectPath: rig.repo.path))
+    _ = try rig.store.update(t.id) { $0.linkSession("sess-9"); $0.recordSession(id: "sess-9", cwd: rig.repo.path) }
+    var api = rig.api(RecordingBackend())
+    api.home = rig.root.appendingPathComponent("claude-home")
+    let file = TranscriptPeek.transcriptURL(workingDirectory: rig.repo.path, sessionID: "sess-9", home: api.home)
+    try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let lines = [#"{"type":"user","message":{"role":"user","content":"how many resellers?"}}"#,
+                 #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fourteen."}]}}"#]
+    try Data(lines.joined(separator: "\n").utf8).write(to: file)
+    let response = await api.handle(HTTPServer.Request(method: "GET", path: "/api/tasks/\(t.id)/transcript", query: ["session": "sess-9"], headers: [:], body: Data()))
+    let text = object(response)["text"] as? String
+    #expect(text?.contains("You\nhow many resellers?") == true && text?.contains("Claude\nFourteen.") == true)
+    let missing = await api.handle(HTTPServer.Request(method: "GET", path: "/api/tasks/\(t.id)/transcript", query: ["session": "nope"], headers: [:], body: Data()))
+    #expect(missing.status == 404)
 }

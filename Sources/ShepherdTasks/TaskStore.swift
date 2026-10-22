@@ -5,8 +5,10 @@ public struct NewTask: Sendable {
     public var objective: String?
     public var projectPath: String?
     public var branch: String?
+    public var parent: Int?
 
-    public init(title: String, objective: String? = nil, projectPath: String? = nil, branch: String? = nil) {
+    public init(title: String, objective: String? = nil, projectPath: String? = nil, branch: String? = nil, parent: Int? = nil) {
+        self.parent = parent
         self.title = title
         self.objective = objective
         self.projectPath = projectPath
@@ -47,6 +49,8 @@ public struct TaskStore: Sendable {
 
     public func get(_ id: Int) -> TaskFile? { files().first { $0.id == id }.flatMap { read($0.url) } }
 
+    public func children(of id: Int) -> [TaskFile] { list().filter { $0.parent == id } }
+
     public func findBySession(_ sessionID: String) -> TaskFile? { list().first { $0.sessions.contains(sessionID) } }
 
     @discardableResult
@@ -54,7 +58,11 @@ public struct TaskStore: Sendable {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return try withLock {
             let id = (files().last?.id ?? 0) + 1
-            let task = TaskFile.create(id: id, title: input.title, objective: input.objective, projectPath: input.projectPath, branch: input.branch, now: now)
+            if let parent = input.parent {
+                guard let parentTask = files().first(where: { $0.id == parent }).flatMap({ read($0.url) }) else { throw TaskError("no task \(parent) to put this under") }
+                if parentTask.parent != nil { throw TaskError("task \(parent) is itself a subtask; subtasks go one level deep") }
+            }
+            let task = TaskFile.create(id: id, title: input.title, objective: input.objective, projectPath: input.projectPath, branch: input.branch, parent: input.parent, now: now)
             let name = "\(String(format: "%04d", id))-\(slug(input.title)).md"
             try task.serialize().write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8)
             return task

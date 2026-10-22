@@ -30,6 +30,34 @@ struct TaskFileTests {
         #expect(t.section("Plan") == ["- [ ] a"] && t.section("Log").count == 1)
     }
 
+    @Test func notesWhereASessionRanOnceAndReadsItBack() {
+        var t = TaskFile.parse("---\nid: 1\ntitle: T\n---\n\n## Plan\n\n## Log\n")
+        #expect(t.sessionNotes.isEmpty)
+        let first = t.recordSession(id: "abc", cwd: "/Users/me/Dev/api", title: "#1 Fix it · really", now: now)
+        let again = t.recordSession(id: "abc", cwd: "/elsewhere", now: now)
+        let second = t.recordSession(id: "def", cwd: "/Users/me/Dev/web", now: now)
+        #expect(first && !again && second)
+        let notes = t.sessionNotes
+        #expect(notes.map(\.id) == ["abc", "def"])
+        #expect(notes[0].cwd == "/Users/me/Dev/api" && notes[0].title == "#1 Fix it - really" && notes[1].title == nil)
+        let reread = TaskFile.parse(t.serialize())
+        #expect(reread.sessionNotes == notes)
+        #expect(reread.section("Plan").isEmpty && reread.section("Log").isEmpty)
+    }
+
+    @Test func aTaskKnowsItsParentAndTheContextMentionsFamily() {
+        var child = TaskFile.create(id: 2, title: "Child", parent: 1, now: now)
+        #expect(child.parent == 1)
+        child.setParent(nil, now: now)
+        #expect(child.parent == nil)
+        child.setParent(1, now: now)
+        var parent = TaskFile.create(id: 1, title: "Parent", now: now)
+        parent.setObjective("Ship the reseller work", now: now)
+        let context = taskContext(child, parent: parent)
+        #expect(context.contains("part of #1: Parent (Ship the reseller work)"))
+        #expect(taskContext(parent, children: [child]).contains("Subtasks: #2 Child [inbox]"))
+    }
+
     @Test func keepsTextAfterTheLogSectionsLastEntryInOrder() {
         var t = TaskFile.parse("---\nid: 1\n---\n## Log\n- old\n\n## Notes\nkeep\n")
         t.appendLog("new", now: now)
@@ -132,6 +160,17 @@ struct TaskFileTests {
 struct TaskStoreTests {
     private func makeStore() -> TaskStore {
         TaskStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("crook-\(UUID().uuidString)"))
+    }
+
+    @Test func subtasksGoOneLevelDeepUnderATaskThatExists() throws {
+        let store = makeStore()
+        let parent = try store.create(NewTask(title: "Reseller work"), now: now)
+        let child = try store.create(NewTask(title: "Count resellers", parent: parent.id), now: now)
+        #expect(child.parent == parent.id)
+        #expect(store.children(of: parent.id).map(\.id) == [child.id])
+        #expect(throws: TaskError.self) { try store.create(NewTask(title: "Grandchild", parent: child.id), now: now) }
+        #expect(throws: TaskError.self) { try store.create(NewTask(title: "Orphan", parent: 99), now: now) }
+        #expect(store.list().count == 2)
     }
 
     @Test func createsTasksWithSequentialIdsAndSluggedFilenames() throws {

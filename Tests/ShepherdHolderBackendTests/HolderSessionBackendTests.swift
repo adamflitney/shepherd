@@ -246,6 +246,25 @@ struct HolderSessionBackendTests {
         #expect(rig.waitForScreen(prior, containing: "argv: --resume \(prior)"))
     }
 
+    @Test func aTaskResumesAConversationFromTheFolderItRanInAndNotesNewSessions() async throws {
+        let rig = try Rig(); defer { rig.teardown() }
+        let task = try rig.tasks.create(NewTask(title: "Across repos", projectPath: "/tmp"))
+        let prior = "22222222-3333-4444-5555-666666666666"
+        _ = try rig.tasks.update(task.id) { $0.linkSession(prior); $0.recordSession(id: prior, cwd: "/private/tmp") }
+        let transcript = TranscriptPeek.transcriptURL(workingDirectory: "/private/tmp", sessionID: prior, home: rig.root.appendingPathComponent("home"))
+        try FileManager.default.createDirectory(at: transcript.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: transcript)
+
+        let backend = rig.backend()
+        let id = try await backend.createSession(request("/tmp", task: task.id))
+        #expect(id.rawValue == prior)
+        #expect(rig.registry.all().first { $0.claudeSessionID == prior }?.cwd == "/private/tmp")
+
+        let fresh = try await backend.createSession(request("/tmp", task: rig.tasks.create(NewTask(title: "Fresh")).id, title: "named"))
+        let notes = try #require(rig.tasks.findBySession(fresh.rawValue)).sessionNotes
+        #expect(notes.first?.id == fresh.rawValue && notes.first?.cwd == "/tmp")
+    }
+
     @Test func aPlaceholderTitleBecomesClaudesOwnTitleButAChosenOneDoesNot() async throws {
         let rig = try Rig(); defer { rig.teardown() }
         let backend = rig.backend()

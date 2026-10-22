@@ -82,6 +82,16 @@
   #banner.show { display: block; }
 
   /* new session sheet */
+  #viewBack { display: none; position: fixed; inset: 0; background: #0009; z-index: 22; align-items: center; justify-content: center; }
+  #viewBack.show { display: flex; }
+  #viewBox { width: min(860px, 92vw); max-height: 84vh; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  #viewBox h2 { margin: 0 0 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+  #viewText { flex: 1; overflow: auto; white-space: pre-wrap; margin: 0; font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--fg); }
+  .subRow { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+  .pastRow { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  .pastRow .pastMeta { color: var(--dim); font-size: 11px; margin: 2px 0 4px; word-break: break-all; }
+  .pastRow .btn { padding: 2px 8px; margin-right: 6px; }
+  .parentChip { color: var(--dim); font-size: 11px; margin-top: 3px; }
   #sheetBack { display: none; position: fixed; inset: 0; background: #0009; z-index: 20; align-items: flex-start; justify-content: center; padding-top: 14vh; }
   #sheetBack.show { display: flex; }
   #sheet { width: 420px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
@@ -181,7 +191,7 @@
       <div id="boardBar">
         <input id="newTask" placeholder="New task, then Enter" autocomplete="off">
         <select id="newTaskProject" title="Folder the task starts in"></select>
-        <span id="boardHint">Tab or arrows move · Space details · Enter opens · E edit · D done · [ ] status</span>
+        <span id="boardHint">Tab or arrows move · Space details · Enter opens · E edit · S subtask · D done · [ ] status</span>
       </div>
       <div id="columns"></div>
       <div id="drawer">
@@ -193,6 +203,7 @@
   </section>
 </div>
 <div id="toast"></div>
+<div id="viewBack"><div id="viewBox"><h2><span id="viewTitle"></span><button class="btn" id="viewClose">Close (Esc)</button></h2><pre id="viewText"></pre></div></div>
 <div id="sheetBack">
   <div id="sheet">
     <h2>New Claude session</h2>
@@ -503,6 +514,7 @@
       if (/^[1-9]$/.test(e.key)) { e.preventDefault(); selectByIndex(Number(e.key) - 1); }
       else if (e.key === "n") { e.preventDefault(); openSheet(); }
     }
+    if (e.key === "Escape" && $("viewBack").classList.contains("show")) { e.stopPropagation(); closeView(); }
     if (e.key === "Escape" && $("sheetBack").classList.contains("show")) closeSheet();
   }, true);
 
@@ -589,9 +601,15 @@
     const title = document.createElement("div"); title.className = "cardTitle";
     const num = document.createElement("span"); num.className = "num"; num.textContent = "#" + t.id;
     title.append(num, document.createTextNode(t.title)); el.appendChild(title);
+    if (t.parent_id != null) { const par = tasks.find((x) => x.id === t.parent_id); const pc = document.createElement("div"); pc.className = "parentChip"; pc.textContent = "↳ #" + t.parent_id + (par ? " " + par.title : ""); el.appendChild(pc); }
     if (t.objective) { const o = document.createElement("div"); o.className = "cardObj"; o.textContent = t.objective; el.appendChild(o); }
     const meta = document.createElement("div"); meta.className = "cardMeta";
-    if (t.progress_total > 0) {
+    if (t.subtasks_total > 0) {
+      const bar = document.createElement("span"); bar.className = "bar";
+      const i = document.createElement("i"); i.style.width = Math.round(100 * t.subtasks_done / t.subtasks_total) + "%"; bar.appendChild(i);
+      const n = document.createElement("span"); n.textContent = t.subtasks_done + "/" + t.subtasks_total + " subtasks";
+      meta.append(bar, n);
+    } else if (t.progress_total > 0) {
       const bar = document.createElement("span"); bar.className = "bar";
       const i = document.createElement("i"); i.style.width = Math.round(100 * t.progress_done / t.progress_total) + "%"; bar.appendChild(i);
       const n = document.createElement("span"); n.textContent = t.progress_done + "/" + t.progress_total;
@@ -674,9 +692,13 @@
   }
   // Finishing a task: its session is asked to write a result, then the session ends and the task is done.
   async function doDone(id, label, now) {
-    if (!now && !window.confirm("Mark " + label + " done? Its session is asked to write a result, then ended.")) return;
+    const openChildren = tasks.filter((x) => x.parent_id === id && x.status !== "done").length;
+    const text = "Mark " + label + " done? Its session is asked to write a result, then ended."
+      + (openChildren ? "\n\nIt has " + openChildren + " open subtask" + (openChildren > 1 ? "s" : "") + ", which are finished too." : "");
+    if (!now && !window.confirm(text)) return;
     try {
-      const r = await api("/api/tasks/" + id + "/done" + (now ? "?now=1" : ""), "POST");
+      const query = [now ? "now=1" : "", openChildren ? "children=1" : ""].filter(Boolean).join("&");
+      const r = await api("/api/tasks/" + id + "/done" + (query ? "?" + query : ""), "POST");
       if (r.state === "wrapping") { toast("Wrapping up…"); pollDone(id); } else { toast(label + " is done"); }
       loadTasks(); refresh();
     } catch (e) { toast(e.message); }
@@ -703,7 +725,16 @@
     $("drawerTitle").textContent = "#" + t.id + " " + t.title;
     const body = $("drawerBody"); body.textContent = "";
     const section = (name) => { const h = document.createElement("h4"); h.textContent = name; body.appendChild(h); };
+    if (t.parent_id != null) { const par = tasks.find((x) => x.id === t.parent_id); const d = document.createElement("div"); d.className = "subRow"; d.textContent = "Part of #" + t.parent_id + (par ? " " + par.title : ""); d.addEventListener("click", () => selectCard({ kind: "task", id: t.parent_id }, true)); body.appendChild(d); }
     if (t.objective) { section("Objective"); const p = document.createElement("p"); p.textContent = t.objective; body.appendChild(p); }
+    if (t.children && t.children.length) {
+      section("Subtasks  " + t.subtasks_done + "/" + t.subtasks_total);
+      for (const c of t.children) {
+        const d = document.createElement("div"); d.className = "subRow";
+        d.append(chip(c.status === "done" ? "done" : "idle", c.status), document.createTextNode("#" + c.id + " " + c.title));
+        d.addEventListener("click", () => selectCard({ kind: "task", id: c.id }, true)); body.appendChild(d);
+      }
+    }
     if (t.plan && t.plan.length) {
       section("Plan  " + t.progress_done + "/" + t.progress_total);
       for (const s of t.plan) { const d = document.createElement("div"); d.className = "step" + (s.done ? " done" : ""); d.textContent = (s.done ? "☑ " : "☐ ") + s.text; body.appendChild(d); }
@@ -713,6 +744,19 @@
     section("Sessions");
     if (!live.length) { const p = document.createElement("p"); p.style.color = "var(--dim)"; p.textContent = t.session_ids.length ? "None running. Start picks the conversation back up." : "None yet."; body.appendChild(p); }
     for (const x of live) { const d = document.createElement("div"); d.className = "sessLink"; d.append(chip(stateOf(x), ""), document.createTextNode(x.title + " · " + stateText(stateOf(x)))); d.addEventListener("click", () => openSession(x.id)); body.appendChild(d); }
+    if (t.session_notes && t.session_notes.length) {
+      section("Past sessions");
+      for (const n of t.session_notes.slice().reverse()) {
+        const d = document.createElement("div"); d.className = "pastRow";
+        const title = document.createElement("div"); title.textContent = n.title || n.id.slice(0, 8);
+        const meta = document.createElement("div"); meta.className = "pastMeta"; meta.textContent = n.started.replace("T", " ").slice(0, 16) + " · " + n.cwd.replace(/^\/Users\/[^/]+/, "~");
+        const resume = document.createElement("button"); resume.className = "btn"; resume.textContent = "Resume";
+        resume.addEventListener("click", async () => { try { const r = await api("/api/tasks/" + t.id + "/resume", "POST", { session_id: n.id }); await new Promise((res) => { refresh(); setTimeout(res, 700); }); openSession(r.session_id); loadTasks(); } catch (e) { toast(e.message); } });
+        const view = document.createElement("button"); view.className = "btn"; view.textContent = "Transcript";
+        view.addEventListener("click", () => viewTranscript(t, n));
+        d.append(title, meta, resume, view); body.appendChild(d);
+      }
+    }
     if (t.project_path || t.branch) { section("Where"); const p = document.createElement("p"); p.textContent = [t.project_path, t.branch && ("branch " + t.branch)].filter(Boolean).join("\n"); body.appendChild(p); }
     if (t.log && t.log.length) { section("Log"); for (const l of t.log.slice().reverse().slice(0, 20)) { const d = document.createElement("div"); d.className = "logLine"; d.textContent = l; body.appendChild(d); } }
 
@@ -734,9 +778,28 @@
     if (t.finishing) { doneBtn.textContent = "Done now"; doneBtn.title = "Skip waiting for the result"; doneBtn.addEventListener("click", () => doDone(t.id, "#" + t.id, true)); }
     else if (t.status === "done") { doneBtn.textContent = "Reopen"; doneBtn.addEventListener("click", async () => { try { await api("/api/tasks/" + t.id + "/reopen", "POST"); await loadTasks(); } catch (e) { toast(e.message); } }); }
     else { doneBtn.textContent = "Done"; doneBtn.addEventListener("click", () => doDone(t.id, "#" + t.id + " " + t.title)); }
-    buttons.append(go, sel, doneBtn, editBtn, delBtn);
+    const subBtn = document.createElement("button"); subBtn.className = "btn"; subBtn.textContent = "Add subtask";
+    subBtn.addEventListener("click", () => startSubtask(t.id));
+    buttons.append(go, sel, doneBtn, subBtn, editBtn, delBtn);
   }
 
+  function viewTranscript(t, n) {
+    $("viewTitle").textContent = "#" + t.id + " · " + (n.title || n.id.slice(0, 8));
+    $("viewText").textContent = "Loading…"; $("viewBack").classList.add("show");
+    api("/api/tasks/" + t.id + "/transcript?session=" + encodeURIComponent(n.id)).then((r) => { $("viewText").textContent = r.text || "(empty)"; }).catch((e) => { $("viewText").textContent = e.message; });
+  }
+  function closeView() { $("viewBack").classList.remove("show"); }
+  $("viewClose").addEventListener("click", closeView);
+  $("viewBack").addEventListener("mousedown", (e) => { if (e.target === $("viewBack")) closeView(); });
+
+  let newTaskParent = null;
+  // Subtasks go one level deep, so adding one "to" a subtask adds a sibling under its parent.
+  const topLevel = (id) => { const t = tasks.find((x) => x.id === id); return t && t.parent_id != null ? t.parent_id : id; };
+  function startSubtask(parentId) {
+    parentId = topLevel(parentId);
+    newTaskParent = parentId;
+    const input = $("newTask"); input.placeholder = "New subtask of #" + parentId + ", then Enter (Esc cancels)"; input.focus();
+  }
   function editTask(t) {
     editingDrawer = true;
     const body = $("drawerBody"); body.textContent = "";
@@ -770,11 +833,14 @@
     }).catch(() => {});
   }
   $("newTask").addEventListener("keydown", async (e) => {
+    if (e.key === "Escape" && newTaskParent != null) { newTaskParent = null; e.target.placeholder = "New task, then Enter"; e.target.value = ""; e.stopPropagation(); return; }
     if (e.key !== "Enter") return;
     const title = e.target.value.trim(); if (!title) return;
     try {
       const body = { title }; const project = $("newTaskProject").value; if (project) body.project_path = project;
+      if (newTaskParent != null) body.parent_id = newTaskParent;
       const t = await api("/api/tasks", "POST", body);
+      newTaskParent = null; e.target.placeholder = "New task, then Enter";
       e.target.value = ""; await loadTasks(); selectCard({ kind: "task", id: t.id }, true);
     } catch (err) { toast(err.message); }
   });
@@ -804,6 +870,7 @@
       return;
     }
     if (!boardSel) return;
+    if ((e.key === "s" || e.key === "S") && boardSel.kind === "task") { e.preventDefault(); startSubtask(boardSel.id); return; }
     if ((e.key === "d" || e.key === "D") && boardSel.kind === "task") {
       e.preventDefault();
       const t = tasks.find((x) => x.id === boardSel.id); if (t && t.status !== "done" && !t.finishing) doDone(t.id, "#" + t.id + " " + t.title);
@@ -828,7 +895,7 @@
   // ---- omnibar ------------------------------------------------------------------------------------
   const MODES = ["switch", "new", "task"];
   const PLACEHOLDER = { switch: "Go to a session or task…", new: "Start a session in a project…", task: "Capture a task: type its title, then ⌘⏎ to add it" };
-  const HINT = { switch: "⏎ go · ⌘D done · ⇥ next mode", new: "⏎ start · ⇥ next mode", task: "⏎ add · ⌘⏎ add and start · ⇥ next mode" };
+  const HINT = { switch: "⏎ go · ⌘D done · ⇥ next mode", new: "⏎ start · ⇥ next mode", task: "⏎ add · ⌘⏎ add + start · ⌘⇧⏎ subtask · ⇥ next mode" };
   let omniMode = "switch", omniItems = [], omniIndex = 0, projectList = [];
 
   function fuzzy(text, query) {
@@ -893,17 +960,25 @@
     setView("sessions");
     sendCtl({ type: "spawn", cwd, cols: d.cols, rows: d.rows });
   }
-  async function addTask(andStart) {
+  // The task the bar is "in": the session being shown, or the card selected on the board.
+  function contextTaskId() {
+    if (view === "board") return boardSel && boardSel.kind === "task" ? boardSel.id : null;
+    const s = selected && sessionById(selected); return s && s.task_id != null ? s.task_id : null;
+  }
+  async function addTask(andStart, underContext) {
     const title = omniQuery(); if (!title) return;
+    const context = underContext ? contextTaskId() : null;
+    const parent = context == null ? null : topLevel(context);
+    if (underContext && parent == null) { toast("There is no task here to put it under."); return; }
     try {
-      const t = await api("/api/tasks", "POST", { title });
+      const t = await api("/api/tasks", "POST", parent == null ? { title } : { title, parent_id: parent });
       toast("Task #" + t.id + " added");
       $("omni").value = ""; setOmniMode("switch");
       if (andStart) { await startTask(t); leaveOmni(); } else { loadTasks(); }
     } catch (e) { toast(e.message); }
   }
   function runOmni() {
-    if (omniMode === "task") return addTask(false);
+    if (omniMode === "task") return addTask(false, false);
     const it = omniItems[omniIndex]; if (!it) return;
     closeOmni(); $("omni").value = ""; setOmniMode("switch");
     it.run(); leaveOmni();
@@ -923,7 +998,7 @@
     if (e.key === "Tab") { e.preventDefault(); const i = MODES.indexOf(omniMode); setOmniMode(MODES[(i + (e.shiftKey ? MODES.length - 1 : 1)) % MODES.length]); return; }
     if (e.key === "ArrowDown") { e.preventDefault(); omniIndex = Math.min(omniItems.length - 1, omniIndex + 1); renderOmni(); return; }
     if (e.key === "ArrowUp") { e.preventDefault(); omniIndex = Math.max(0, omniIndex - 1); renderOmni(); return; }
-    if (e.key === "Enter") { e.preventDefault(); if (omniMode === "task" && e.metaKey) addTask(true); else runOmni(); return; }
+    if (e.key === "Enter") { e.preventDefault(); if (omniMode === "task" && e.metaKey && e.shiftKey) addTask(false, true); else if (omniMode === "task" && e.metaKey) addTask(true, false); else runOmni(); return; }
     if (e.key === "d" && e.metaKey && omniMode === "switch") {
       e.preventDefault();
       const it = omniItems[omniIndex]; if (it && it.taskId != null) { closeOmni(); doDone(it.taskId, it.title); }

@@ -6,7 +6,7 @@ import ShepherdTasks
 let usage = """
 crook task <command>
 
-  new <title> [--objective <text>] [--project <path>] [--branch <name>]
+  new <title> [--objective <text>] [--project <path>] [--branch <name>] [--parent <id>]
   list [--status <status>] [--json]
   show <id> [--json]
   link <id> [--session <id>]     (defaults to $CLAUDE_CODE_SESSION_ID)
@@ -68,7 +68,7 @@ struct Options {
 
 func parse(_ args: [String]) -> Options {
     var o = Options()
-    let valued: Set<String> = ["objective", "project", "branch", "session", "status"]
+    let valued: Set<String> = ["objective", "project", "branch", "session", "status", "parent"]
     var i = 0
     while i < args.count {
         let a = args[i]
@@ -115,7 +115,7 @@ func main() {
             if title.isEmpty { fail("new needs a title") }
             let t = try store.create(NewTask(title: title, objective: opts.values["objective"],
                                              projectPath: opts.values["project"] ?? FileManager.default.currentDirectoryPath,
-                                             branch: opts.values["branch"]))
+                                             branch: opts.values["branch"], parent: opts.values["parent"].flatMap { Int($0) }))
             out("\(t.id)\n")
         case "list":
             var tasks = store.list()

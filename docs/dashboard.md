@@ -461,7 +461,7 @@ tech, not from Electron"). The spikes above were run to settle it.
      New (the panel ranks folders by use, the bar uses the server's order); a Task-mode folder picker (it uses the default
      folder today); whether ⌘K should also be reachable while the terminal has a program that wants ⌘K (none known).
 
-8. **Task structure and finishing (designed 2026-10-22; Done, Reopen and the stored result are built, the rest is not).** Tasks are of very different shapes, and
+8. **Task structure and finishing (designed 2026-10-22; built: Done, Reopen and the stored result; parent and subtasks; the Sessions record with cross-folder resume and a transcript view. Not built: notes, workspaces, Pick up, ordered children, multi-repo spawning).** Tasks are of very different shapes, and
    everything so far is tuned for one-and-done ones. The shapes (from the user): a **quick question** whose answer is
    definitive and whose session is not needed again but must stay findable; a **long-lived topic** (the reseller
    investigation: many questions, MCP calls, scripts) that must be pickable up again with its findings, scripts and
