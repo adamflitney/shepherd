@@ -1,4 +1,5 @@
 import Foundation
+import ShepherdCore
 
 /// Creates (or reuses) an isolated git worktree for a PR's branch under
 /// `~/.shepherd/worktrees/`, so reviewing it never disturbs whatever's
@@ -8,9 +9,8 @@ enum PRWorktree {
     struct WorktreeError: Error { let message: String }
 
     static func ensureWorktree(repoPath: String, repoSlug: String, prNumber: Int) throws -> URL {
-        let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".shepherd/worktrees")
-        let dirName = repoSlug.replacingOccurrences(of: "/", with: "-") + "-pr-\(prNumber)"
-        let worktreePath = root.appendingPathComponent(dirName)
+        let worktreePath = URL(fileURLWithPath: reviewWorktreePath(repoSlug: repoSlug, number: prNumber))
+        let root = worktreePath.deletingLastPathComponent()
 
         // Already set up from a previous review of this PR - reuse it, but
         // pull in commits pushed since (best-effort: a dirty worktree or a

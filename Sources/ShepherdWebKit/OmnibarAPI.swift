@@ -56,8 +56,11 @@ private struct ReviewWire: Encodable {
     let checks: String?
     let checksFailing: Bool
     let updated: Date
+    /// A session already running in this PR's review worktree.
+    let sessionID: String?
     enum CodingKeys: String, CodingKey {
         case id, repo, number, title, url, branch, ignored, cloned, status, checks, updated
+        case sessionID = "session_id"
         case isMine = "is_mine", isDraft = "is_draft", isBot = "is_bot", checksFailing = "checks_failing"
     }
 }
@@ -72,6 +75,7 @@ struct OmnibarAPI {
     let backend: any SessionBackend
     let services: OmnibarServices
     var config: @Sendable () -> ShepherdConfig = { ShepherdConfig.load() }
+    var home = FileManager.default.homeDirectoryForCurrentUser
 
     func handles(_ path: String) -> Bool {
         path == "/api/ask" || path == "/api/ask/continue" || path == "/api/reviews" || path.hasPrefix("/api/reviews/")
@@ -119,14 +123,25 @@ struct OmnibarAPI {
         return .json(try JSONEncoder().encode(SessionRefWire(sessionID: id.rawValue)))
     }
 
+    /// The session already working in a PR's review worktree, if there is one (a finished or interrupted one counts: going to
+    /// it is better than a second conversation about the same PR).
+    private func existingSession(repoSlug: String, number: Int) async -> String? {
+        let path = reviewWorktreePath(repoSlug: repoSlug, number: number, home: home)
+        let sessions = (try? await backend.snapshot().sessions) ?? []
+        return sessions.first { $0.workingDirectory?.resolvingSymlinksInPath().path == URL(fileURLWithPath: path).resolvingSymlinksInPath().path }?.id.rawValue
+    }
+
     private func reviews() async throws -> HTTPServer.Response {
-        let wire = try await services.reviews().map { m in
+        let matches = try await services.reviews()
+        var running: [String: String] = [:]
+        for m in matches { if let id = await existingSession(repoSlug: m.pr.repoSlug, number: m.pr.number) { running[m.id] = id } }
+        let wire = matches.map { m in
             ReviewWire(
                 id: m.id, repo: m.pr.repoSlug, number: m.pr.number, title: m.pr.title, url: m.pr.url, branch: m.pr.headRefName,
                 isMine: m.pr.isMine, isDraft: m.pr.isDraft, isBot: m.pr.isBot, ignored: m.isIgnored, cloned: m.isCloned,
                 status: m.pr.isDraft ? "Draft" : reviewStatusLabel(m.pr.reviewDecision),
                 checks: m.pr.checkSummary.map { "\($0.passing)/\($0.total)" }, checksFailing: m.pr.checkSummary?.hasFailure ?? false,
-                updated: m.pr.updatedAt)
+                updated: m.pr.updatedAt, sessionID: running[m.id])
         }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -135,6 +150,10 @@ struct OmnibarAPI {
 
     private func startReview(_ request: HTTPServer.Request) async throws -> HTTPServer.Response {
         let body = try JSONDecoder().decode(PRBody.self, from: request.body)
+        if let slash = body.id.lastIndex(of: "#"), let number = Int(body.id[body.id.index(after: slash)...]),
+           let existing = await existingSession(repoSlug: String(body.id[..<slash]), number: number) {
+            return .json(try JSONEncoder().encode(SessionRefWire(sessionID: existing)))
+        }
         return .json(try JSONEncoder().encode(SessionRefWire(sessionID: try await services.startReview(body.id))))
     }
 

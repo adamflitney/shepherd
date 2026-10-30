@@ -359,6 +359,18 @@ struct HolderSessionBackendTests {
         #expect(store.list().allSatisfy { $0.branch == nil })
     }
 
+    @Test func aClosedPRIsLoggedOnceAndStopsCountingAsOpen() throws {
+        let store = store()
+        let t = try store.create(NewTask(title: "Abandoned", projectPath: "/tmp", branch: "gone"))
+        let runner = sync(["gh": #"[{"url":"https://github.com/o/r/pull/4","state":"OPEN"}]"#])
+        runner.sync(store)
+        #expect(store.get(t.id)?.hasOpenPR == true)
+        let closed = sync(["gh": #"[{"url":"https://github.com/o/r/pull/4","state":"CLOSED"}]"#])
+        closed.sync(store); closed.sync(store)
+        let after = try #require(store.get(t.id))
+        #expect(after.hasOpenPR == false && after.logEntries.filter { $0.contains("PR closed") }.count == 1)
+    }
+
     @Test func aMergedPRIsLoggedOnceAndTheTaskIsNotClosed() throws {
         let store = store()
         let t = try store.create(NewTask(title: "Shipped", projectPath: "/tmp", branch: "ship"))

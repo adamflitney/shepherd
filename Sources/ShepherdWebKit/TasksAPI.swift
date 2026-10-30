@@ -34,6 +34,7 @@ private struct TaskWire: Encodable {
     let pr: String?
     let updated: String?
     var finishing = false
+    var prOpen = false
     let parentID: Int?
     var subtasksDone = 0
     var subtasksTotal = 0
@@ -50,6 +51,7 @@ private struct TaskWire: Encodable {
     enum CodingKeys: String, CodingKey {
         case id, title, objective, status, branch, pr, updated, plan, log, finishing, result, children, handoff, notes, workspace
         case parentID = "parent_id"
+        case prOpen = "pr_open"
         case subtasksDone = "subtasks_done"
         case subtasksTotal = "subtasks_total"
         case sessionNotes = "session_notes"
@@ -69,6 +71,7 @@ private func wire(_ task: TaskFile, detail: Bool = false, workspace: URL? = nil,
     out.subtasksTotal = children.count
     out.subtasksDone = children.filter { $0.status == .done }.count
     out.finishing = finishing
+    out.prOpen = task.hasOpenPR
     out.result = task.result
     if detail {
         out.plan = task.plan.map { PlanStepWire(text: $0.text, done: $0.done) }

@@ -280,6 +280,12 @@ public struct TaskFile: Sendable {
         section("Log").map { $0.hasPrefix("- ") ? String($0.dropFirst(2)) : $0 }
     }
 
+    /// The task has a PR that has not been recorded as merged or closed (shepherd logs "PR merged" and "PR closed" when it
+    /// notices them), so marking the task done would leave it behind.
+    public var hasOpenPR: Bool {
+        pr != nil && !logEntries.contains { $0.contains("PR merged") || $0.contains("PR closed") }
+    }
+
     /// When the file was last changed, as written in its frontmatter.
     public var updated: String? { str("updated") }
     public var created: String? { str("created") }

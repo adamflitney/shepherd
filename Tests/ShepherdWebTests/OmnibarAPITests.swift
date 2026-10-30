@@ -34,7 +34,33 @@ private func call(_ api: OmnibarAPI, _ method: String, _ path: String, _ body: [
     return (r.status, (try? JSONSerialization.jsonObject(with: r.body)) as? [String: Any] ?? [:])
 }
 
+private func apiWithSession(in directory: String, _ calls: Calls, home: URL) -> OmnibarAPI {
+    var a = OmnibarAPI(backend: FakeSessionBackend(sessions: [
+        Session(id: SessionID(rawValue: "running-1"), title: "Review", agent: .claude, workingDirectory: URL(fileURLWithPath: directory), attention: .idle())]),
+        services: OmnibarServices(
+            ask: { _, _ in .failed("x") },
+            reviews: { [MatchedReviewPR(pr: pr, localPath: nil)] },
+            startReview: { id in calls.start(id); return "new" },
+            setIgnored: { _, _ in }))
+    a.home = home
+    return a
+}
+
 @Suite struct OmnibarAPITests {
+    @Test func aPRWithASessionInItsWorktreeIsMarkedAndStartingItGoesToThatSession() async throws {
+        let home = URL(fileURLWithPath: "/tmp/omni-home")
+        let calls = Calls()
+        let a = apiWithSession(in: reviewWorktreePath(repoSlug: "yotoplay/yoto-api", number: 7, home: home), calls, home: home)
+        let listed = await a.handle(HTTPServer.Request(method: "GET", path: "/api/reviews", query: [:], headers: [:], body: Data()))
+        let list = try #require(try JSONSerialization.jsonObject(with: listed.body) as? [[String: Any]])
+        #expect(list[0]["session_id"] as? String == "running-1")
+        let (status, body) = await call(a, "POST", "/api/reviews/start", ["id": "yotoplay/yoto-api#7"])
+        #expect(status == 200 && body["session_id"] as? String == "running-1" && calls.started.isEmpty)
+        let other = apiWithSession(in: "/tmp/elsewhere", calls, home: home)
+        let (_, fresh) = await call(other, "POST", "/api/reviews/start", ["id": "yotoplay/yoto-api#7"])
+        #expect(fresh["session_id"] as? String == "new" && calls.started == ["yotoplay/yoto-api#7"])
+    }
+
     @Test func askReturnsTheAnswerAndPassesTheFollowUpConversationOn() async {
         let calls = Calls()
         let (status, body) = await call(api(calls), "POST", "/api/ask", ["text": " what is 2+2 ", "resume_session_id": "inline-0"])

@@ -520,6 +520,12 @@ tech, not from Electron"). The spikes above were run to settle it.
      notes and workspace). This is the answer to long-lived topics for now: they are found by what is in them rather than
      given a place on the board. Not built: an "ongoing" state or view that keeps them off the board's flow, searching
      transcripts, ranking beyond title-first.
+   - **Duplicate review sessions and the Done warning (built 2026-10-30, uncommitted).** A PR's review session runs in
+     `~/.shepherd/worktrees/<owner>-<repo>-pr-<n>` (`reviewWorktreePath`, shared by `PRWorktree`), so a session in that folder
+     is its session: `/api/reviews` carries `session_id`, the row says "session open", and starting a review goes to it
+     instead of making a second. Done now says when the task (or an open subtask) has a PR not recorded as merged or
+     closed (`TaskFile.hasOpenPR`, `pr_open`; the PR sync now also logs "PR closed") and that Done leaves the PR as it is;
+     it warns, it does not block.
    - **Rejected:** a separate project/epic entity (one more concept; a task that grows into a parent is more natural);
      labels only (no roll-up of progress or state); a global parent session across tasks (it accumulates unrelated
      context; the task file is the durable state); agents splitting work and spawning sessions unasked (cost multiplies and

@@ -32,7 +32,8 @@ public struct TaskPRSync: Sendable {
             guard let branch, let ghPath, let pr = pullRequest(for: branch, in: folder, gh: ghPath) else { continue }
             let movesToReview = pr.state == "OPEN" && [.inbox, .ready, .active].contains(task.status)
             let logsMerge = pr.state == "MERGED" && !task.logEntries.contains(where: { $0.contains("PR merged") })
-            guard task.pr != pr.url || movesToReview || logsMerge else { continue }
+            let logsClosed = pr.state == "CLOSED" && !task.logEntries.contains(where: { $0.contains("PR closed") })
+            guard task.pr != pr.url || movesToReview || logsMerge || logsClosed else { continue }
             _ = try? store.update(task.id) { t in
                 if t.pr != pr.url { t.setPR(pr.url) }
                 if pr.state == "OPEN", [.inbox, .ready, .active].contains(t.status) {
@@ -41,6 +42,9 @@ public struct TaskPRSync: Sendable {
                 }
                 if pr.state == "MERGED", !t.logEntries.contains(where: { $0.contains("PR merged") }) {
                     t.appendLog("PR merged: \(pr.url)")
+                }
+                if pr.state == "CLOSED", !t.logEntries.contains(where: { $0.contains("PR closed") }) {
+                    t.appendLog("PR closed: \(pr.url)")
                 }
             }
         }

@@ -166,6 +166,13 @@ public func repoSlug(fromRemoteURL url: String) -> String? {
     return nil
 }
 
+/// Where a PR's review worktree lives (`~/.shepherd/worktrees/<owner>-<repo>-pr-<number>`), and so where its review
+/// session runs: the way to tell whether a PR already has one.
+public func reviewWorktreePath(repoSlug: String, number: Int, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String {
+    home.appendingPathComponent(".shepherd/worktrees")
+        .appendingPathComponent(repoSlug.replacingOccurrences(of: "/", with: "-") + "-pr-\(number)").path
+}
+
 /// Where a missing repo gets cloned: `<directory>/<repo name>`, in the
 /// first directory shepherd scans so the next scan picks it up.
 public func cloneDestination(forSlug slug: String, in directory: String) -> String {

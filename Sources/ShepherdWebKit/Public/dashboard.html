@@ -694,10 +694,15 @@
     } catch (e) { toast(e.message); }
   }
   // Finishing a task: its session is asked to write a result, then the session ends and the task is done.
+  function taskHasOpenPR(id) {
+    const t = tasks.find((x) => x.id === id);
+    return !!(t && t.pr_open) || tasks.some((c) => c.parent_id === id && c.status !== "done" && c.pr_open);
+  }
   async function doDone(id, label, now) {
     const openChildren = tasks.filter((x) => x.parent_id === id && x.status !== "done").length;
     const text = "Mark " + label + " done? Its session is asked to write a result, then ended."
-      + (openChildren ? "\n\nIt has " + openChildren + " open subtask" + (openChildren > 1 ? "s" : "") + ", which are finished too." : "");
+      + (openChildren ? "\n\nIt has " + openChildren + " open subtask" + (openChildren > 1 ? "s" : "") + ", which are finished too." : "")
+      + (taskHasOpenPR(id) ? "\n\nIts pull request is not recorded as merged or closed. Done leaves the PR as it is." : "");
     if (!now && !window.confirm(text)) return;
     try {
       const query = [now ? "now=1" : "", openChildren ? "children=1" : ""].filter(Boolean).join("&");
@@ -905,7 +910,7 @@
   // ---- omnibar ------------------------------------------------------------------------------------
   const MODES = ["switch", "new", "task", "ask", "review"];
   const PLACEHOLDER = { switch: "Go to a session or task…", new: "Start a session in a project…", task: "Capture a task: type its title, then ⌘⏎ to add it", ask: "Ask Claude a quick question (read-only)…", review: "Find a PR to review · @ yours · % ignored" };
-  const HINT = { switch: "⏎ go or resume · ⌘⏎ pick up fresh (tasks) · ⌘D done · ⇥ next mode", new: "⏎ start · ⇥ next mode", task: "⏎ add · ⌘⏎ add + start · ⌘⇧⏎ subtask · ⇥ next mode", ask: "⏎ ask · ⌘⏎ continue in a session · ⇥ next mode", review: "⏎ GitHub · ⌘⏎ review in a session · ⌘⌫ ignore · ⇥ next mode" };
+  const HINT = { switch: "⏎ go or resume · ⌘⏎ pick up fresh (tasks) · ⌘D done · ⇥ next mode", new: "⏎ start · ⇥ next mode", task: "⏎ add · ⌘⏎ add + start · ⌘⇧⏎ subtask · ⇥ next mode", ask: "⏎ ask · ⌘⏎ continue in a session · ⇥ next mode", review: "⏎ GitHub · ⌘⏎ review in a session (or go to it) · ⌘⌫ ignore · ⇥ next mode" };
   let omniMode = "switch", omniItems = [], omniIndex = 0, projectList = [];
   let searchHits = [], searchTimer = null, searchSeq = 0;
   let askState = null /* {q, text, sessionId, busy, error} */, reviewList = [], reviewLoading = false, reviewError = null;
@@ -951,7 +956,7 @@
     if (omniMode === "review") {
       const [kind, text] = q[0] === "@" ? ["mine", q.slice(1).trim()] : (q[0] === "%" || q[0] === "*") ? ["ignored", q.slice(1).trim()] : ["review", q];
       return reviewList.filter((r) => kind === "ignored" ? r.ignored : (!r.ignored && r.is_mine === (kind === "mine")))
-        .map((r) => ({ f: fuzzy(r.title + " " + r.repo, text), pr: r, title: r.title, sub: r.repo.split("/").pop() + "#" + r.number + " · " + r.status + (r.checks ? " · " + r.checks : ""), state: r.checks_failing ? "blocked" : (r.is_draft ? "idle" : "done"), run: () => startReview(r) }))
+        .map((r) => ({ f: fuzzy(r.title + " " + r.repo, text), pr: r, title: r.title, sub: r.repo.split("/").pop() + "#" + r.number + " · " + r.status + (r.checks ? " · " + r.checks : "") + (r.session_id ? " · session open" : ""), state: r.checks_failing ? "blocked" : (r.is_draft ? "idle" : "done"), run: () => startReview(r) }))
         .filter((x) => x.f).sort((a, b) => b.f - a.f);
     }
     return [];
