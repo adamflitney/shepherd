@@ -905,7 +905,7 @@
   // ---- omnibar ------------------------------------------------------------------------------------
   const MODES = ["switch", "new", "task", "ask", "review"];
   const PLACEHOLDER = { switch: "Go to a session or task…", new: "Start a session in a project…", task: "Capture a task: type its title, then ⌘⏎ to add it", ask: "Ask Claude a quick question (read-only)…", review: "Find a PR to review · @ yours · % ignored" };
-  const HINT = { switch: "⏎ go · ⌘D done · ⇥ next mode", new: "⏎ start · ⇥ next mode", task: "⏎ add · ⌘⏎ add + start · ⌘⇧⏎ subtask · ⇥ next mode", ask: "⏎ ask · ⌘⏎ continue in a session · ⇥ next mode", review: "⏎ review in a session · ⌘⏎ GitHub · ⌘⌫ ignore · ⇥ next mode" };
+  const HINT = { switch: "⏎ go · ⌘D done · ⇥ next mode", new: "⏎ start · ⇥ next mode", task: "⏎ add · ⌘⏎ add + start · ⌘⇧⏎ subtask · ⇥ next mode", ask: "⏎ ask · ⌘⏎ continue in a session · ⇥ next mode", review: "⏎ GitHub · ⌘⏎ review in a session · ⌘⌫ ignore · ⇥ next mode" };
   let omniMode = "switch", omniItems = [], omniIndex = 0, projectList = [];
   let askState = null /* {q, text, sessionId, busy, error} */, reviewList = [], reviewLoading = false, reviewError = null;
 
@@ -1008,7 +1008,7 @@
       const t = document.createElement("span"); t.className = "oTitle"; t.textContent = it.title;
       const sub = document.createElement("span"); sub.className = "oSub"; sub.textContent = it.sub || "";
       row.append(t, sub);
-      row.addEventListener("mousedown", (e) => { e.preventDefault(); omniIndex = i; runOmni(); });
+      row.addEventListener("mousedown", (e) => { e.preventDefault(); omniIndex = i; if (omniMode === "review") { closeOmni(); $("omni").value = ""; setOmniMode("switch"); openLink(it.pr.url); leaveOmni(); return; } runOmni(); });
       list.appendChild(row);
     });
     list.classList.add("show");
@@ -1052,7 +1052,7 @@
   $("omni").addEventListener("blur", () => closeOmni());
   $("omni").addEventListener("input", () => {
     const v = $("omni").value;
-    if (omniMode === "switch" && v.length === 1 && (v === "+" || v === "#" || v === "?" || v === "!")) { setOmniMode({ "+": "new", "#": "task", "?": "ask", "!": "review" }[v]); return; }
+    if (v.length === 1 && (v === "+" || v === "#" || v === "?" || v === "!")) { setOmniMode({ "+": "new", "#": "task", "?": "ask", "!": "review" }[v]); return; }
     omniIndex = 0; renderOmni();
   });
   $("omni").addEventListener("keydown", (e) => {
@@ -1060,7 +1060,7 @@
     if (e.key === "ArrowDown") { e.preventDefault(); omniIndex = Math.min(omniItems.length - 1, omniIndex + 1); renderOmni(); return; }
     if (e.key === "ArrowUp") { e.preventDefault(); omniIndex = Math.max(0, omniIndex - 1); renderOmni(); return; }
     if (e.key === "Enter" && omniMode === "ask" && e.metaKey) { e.preventDefault(); continueAsk(); return; }
-    if (e.key === "Enter" && omniMode === "review" && e.metaKey) { e.preventDefault(); const it = omniItems[omniIndex]; if (it && it.pr) openLink(it.pr.url); return; }
+    if (e.key === "Enter" && omniMode === "review") { e.preventDefault(); const it = omniItems[omniIndex]; if (it && it.pr) { closeOmni(); $("omni").value = ""; setOmniMode("switch"); if (e.metaKey) it.run(); else openLink(it.pr.url); leaveOmni(); } return; }
     if (e.key === "Enter") { e.preventDefault(); if (omniMode === "task" && e.metaKey && e.shiftKey) addTask(false, true); else if (omniMode === "task" && e.metaKey) addTask(true, false); else runOmni(); return; }
     if (e.key === "d" && e.metaKey && omniMode === "switch") {
       e.preventDefault();

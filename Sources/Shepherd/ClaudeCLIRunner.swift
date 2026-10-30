@@ -1,5 +1,6 @@
 import Foundation
 import ShepherdCore
+import ShepherdGhostty
 
 /// Shells out to the real `claude` CLI in `-p` (headless, non-interactive)
 /// mode for the inline quick-answer panel. Thin I/O edge, untested by unit
@@ -26,7 +27,10 @@ enum ClaudeCLIRunner {
         process.waitUntilExit()
         let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let path = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return path.isEmpty ? nil : path
+        if !path.isEmpty { return path }
+        // Not on the login shell's PATH (the native install puts it in ~/.local/bin, which only interactive shells add).
+        let usual = ClaudeLocator.find()
+        return usual.hasPrefix("/") ? usual : nil
     }()
 
     /// Runs one turn. `resumeSessionID` continues a prior inline

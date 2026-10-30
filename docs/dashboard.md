@@ -456,7 +456,7 @@ tech, not from Electron"). The spikes above were run to settle it.
      the answer shows under the bar, a follow-up Enter continues the same inline conversation, Esc starts over, ⌘Enter
      carries it on in a real session in the default folder (`--resume`); a request that needs more than read-only starts a
      session itself. **Review:** the same three views as the panel (`@` yours, `%` ignored, otherwise waiting on you),
-     Enter starts the review session (worktree, cloning first if needed) and goes to it, ⌘Enter opens the PR on GitHub,
+     Enter opens the PR on GitHub, ⌘Enter starts the review session (worktree, cloning first if needed) and goes to it,
      ⌘Backspace ignores or restores. **Still to do: remove the native panel** (and its hotkey, `onRunInlinePrompt` and the
      Review and Ask tabs) once these have been used for a while. Rejected: a separate Review view in the dashboard
      (the omnibar list is enough for a queue this size). Open: PR rows do not show whether a review session already
