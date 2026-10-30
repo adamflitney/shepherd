@@ -332,3 +332,23 @@ private func liveSession(_ id: Int, summary: String? = nil, kind: AttentionState
     let missing = await api.handle(HTTPServer.Request(method: "GET", path: "/api/tasks/\(t.id)/transcript", query: ["session": "nope"], headers: [:], body: Data()))
     #expect(missing.status == 404)
 }
+
+@Test func searchFindsDoneTasksByTheirNotesAndStartingOneBringsItBack() async throws {
+    let rig = try Rig()
+    let a = try rig.store.create(NewTask(title: "Reseller investigation", projectPath: rig.repo.path))
+    _ = try rig.store.update(a.id) { $0.appendNote("Found the Acme distributor in Leeds"); $0.setStatus(.done) }
+    _ = try rig.store.create(NewTask(title: "Unrelated", projectPath: rig.repo.path))
+    let api = rig.api(RecordingBackend())
+
+    var search = HTTPServer.Request(method: "GET", path: "/api/tasks/search", query: ["q": "acme  LEEDS"], headers: [:], body: Data())
+    var hits = try #require(try JSONSerialization.jsonObject(with: await api.handle(search).body) as? [[String: Any]])
+    #expect(hits.count == 1 && hits[0]["id"] as? Int == a.id && hits[0]["found"] as? String == "notes" && hits[0]["status"] as? String == "done")
+    search.query = ["q": "reseller"]
+    hits = try #require(try JSONSerialization.jsonObject(with: await api.handle(search).body) as? [[String: Any]])
+    #expect(hits.first?["found"] as? String == "title")
+    search.query = ["q": "zzz"]
+    #expect(try #require(try JSONSerialization.jsonObject(with: await api.handle(search).body) as? [Any]).isEmpty)
+
+    let started = await api.handle(request("POST", "/api/tasks/\(a.id)/start"))
+    #expect(started.status == 200 && rig.store.get(a.id)?.status == .active)
+}

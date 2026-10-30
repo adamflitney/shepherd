@@ -511,6 +511,15 @@ tech, not from Electron"). The spikes above were run to settle it.
      Handoff, Notes and the workspace path. Not checked by hand in the live window. Not done: opening the workspace
      folder from the drawer, a size cap on notes beyond the context budget, an automatic handoff when the agent never
      writes one.
+   - **Finding and bringing back old tasks (built 2026-10-30, uncommitted).** In Switch mode, two or more characters also
+     search every task, finished ones included, across title, objective, handoff, result, notes, plan and log (every word
+     must appear, any case; `GET /api/tasks/search?q=`, title matches first, then newest, 30 at most). Hits that are not
+     already listed appear below the usual rows with their status and where the words were found ("done · in notes ·
+     reopen"). Enter starts or resumes the task (a done task is reopened to In progress; `start` now does this for any
+     task not already active or in review); ⌘Enter on a task row is **Pick up fresh** (a new session handed the handoff,
+     notes and workspace). This is the answer to long-lived topics for now: they are found by what is in them rather than
+     given a place on the board. Not built: an "ongoing" state or view that keeps them off the board's flow, searching
+     transcripts, ranking beyond title-first.
    - **Rejected:** a separate project/epic entity (one more concept; a task that grows into a parent is more natural);
      labels only (no roll-up of progress or state); a global parent session across tasks (it accumulates unrelated
      context; the task file is the durable state); agents splitting work and spawning sessions unasked (cost multiplies and

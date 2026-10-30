@@ -83,6 +83,15 @@ private func wire(_ task: TaskFile, detail: Bool = false, workspace: URL? = nil,
 }
 
 private struct ErrorWire: Encodable { let error: String }
+private struct SearchHitWire: Encodable {
+    let id: Int
+    let title: String
+    let status: String
+    let updated: String?
+    /// Where the words were found ("title", "notes", ...).
+    let found: String
+    let sessions: Int
+}
 private struct SessionRef: Encodable {
     let sessionID: String
     enum CodingKeys: String, CodingKey { case sessionID = "session_id" }
@@ -138,6 +147,7 @@ struct TasksAPI {
         do {
             if request.method == "GET", parts == ["api", "tasks"] { return try await list() }
             if request.method == "POST", parts == ["api", "tasks"] { return try create(request) }
+            if request.method == "GET", parts == ["api", "tasks", "search"] { return search(request.query["q"] ?? "") }
             if request.method == "POST", parts == ["api", "tasks", "from-session"] { return try await promote(request) }
             if parts.count >= 3, parts[0] == "api", parts[1] == "tasks", let id = Int(parts[2]) {
                 if request.method == "GET", parts.count == 3 { return try await detail(id) }
@@ -172,6 +182,18 @@ struct TasksAPI {
         let done = all.filter { $0.status == .done }.sorted { ($0.updated ?? "") > ($1.updated ?? "") }.prefix(doneLimit)
         let wires = (open + done).map { task in wire(task, finishing: finishing.contains(task.id), children: all.filter { $0.parent == task.id }) }
         return .json(try JSONEncoder().encode(wires))
+    }
+
+    /// Every task, done ones included, whose text holds all the words: for finding an old task to bring back.
+    private func search(_ query: String) -> HTTPServer.Response {
+        let found = store().list().compactMap { task -> (TaskFile, String, Bool)? in
+            guard let hit = task.search(query) else { return nil }
+            return (task, hit.field, hit.titleMatch)
+        }
+        .sorted { ($0.2 ? 1 : 0, $0.0.updated ?? "") > ($1.2 ? 1 : 0, $1.0.updated ?? "") }
+        .prefix(30)
+        let wires = found.map { SearchHitWire(id: $0.0.id, title: $0.0.title, status: $0.0.status.rawValue, updated: $0.0.updated, found: $0.1, sessions: $0.0.sessions.count) }
+        return .json((try? JSONEncoder().encode(wires)) ?? Data("[]".utf8))
     }
 
     private func detail(_ id: Int) async throws -> HTTPServer.Response {
@@ -321,7 +343,7 @@ struct TasksAPI {
         }
         let sessionID = try await backend.createSession(CreateSessionRequest(
             workingDirectory: URL(fileURLWithPath: directory), agent: current.resolvedAgentKind, taskID: id, fresh: fresh))
-        if task.status == .inbox || task.status == .ready { _ = try? store().update(id) { $0.setStatus(.active) } }
+        if task.status != .active, task.status != .review { _ = try? store().update(id) { $0.setStatus(.active) } }
         return .json(try JSONEncoder().encode(SessionRef(sessionID: sessionID.rawValue)))
     }
 

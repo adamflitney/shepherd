@@ -295,6 +295,22 @@ public struct TaskFile: Sendable {
         return PlanProgress(done: done, total: total)
     }
 
+    /// Whether every word of `query` appears somewhere in the task (title, objective, handoff, result, notes, plan or
+    /// log), and where the first word is found, for showing why it matched. Nil when some word is missing.
+    public func search(_ query: String) -> (field: String, titleMatch: Bool)? {
+        let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !words.isEmpty else { return nil }
+        let fields: [(String, String)] = [
+            ("title", title), ("objective", objective ?? ""), ("handoff", handoff ?? ""), ("result", result ?? ""),
+            ("notes", notes.joined(separator: "\n")), ("plan", plan.map(\.text).joined(separator: "\n")),
+            ("log", logEntries.joined(separator: "\n")),
+        ].map { ($0.0, $0.1.lowercased()) }
+        let all = fields.map(\.1).joined(separator: "\n")
+        guard words.allSatisfy({ all.contains($0) }) else { return nil }
+        let first = fields.first { $0.1.contains(words[0]) }?.0 ?? "title"
+        return (first, words.allSatisfy { fields[0].1.contains($0) })
+    }
+
     /// The Plan lines (without blanks) and Log lines, for context rendering.
     func section(_ name: String) -> [String] {
         let lines = doc.body.components(separatedBy: "\n")
