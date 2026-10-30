@@ -461,6 +461,11 @@ tech, not from Electron"). The spikes above were run to settle it.
      Review and Ask tabs) once these have been used for a while. Rejected: a separate Review view in the dashboard
      (the omnibar list is enough for a queue this size). Open: PR rows do not show whether a review session already
      exists, so starting twice makes two sessions.
+   - **Task mode starts the task (2026-10-30, uncommitted).** It used to add to the Inbox and fall back to Switch. Now Enter on
+     a title moves to a folder step (the same list as New, with the folder of the task or session you are in first); Enter
+     on a folder creates the task there, starts its session and goes to it. Backspace on the empty folder step returns to
+     the title, Esc cancels. **⌘Enter on the title only adds to the Inbox** (quick capture, no session; it used to be
+     "add and start"). ⌘⇧Enter still adds a subtask to the Inbox under the task in view.
    - **Was not in the first version:** **Ask** (a one-off `claude -p` answered inline, ⌘Enter to continue it as a session)
      and **Review** (the PR list, ignore and restore, start a review session). Both are native code today
      (`ClaudeCLIRunner`, `GitHubReviewFetcher`, `PRWorktree`), so each needs a server endpoint, passed in as a closure the
