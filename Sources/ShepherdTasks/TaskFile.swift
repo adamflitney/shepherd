@@ -155,19 +155,47 @@ public struct TaskFile: Sendable {
     }
 
     public mutating func setResult(_ text: String, now: Date = Date()) {
+        replaceSection("Result", with: text)
+        touch(now: now)
+    }
+
+    /// A short summary of where the work stands, kept current by the agent so a fresh session can take over without the
+    /// old conversation (the "## Handoff" section, replaced whole).
+    public var handoff: String? {
+        let lines = section("Handoff")
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    public mutating func setHandoff(_ text: String, now: Date = Date()) {
+        replaceSection("Handoff", with: text)
+        touch(now: now)
+    }
+
+    /// Findings and decisions worth keeping, oldest first, without their leading "- " (the "## Notes" section).
+    public var notes: [String] {
+        section("Notes").map { $0.hasPrefix("- ") ? String($0.dropFirst(2)) : $0 }
+    }
+
+    public mutating func appendNote(_ text: String, now: Date = Date()) {
+        let flat = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
+        appendToSection("Notes", "- \(logStamp(now)): \(flat)")
+        touch(now: now)
+    }
+
+    /// Replaces a section's text, or adds the section at the end. A line that would start a new section is made a bullet.
+    private mutating func replaceSection(_ name: String, with text: String) {
         var lines = doc.body.components(separatedBy: "\n")
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
             .map { $0.hasPrefix("## ") ? "- " + $0.dropFirst(3) : $0 }.joined(separator: "\n")
-        if let range = Self.findSection(lines, "Result") {
+        if let range = Self.findSection(lines, name) {
             lines.replaceSubrange((range.start + 1)..<range.end, with: [body, ""])
             doc.body = lines.joined(separator: "\n")
         } else {
             var existing = doc.body
             if !existing.isEmpty && !existing.hasSuffix("\n") { existing += "\n" }
             if !existing.isEmpty { existing += "\n" }
-            doc.body = "\(existing)## Result\n\(body)\n"
+            doc.body = "\(existing)## \(name)\n\(body)\n"
         }
-        touch(now: now)
     }
 
     public mutating func setBranch(_ name: String, now: Date = Date()) {
@@ -311,7 +339,7 @@ public struct TaskFile: Sendable {
 /// Sessions started without a task get one titled "New task in <folder>" until there is more to go on.
 public let placeholderTitlePrefix = "New task in "
 
-public func taskContext(_ t: TaskFile, parent: TaskFile? = nil, children: [TaskFile] = [], max: Int = 9000, crook: String = "crook") -> String {
+public func taskContext(_ t: TaskFile, parent: TaskFile? = nil, children: [TaskFile] = [], workspace: String? = nil, max: Int = 9000, crook: String = "crook") -> String {
     var head: [String] = ["You are working on shepherd task #\(t.id): \(t.title)"]
     if let o = t.objective { head.append("Objective: \(o)") }
     if let parent {
@@ -340,8 +368,25 @@ public func taskContext(_ t: TaskFile, parent: TaskFile? = nil, children: [TaskF
     if !missing.isEmpty {
         head.append("This task is still missing \(missing.joined(separator: " and ")). It was probably captured as just a title, so treat the title as the start of the conversation, not the whole brief. As the goal becomes clear, record it with `\(crook) task objective \(t.id) <text>`, and as the approach takes shape add steps with `\(crook) task plan \(t.id) add <step>`, so a fresh session could pick the work up from the task alone.")
     }
+    if let workspace {
+        head.append("Workspace for scripts and files that belong to no repo: \(workspace) (keep them there so the task can be picked up later).")
+    }
+    head.append("Record findings and decisions worth keeping with `\(crook) task note \(t.id) <text>`, and keep a short summary of where the work stands, enough for a fresh session to take over, with `\(crook) task handoff \(t.id) <text>` (replaces the last one).")
     var out = head.joined(separator: "\n")
+    if let handoff = t.handoff { out += "\n\n## Handoff\n" + handoff }
     if !plan.isEmpty { out += "\n\n## Plan\n" + plan.joined(separator: "\n") }
+    let notes = t.section("Notes")
+    if !notes.isEmpty {
+        // Notes outrank the log, so they get the room first, newest kept.
+        var keptNotes: [String] = []
+        var noteRoom = Swift.max(0, (max - out.count) / 2)
+        for line in notes.reversed() {
+            if line.count + 1 > noteRoom { break }
+            keptNotes.insert(line, at: 0)
+            noteRoom -= line.count + 1
+        }
+        if !keptNotes.isEmpty { out += "\n\n## Notes" + (keptNotes.count < notes.count ? " (most recent)" : "") + "\n" + keptNotes.joined(separator: "\n") }
+    }
     let room = max - out.count - 20
     var kept: [String] = []
     var used = 0

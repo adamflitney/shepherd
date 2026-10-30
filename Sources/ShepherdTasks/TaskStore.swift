@@ -30,6 +30,19 @@ public struct TaskStore: Sendable {
         return home.appendingPathComponent("tasks")
     }
 
+    /// Where a task's own scripts and files live, beside the tasks folder (`~/.shepherd/workspaces/<id>`). Not created
+    /// until `ensureWorkspace`.
+    public func workspaceDirectory(for id: Int) -> URL {
+        directory.deletingLastPathComponent().appendingPathComponent("workspaces").appendingPathComponent(String(id))
+    }
+
+    @discardableResult
+    public func ensureWorkspace(for id: Int) throws -> URL {
+        let url = workspaceDirectory(for: id)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     private func files() -> [(id: Int, url: URL)] {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return [] }
         return names.compactMap { name -> (Int, URL)? in

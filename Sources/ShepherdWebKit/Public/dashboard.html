@@ -739,6 +739,9 @@
       section("Plan  " + t.progress_done + "/" + t.progress_total);
       for (const s of t.plan) { const d = document.createElement("div"); d.className = "step" + (s.done ? " done" : ""); d.textContent = (s.done ? "☑ " : "☐ ") + s.text; body.appendChild(d); }
     } else { section("Plan"); const p = document.createElement("p"); p.style.color = "var(--dim)"; p.textContent = "None yet. The agent writes it as it works."; body.appendChild(p); }
+    if (t.handoff) { section("Handoff"); const p = document.createElement("p"); p.textContent = t.handoff; body.appendChild(p); }
+    if (t.notes && t.notes.length) { section("Notes"); for (const l of t.notes.slice().reverse().slice(0, 20)) { const d = document.createElement("div"); d.className = "logLine"; d.textContent = l; body.appendChild(d); } }
+    if (t.workspace) { section("Workspace"); const p = document.createElement("p"); p.textContent = t.workspace.replace(/^\/Users\/[^/]+/, "~"); body.appendChild(p); }
     if (t.result) { section("Result"); const p = document.createElement("p"); p.textContent = t.result; body.appendChild(p); }
     const live = sessionsOf(t);
     section("Sessions");
@@ -771,6 +774,10 @@
     const go = document.createElement("button"); go.className = "btn primary";
     go.textContent = live.length ? "Go to session" : (t.session_ids.length ? "Resume" : "Start");
     go.addEventListener("click", () => startTask(t));
+    const pickBtn = document.createElement("button"); pickBtn.className = "btn"; pickBtn.textContent = "Pick up fresh";
+    pickBtn.title = "Start a new session handed the handoff, notes and workspace instead of the old conversation";
+    pickBtn.hidden = live.length > 0 || !(t.session_ids.length || t.session_notes && t.session_notes.length);
+    pickBtn.addEventListener("click", async () => { try { const r = await api("/api/tasks/" + t.id + "/pickup", "POST"); await new Promise((res) => { refresh(); setTimeout(res, 700); }); openSession(r.session_id); loadTasks(); } catch (e) { toast(e.message); } });
     const sel = document.createElement("select");
     for (const st of FLOW) { const o = document.createElement("option"); o.value = st; o.textContent = st === "active" ? "In progress" : st[0].toUpperCase() + st.slice(1); if (st === t.status) o.selected = true; sel.appendChild(o); }
     sel.addEventListener("change", () => setStatus(t.id, sel.value));
@@ -780,7 +787,7 @@
     else { doneBtn.textContent = "Done"; doneBtn.addEventListener("click", () => doDone(t.id, "#" + t.id + " " + t.title)); }
     const subBtn = document.createElement("button"); subBtn.className = "btn"; subBtn.textContent = "Add subtask";
     subBtn.addEventListener("click", () => startSubtask(t.id));
-    buttons.append(go, sel, doneBtn, subBtn, editBtn, delBtn);
+    buttons.append(go, pickBtn, sel, doneBtn, subBtn, editBtn, delBtn);
   }
 
   function viewTranscript(t, n) {

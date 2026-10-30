@@ -123,7 +123,7 @@ public actor HolderSessionBackend: SessionBackend {
         if let explicit = request.resumeSessionID {
             sessionID = explicit; resuming = true
             if let ran = task?.sessionNotes.first(where: { $0.id == explicit })?.cwd { cwd = ran }
-        } else if let prior = resumableSession(of: task, in: cwd) {
+        } else if !request.fresh, let prior = resumableSession(of: task, in: cwd) {
             sessionID = prior.id; resuming = true; cwd = prior.cwd
         } else {
             sessionID = UUID().uuidString.lowercased()
@@ -134,7 +134,7 @@ public actor HolderSessionBackend: SessionBackend {
         }
 
         let title = task.map { "#\($0.id) \($0.title)" } ?? request.title ?? URL(fileURLWithPath: cwd).lastPathComponent
-        let prompt = resuming ? nil : (request.initialPrompt ?? (task != nil && !madeForThisSession ? Self.defaultTaskPrompt : nil))
+        let prompt = resuming ? nil : (request.initialPrompt ?? (task != nil && !madeForThisSession ? (request.fresh ? Self.pickUpPrompt : Self.defaultTaskPrompt) : nil))
         var extra: [String] = remoteControlNames ? ["--remote-control", title] : []
         if let prompt { extra.append(prompt) }
 
@@ -355,6 +355,7 @@ public actor HolderSessionBackend: SessionBackend {
     // MARK: - helpers
 
     static let defaultTaskPrompt = "Start on the task described in your session context."
+    static let pickUpPrompt = "This is a new session picking the task up from an earlier one. Read the handoff, notes and plan in your session context, look in the task's workspace for scripts and files, then tell me where things stand and what you would do next."
 
     private func record(for id: SessionID) throws -> SessionRecord {
         guard let r = visibleRecords().first(where: { $0.claudeSessionID == id.rawValue }) else { throw BackendError.unknownSession(id) }
@@ -411,7 +412,7 @@ public actor HolderSessionBackend: SessionBackend {
             if firstPrompt == nil, object["type"] as? String == "user", (object["origin"] as? [String: Any])?["kind"] as? String == "human",
                let message = object["message"] as? [String: Any], let content = message["content"] as? String {
                 let words = content.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-                if !words.isEmpty, !words.hasPrefix("<"), words != Self.defaultTaskPrompt {
+                if !words.isEmpty, !words.hasPrefix("<"), words != Self.defaultTaskPrompt, words != Self.pickUpPrompt {
                     firstPrompt = words.count > 500 ? String(words.prefix(500)) + "…" : words
                 }
             }

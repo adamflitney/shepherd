@@ -43,9 +43,12 @@ private struct TaskWire: Encodable {
     var plan: [PlanStepWire]?
     var log: [String]?
     var result: String?
+    var handoff: String?
+    var notes: [String]?
+    var workspace: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, objective, status, branch, pr, updated, plan, log, finishing, result, children
+        case id, title, objective, status, branch, pr, updated, plan, log, finishing, result, children, handoff, notes, workspace
         case parentID = "parent_id"
         case subtasksDone = "subtasks_done"
         case subtasksTotal = "subtasks_total"
@@ -57,7 +60,7 @@ private struct TaskWire: Encodable {
     }
 }
 
-private func wire(_ task: TaskFile, detail: Bool = false, finishing: Bool = false, children: [TaskFile] = []) -> TaskWire {
+private func wire(_ task: TaskFile, detail: Bool = false, workspace: URL? = nil, finishing: Bool = false, children: [TaskFile] = []) -> TaskWire {
     let progress = task.progress
     var out = TaskWire(
         id: task.id, title: task.title, objective: task.objective, projectPath: task.projectPath, status: task.status.rawValue,
@@ -70,6 +73,9 @@ private func wire(_ task: TaskFile, detail: Bool = false, finishing: Bool = fals
     if detail {
         out.plan = task.plan.map { PlanStepWire(text: $0.text, done: $0.done) }
         out.log = Array(task.logEntries.suffix(40))
+        out.handoff = task.handoff
+        out.notes = task.notes.isEmpty ? nil : Array(task.notes.suffix(40))
+        if let workspace, FileManager.default.fileExists(atPath: workspace.path) { out.workspace = workspace.path }
         out.sessionNotes = task.sessionNotes.map { SessionNoteWire(id: $0.id, cwd: $0.cwd, started: $0.started, title: $0.title) }
         out.children = children.map { ChildWire(id: $0.id, title: $0.title, status: $0.status.rawValue) }
     }
@@ -141,6 +147,7 @@ struct TasksAPI {
                 if request.method == "POST", parts.count == 4, parts[3] == "delete" { return try await delete(id) }
                 if request.method == "POST", parts.count == 4, parts[3] == "done" { return try await finish(id, immediately: request.query["now"] == "1", includeChildren: request.query["children"] == "1") }
                 if request.method == "POST", parts.count == 4, parts[3] == "reopen" { return try reopen(id) }
+                if request.method == "POST", parts.count == 4, parts[3] == "pickup" { return try await pickUp(id) }
                 if request.method == "POST", parts.count == 4, parts[3] == "resume" { return try await resume(id, request) }
                 if request.method == "GET", parts.count == 4, parts[3] == "transcript" { return transcript(id, request) }
             }
@@ -169,7 +176,7 @@ struct TasksAPI {
 
     private func detail(_ id: Int) async throws -> HTTPServer.Response {
         guard let task = store().get(id) else { return fail("no task \(id)", 404) }
-        return .json(try JSONEncoder().encode(wire(task, detail: true, finishing: await finisher.isFinishing(id), children: store().children(of: id))))
+        return .json(try JSONEncoder().encode(wire(task, detail: true, workspace: store().workspaceDirectory(for: id), finishing: await finisher.isFinishing(id), children: store().children(of: id))))
     }
 
     private func create(_ request: HTTPServer.Request) throws -> HTTPServer.Response {
@@ -295,7 +302,7 @@ struct TasksAPI {
 
     /// Goes to the task's live session if it has one; otherwise starts (or resumes) one in its project and moves the task
     /// out of the inbox. Returns the session's id either way.
-    private func start(_ id: Int) async throws -> HTTPServer.Response {
+    private func start(_ id: Int, fresh: Bool = false) async throws -> HTTPServer.Response {
         guard let task = store().get(id) else { return fail("no task \(id)", 404) }
         let snapshot = try await backend.snapshot()
         if let live = snapshot.sessions.first(where: { $0.group?.id == "task-\(id)" }) {
@@ -313,9 +320,19 @@ struct TasksAPI {
             directory = canonicalPath(current.resolvedDefaultSessionDirectory)
         }
         let sessionID = try await backend.createSession(CreateSessionRequest(
-            workingDirectory: URL(fileURLWithPath: directory), agent: current.resolvedAgentKind, taskID: id))
+            workingDirectory: URL(fileURLWithPath: directory), agent: current.resolvedAgentKind, taskID: id, fresh: fresh))
         if task.status == .inbox || task.status == .ready { _ = try? store().update(id) { $0.setStatus(.active) } }
         return .json(try JSONEncoder().encode(SessionRef(sessionID: sessionID.rawValue)))
+    }
+
+    /// Picks a task up from its notes rather than its old conversation: a new session handed the handoff, notes and
+    /// workspace (a very long conversation is often better replaced than resumed). Goes to the live session if there is one.
+    private func pickUp(_ id: Int) async throws -> HTTPServer.Response {
+        guard let task = store().get(id) else { return fail("no task \(id)", 404) }
+        _ = try? store().ensureWorkspace(for: id)
+        let response = try await start(id, fresh: true)
+        if task.status == .done, response.status == 200 { _ = try? store().update(id) { $0.setStatus(.active) } }
+        return response
     }
 
     /// A running session nobody made a task for becomes one: the task takes the session's title and folder and links it.

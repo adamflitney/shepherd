@@ -246,6 +246,23 @@ struct HolderSessionBackendTests {
         #expect(rig.waitForScreen(prior, containing: "argv: --resume \(prior)"))
     }
 
+    @Test func aFreshPickUpStartsANewConversationEvenWhenAnEarlierOneCouldBeResumed() async throws {
+        let rig = try Rig(); defer { rig.teardown() }
+        let task = try rig.tasks.create(NewTask(title: "Pick me up"))
+        let prior = "33333333-4444-5555-6666-777777777777"
+        _ = try rig.tasks.update(task.id) { $0.linkSession(prior) }
+        let transcript = TranscriptPeek.transcriptURL(workingDirectory: "/tmp", sessionID: prior, home: rig.root.appendingPathComponent("home"))
+        try FileManager.default.createDirectory(at: transcript.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: transcript)
+
+        var fresh = request(task: task.id)
+        fresh.fresh = true
+        let id = try await rig.backend().createSession(fresh)
+        #expect(id.rawValue != prior)
+        #expect(rig.tasks.get(task.id)?.sessions.contains(id.rawValue) == true)
+        #expect(rig.waitForScreen(id.rawValue, containing: "picking the task up"))
+    }
+
     @Test func aTaskResumesAConversationFromTheFolderItRanInAndNotesNewSessions() async throws {
         let rig = try Rig(); defer { rig.teardown() }
         let task = try rig.tasks.create(NewTask(title: "Across repos", projectPath: "/tmp"))

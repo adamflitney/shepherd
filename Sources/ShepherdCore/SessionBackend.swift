@@ -54,6 +54,9 @@ public struct CreateSessionRequest: Hashable, Sendable {
     /// The shepherd task this session works on. A backend that supports tasks links the session to it
     /// before the agent starts and passes it to the agent as `SHEPHERD_TASK_ID`.
     public var taskID: Int?
+    /// Start a new conversation for the task even when it has an earlier one that could be resumed (Pick up with a fresh
+    /// session, handed the task's notes instead of the old conversation).
+    public var fresh: Bool
 
     public init(
         workingDirectory: URL,
@@ -62,7 +65,8 @@ public struct CreateSessionRequest: Hashable, Sendable {
         resumeSessionID: String? = nil,
         title: String? = nil,
         placement: Placement = .standalone,
-        taskID: Int? = nil
+        taskID: Int? = nil,
+        fresh: Bool = false
     ) {
         self.workingDirectory = workingDirectory
         self.agent = agent
@@ -71,6 +75,7 @@ public struct CreateSessionRequest: Hashable, Sendable {
         self.title = title
         self.placement = placement
         self.taskID = taskID
+        self.fresh = fresh
     }
 }
 

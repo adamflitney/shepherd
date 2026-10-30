@@ -30,6 +30,22 @@ struct TaskFileTests {
         #expect(t.section("Plan") == ["- [ ] a"] && t.section("Log").count == 1)
     }
 
+    @Test func keepsNotesAndAReplaceableHandoffAndFeedsThemToTheContext() {
+        var t = TaskFile.parse("---\nid: 1\ntitle: T\n---\n\n## Plan\n- [ ] a\n\n## Log\n- 2026-10-11 09:30: started\n")
+        #expect(t.notes.isEmpty && t.handoff == nil)
+        t.appendNote("Found 3 resellers\nin the EU", now: now)
+        t.appendNote("Script is in the workspace", now: now)
+        #expect(t.notes == ["2026-10-11 09:30: Found 3 resellers in the EU", "2026-10-11 09:30: Script is in the workspace"])
+        t.setHandoff("Done: EU. Next: UK.", now: now)
+        t.setHandoff("Done: EU and UK.", now: now)
+        #expect(t.handoff == "Done: EU and UK.")
+        #expect(t.serialize().components(separatedBy: "## Handoff").count == 2)
+        let text = taskContext(t, workspace: "/w/1", crook: "crook")
+        #expect(text.contains("## Handoff\nDone: EU and UK.") && text.contains("## Notes\n- 2026-10-11 09:30: Found 3"))
+        #expect(text.contains("Workspace for scripts") && text.contains("/w/1") && text.contains("task note 1"))
+        #expect(t.section("Plan") == ["- [ ] a"] && t.section("Log").count == 1)
+    }
+
     @Test func notesWhereASessionRanOnceAndReadsItBack() {
         var t = TaskFile.parse("---\nid: 1\ntitle: T\n---\n\n## Plan\n\n## Log\n")
         #expect(t.sessionNotes.isEmpty)

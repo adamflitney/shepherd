@@ -461,7 +461,7 @@ tech, not from Electron"). The spikes above were run to settle it.
      New (the panel ranks folders by use, the bar uses the server's order); a Task-mode folder picker (it uses the default
      folder today); whether ⌘K should also be reachable while the terminal has a program that wants ⌘K (none known).
 
-8. **Task structure and finishing (designed 2026-10-22; built: Done, Reopen and the stored result; parent and subtasks; the Sessions record with cross-folder resume and a transcript view. Not built: notes, workspaces, Pick up, ordered children, multi-repo spawning).** Tasks are of very different shapes, and
+8. **Task structure and finishing (designed 2026-10-22; built: Done, Reopen and the stored result; parent and subtasks; the Sessions record with cross-folder resume and a transcript view. Notes, handoff, workspace and Pick up built 2026-10-30; not built: ordered children, multi-repo spawning).** Tasks are of very different shapes, and
    everything so far is tuned for one-and-done ones. The shapes (from the user): a **quick question** whose answer is
    definitive and whose session is not needed again but must stay findable; a **long-lived topic** (the reseller
    investigation: many questions, MCP calls, scripts) that must be pickable up again with its findings, scripts and
@@ -487,6 +487,18 @@ tech, not from Electron"). The spikes above were run to settle it.
      next one is startable, a merged PR (already detected) offers "start the next", each child begins from fresh main;
      (5) multi-repo: a lead session *proposes* sessions in other folders, shown as "Needs you" on the board, and they start
      only when approved.
+   - **Notes, handoff, workspace and Pick up (built 2026-10-30, uncommitted).** A task file gains `## Notes` (dated lines
+     agents append with `crook task note <id> <text>`) and `## Handoff` (a short "where it stands", replaced whole with
+     `crook task handoff <id> <text>`). `crook task workspace <id>` creates and prints `~/.shepherd/workspaces/<id>/`
+     (beside the tasks folder, so `SHEPHERD_HOME` moves it). The SessionStart context now carries the workspace path, the
+     handoff, and the newest notes (they get up to half the remaining room, ahead of the log), and tells the agent how to
+     record them. **Pick up fresh** (`POST /api/tasks/<id>/pickup`, a drawer button shown when the task has past sessions
+     and none running) starts a new session, not a resume, with a prompt to read the handoff, notes and workspace and
+     report where things stand; `CreateSessionRequest.fresh` skips the usual resume of the task's last conversation. The
+     existing Start/Resume and per-session Resume stay as the "resume the old conversation" half. The drawer shows
+     Handoff, Notes and the workspace path. Not checked by hand in the live window. Not done: opening the workspace
+     folder from the drawer, a size cap on notes beyond the context budget, an automatic handoff when the agent never
+     writes one.
    - **Rejected:** a separate project/epic entity (one more concept; a task that grows into a parent is more natural);
      labels only (no roll-up of progress or state); a global parent session across tasks (it accumulates unrelated
      context; the task file is the durable state); agents splitting work and spawning sessions unasked (cost multiplies and

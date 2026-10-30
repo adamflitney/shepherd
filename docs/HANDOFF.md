@@ -3,6 +3,25 @@
 Read this first when picking the work up on another machine. Everything described here is on the
 `swift-ghostty-host` branch of this repo (pushed to `origin`); `main` is untouched and nothing is merged.
 
+## Update 2026-10-30: where things stand after the 2026-10-22 work
+
+**Read this first; the 2026-10-20 and 2026-10-15 sections below are history.** Branch `swift-ghostty-host`, pushed, 35+
+commits ahead of `main`, no PR. Work since 2026-10-20 (all in `docs/dashboard.md`, steps 7 and 8):
+
+- **Omnibar** across the top of the dashboard (Switch, New, Task modes; the hotkey summons it). Ask and Review are not in
+  it yet, so the native panel stays until they are, then it is removed.
+- **Board:** keyboard navigation, task details, PR detection (safer), Dock icon and launch-time dashboard, every session
+  gets a task, task edit and delete, single-start web server, auto-title from Claude's title, faster wheel scrolling.
+- **Task structure:** Done and Reopen with a stored `## Result`; parent and child tasks (one level); a `## Sessions`
+  record per task (id, folder, started, title) so a task can resume or show a transcript from another folder.
+- **Notes, workspace and Pick up:** started 2026-10-30, see the dashboard doc, step 8, for what is built.
+- **Not built:** ordered children, multi-repo spawning, Ask and Review in the omnibar, a warning when Done is pressed on a
+  task with an open PR, omnibar search of finished tasks, a place for long-lived topics on the board, `/clear` leaves the
+  old session id on the task, shell sessions may ignore Ctrl+C, freeze recorder still in the tree.
+- **Not tried by hand:** the hotkey, dragging cards between columns, the Dock click. Mods spike phases 1 and 2 untouched.
+- **Decide:** a draft PR for the branch (do not mark ready without asking) and a release.
+- **Tests:** `swift test`; the one known failure needs Herdr's socket (see 2026-10-20).
+
 ## Update 2026-10-20: the hybrid is built and installed
 
 **Read this first, then the 2026-10-15 section below for how it got here.** Steps 2 to 6 of `docs/dashboard.md` are built

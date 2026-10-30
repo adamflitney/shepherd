@@ -14,6 +14,9 @@ crook task <command>
   title <id> <text>
   result <id> <text>             (what the task came to, written when it is wrapped up)
   objective <id> <text>
+  note <id> <text>               (a finding or decision worth keeping; appended with the time)
+  handoff <id> <text>            (where the work stands, for a fresh session; replaces the last)
+  workspace <id>                 (prints the task's folder for scripts and files, creating it)
   log <id> <text>
   plan <id> add <text> | check <n> | uncheck <n> | set   (set reads one step per line from stdin)
   find --session <id>            (prints the linked task id, exit 1 if none)
@@ -151,6 +154,18 @@ func main() {
             let text = rest.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
             if text.isEmpty { fail("result needs text") }
             try store.update(taskID(rest.first)) { $0.setResult(text) }
+        case "note":
+            let text = rest.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            if text.isEmpty { fail("note needs text") }
+            try store.update(taskID(rest.first)) { $0.appendNote(text) }
+        case "handoff":
+            let text = rest.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            if text.isEmpty { fail("handoff needs text") }
+            try store.update(taskID(rest.first)) { $0.setHandoff(text) }
+        case "workspace":
+            let id = taskID(rest.first)
+            guard store.get(id) != nil else { fail("no task \(id)") }
+            out(try store.ensureWorkspace(for: id).path + "\n")
         case "log":
             let text = rest.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
             if text.isEmpty { fail("log needs text") }
@@ -177,7 +192,7 @@ func main() {
             out("\(t.id)\n")
         case "context":
             guard let t = store.get(taskID(rest.first)) else { fail("no task \(rest.first ?? "")") }
-            out(taskContext(t) + "\n")
+            out(taskContext(t, workspace: store.workspaceDirectory(for: t.id).path) + "\n")
         default:
             fail("unknown command \"\(cmd)\"\n\n\(usage)")
         }

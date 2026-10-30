@@ -37,7 +37,7 @@ public func sessionStartHookOutput(_ input: SessionStartInput, env: [String: Str
     let payload: [String: Any] = [
         "hookSpecificOutput": [
             "hookEventName": "SessionStart",
-            "additionalContext": taskContext(task, parent: parent, children: store.children(of: task.id), crook: env["SHEPHERD_CROOK"].map { shellQuoted($0) } ?? "crook"),
+            "additionalContext": taskContext(task, parent: parent, children: store.children(of: task.id), workspace: store.workspaceDirectory(for: task.id).path, crook: env["SHEPHERD_CROOK"].map { shellQuoted($0) } ?? "crook"),
         ]
     ]
     guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.withoutEscapingSlashes]) else { return nil }
