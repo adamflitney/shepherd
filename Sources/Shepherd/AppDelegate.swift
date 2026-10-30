@@ -6,6 +6,7 @@ import ShepherdHolderBackend
 import ShepherdTerminalBridge
 import ShepherdTasks
 import ShepherdUI
+import ShepherdWebKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -125,7 +126,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let statusItemController = StatusItemController()
         statusItemController.onToggle = { [weak self] in self?.togglePanel() }
 
-        let mobileAccess = MobileAccessModel(backend: backend, terminals: terminals)
+        let omnibar = OmnibarServices(
+            ask: { [weak self] text, resume in
+                guard let self else { return .failed("Shepherd is shutting down") }
+                return await self.runInlinePrompt(text, resumeSessionID: resume)
+            },
+            reviews: { [weak self] in
+                guard let self else { return [] }
+                return try await self.loadReviewPRs()
+            },
+            startReview: { [weak self] prID in
+                guard let self else { throw ReviewCacheError(message: "Shepherd is shutting down") }
+                return try await self.startReviewSession(id: prID).rawValue
+            },
+            setIgnored: { id, ignored in
+                if ignored { IgnoredPRStore().ignore(id) } else { IgnoredPRStore().unignore(id) }
+            }
+        )
+        let mobileAccess = MobileAccessModel(backend: backend, terminals: terminals, omnibar: omnibar)
         self.mobileAccess = mobileAccess
         mobileAccessWindow = MobileAccessWindowController(model: mobileAccess)
         statusItemController.onShowMobileAccess = { [weak self] in self?.mobileAccessWindow.show() }
@@ -478,6 +496,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `CreateSessionRequest`/`workspace.create` + `agent.start` path the
     /// project picker already uses, just pointed at the worktree instead.
     private func startReviewSession(_ match: MatchedReviewPR) async throws {
+        let id = try await createReviewSession(match)
+        try await store.focus(id)
+    }
+
+    /// For the omnibar, which shows the session itself: finds the PR in the cached list, then starts its review session.
+    private func startReviewSession(id prID: String) async throws -> SessionID {
+        guard let match = cachedReviewPRs.first(where: { $0.id == prID }) else {
+            throw ReviewCacheError(message: "That PR is no longer in the review list.")
+        }
+        return try await createReviewSession(match)
+    }
+
+    private func createReviewSession(_ match: MatchedReviewPR) async throws -> SessionID {
         let repoPath = try await localClonePath(for: match)
         let worktreePath = try PRWorktree.ensureWorktree(
             repoPath: repoPath, repoSlug: match.pr.repoSlug, prNumber: match.pr.number
@@ -488,8 +519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             initialPrompt: reviewPrompt(for: match.pr),
             title: match.pr.title
         )
-        let id = try await store.createSession(request)
-        try await store.focus(id)
+        return try await store.createSession(request)
     }
 
     private func localClonePath(for match: MatchedReviewPR) async throws -> String {

@@ -82,6 +82,7 @@ public actor MobileAccessServer {
     private let backend: any SessionBackend
     private let options: Options
     private let terminals: TerminalBridgeConfig?
+    private let omnibar: OmnibarServices?
     private var bridge: TerminalBridge?
     private let tailscale = TailscaleService()
     private var http: HTTPServer?
@@ -90,7 +91,8 @@ public actor MobileAccessServer {
     private var tasks: [Task<Void, Never>] = []
 
     /// `terminals` turns on `/ws`, the terminal WebSocket, for backends whose sessions run in PTY holders.
-    public init(backend: any SessionBackend, options: Options = Options(), terminals: TerminalBridgeConfig? = nil) {
+    public init(backend: any SessionBackend, options: Options = Options(), terminals: TerminalBridgeConfig? = nil, omnibar: OmnibarServices? = nil) {
+        self.omnibar = omnibar
         self.backend = backend
         self.options = options
         self.terminals = terminals
@@ -110,6 +112,7 @@ public actor MobileAccessServer {
         let api = SessionsAPI(backend: backend)
         let tasksAPI = TasksAPI(backend: backend)
         let pushAPI = PushAPI(push: push)
+        let omnibarAPI = omnibar.map { OmnibarAPI(backend: backend, services: $0) }
         let publicDirectory = locatePublicDirectory()
         let tailscale = self.tailscale
         let backend = self.backend
@@ -158,6 +161,9 @@ public actor MobileAccessServer {
                 }
                 if tasksAPI.handles(request.path) {
                     return await tasksAPI.handle(request)
+                }
+                if let omnibarAPI, omnibarAPI.handles(request.path) {
+                    return await omnibarAPI.handle(request)
                 }
                 if request.path.hasPrefix("/api/push/") {
                     return await pushAPI.handle(request)

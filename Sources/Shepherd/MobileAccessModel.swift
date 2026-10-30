@@ -25,6 +25,7 @@ final class MobileAccessModel {
 
     private let backend: any SessionBackend
     private let terminals: TerminalBridgeConfig?
+    private let omnibar: OmnibarServices?
     private var server: MobileAccessServer?
     private var starting: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
@@ -33,7 +34,8 @@ final class MobileAccessModel {
     /// rather than looping on an error they need to fix.
     private var triedAutoPublish = false
 
-    init(backend: any SessionBackend, terminals: TerminalBridgeConfig? = nil) {
+    init(backend: any SessionBackend, terminals: TerminalBridgeConfig? = nil, omnibar: OmnibarServices? = nil) {
+        self.omnibar = omnibar
         self.backend = backend
         self.terminals = terminals
         self.config = ShepherdConfig.load().web
@@ -198,7 +200,8 @@ final class MobileAccessModel {
             let candidate = MobileAccessServer(
                 backend: backend,
                 options: .init(port: port, keepAwake: config.enabled && config.keepAwake, onlyWhenAway: config.alertsOnlyWhenAway),
-                terminals: terminals
+                terminals: terminals,
+                omnibar: omnibar
             )
             do {
                 try await candidate.start()

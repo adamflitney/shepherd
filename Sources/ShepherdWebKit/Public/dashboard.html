@@ -32,6 +32,9 @@
   .omniItem .oTitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .omniItem .oSub { color: var(--dim); font-size: 11px; white-space: nowrap; }
   .omniEmpty { color: var(--dim); padding: 10px; }
+  .omniAnswer { padding: 10px 12px; white-space: pre-wrap; line-height: 1.45; max-height: 50vh; overflow-y: auto; user-select: text; }
+  .omniAnswer .q { color: var(--dim); margin-bottom: 6px; }
+  .omniAnswer .hint { color: var(--dim); font-size: 11px; margin-top: 8px; }
 
   /* sidebar */
   #side { width: 290px; flex: 0 0 290px; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); }
@@ -161,7 +164,7 @@
 </head>
 <body>
 <div id="omniBar">
-  <div id="omniModes"><button class="omniMode on" data-mode="switch" title="Find a session or task">Switch</button><button class="omniMode" data-mode="new" title="New session (+)">New</button><button class="omniMode" data-mode="task" title="Capture a task (#)">Task</button></div>
+  <div id="omniModes"><button class="omniMode on" data-mode="switch" title="Find a session or task">Switch</button><button class="omniMode" data-mode="new" title="New session (+)">New</button><button class="omniMode" data-mode="task" title="Capture a task (#)">Task</button><button class="omniMode" data-mode="ask" title="Ask Claude a quick question (?)">Ask</button><button class="omniMode" data-mode="review" title="Pull requests to review (!)">Review</button></div>
   <input id="omni" autocomplete="off" spellcheck="false">
   <span id="omniHint"></span>
   <div id="omniList"></div>
@@ -900,10 +903,11 @@
   setInterval(() => { if (view === "board") loadTasks(); }, 3000);
 
   // ---- omnibar ------------------------------------------------------------------------------------
-  const MODES = ["switch", "new", "task"];
-  const PLACEHOLDER = { switch: "Go to a session or task…", new: "Start a session in a project…", task: "Capture a task: type its title, then ⌘⏎ to add it" };
-  const HINT = { switch: "⏎ go · ⌘D done · ⇥ next mode", new: "⏎ start · ⇥ next mode", task: "⏎ add · ⌘⏎ add + start · ⌘⇧⏎ subtask · ⇥ next mode" };
+  const MODES = ["switch", "new", "task", "ask", "review"];
+  const PLACEHOLDER = { switch: "Go to a session or task…", new: "Start a session in a project…", task: "Capture a task: type its title, then ⌘⏎ to add it", ask: "Ask Claude a quick question (read-only)…", review: "Find a PR to review · @ yours · % ignored" };
+  const HINT = { switch: "⏎ go · ⌘D done · ⇥ next mode", new: "⏎ start · ⇥ next mode", task: "⏎ add · ⌘⏎ add + start · ⌘⇧⏎ subtask · ⇥ next mode", ask: "⏎ ask · ⌘⏎ continue in a session · ⇥ next mode", review: "⏎ review in a session · ⌘⏎ GitHub · ⌘⌫ ignore · ⇥ next mode" };
   let omniMode = "switch", omniItems = [], omniIndex = 0, projectList = [];
+  let askState = null /* {q, text, sessionId, busy, error} */, reviewList = [], reviewLoading = false, reviewError = null;
 
   function fuzzy(text, query) {
     if (!query) return 1;
@@ -920,6 +924,7 @@
     for (const b of document.querySelectorAll(".omniMode")) b.classList.toggle("on", b.dataset.mode === m);
     if (m === "new" && !projectList.length) api("/api/projects").then((l) => { projectList = l; renderOmni(); }).catch(() => {});
     if (m === "switch") loadTasks();
+    if (m === "review") loadReviews();
     renderOmni();
   }
   function buildOmniItems() {
@@ -936,18 +941,66 @@
     if (omniMode === "new") {
       return projectList.map((p) => ({ f: fuzzy(p.name + " " + p.path, q), title: p.name, sub: p.path.replace(/^\/Users\/[^/]+/, "~"), run: () => startSessionIn(p.path) })).filter((x) => x.f).sort((a, b) => b.f - a.f);
     }
+    if (omniMode === "review") {
+      const [kind, text] = q[0] === "@" ? ["mine", q.slice(1).trim()] : (q[0] === "%" || q[0] === "*") ? ["ignored", q.slice(1).trim()] : ["review", q];
+      return reviewList.filter((r) => kind === "ignored" ? r.ignored : (!r.ignored && r.is_mine === (kind === "mine")))
+        .map((r) => ({ f: fuzzy(r.title + " " + r.repo, text), pr: r, title: r.title, sub: r.repo.split("/").pop() + "#" + r.number + " · " + r.status + (r.checks ? " · " + r.checks : ""), state: r.checks_failing ? "blocked" : (r.is_draft ? "idle" : "done"), run: () => startReview(r) }))
+        .filter((x) => x.f).sort((a, b) => b.f - a.f);
+    }
     return [];
+  }
+  async function loadReviews() {
+    reviewLoading = true; reviewError = null; if (omniMode === "review") renderOmni();
+    try { reviewList = await api("/api/reviews"); } catch (e) { reviewError = e.message; }
+    reviewLoading = false; if (omniMode === "review") renderOmni();
+  }
+  async function startReview(r) {
+    toast("Starting review of " + r.repo + "#" + r.number + "…");
+    try { const ref = await api("/api/reviews/start", "POST", { id: r.id }); await new Promise((res) => { refresh(); setTimeout(res, 700); }); openSession(ref.session_id); } catch (e) { toast(e.message); }
+  }
+  async function ignoreReview(r) {
+    try { await api("/api/reviews/" + (r.ignored ? "restore" : "ignore"), "POST", { id: r.id }); toast(r.ignored ? "Restored" : "Ignored"); await loadReviews(); } catch (e) { toast(e.message); }
+  }
+  async function runAsk() {
+    const text = omniQuery(); if (!text || (askState && askState.busy)) return;
+    const resume = askState && askState.sessionId;
+    askState = { q: text, text: null, sessionId: resume || null, busy: true, error: null };
+    $("omni").value = ""; renderOmni();
+    try {
+      const r = await api("/api/ask", "POST", resume ? { text, resume_session_id: resume } : { text });
+      if (r.escalated) { askState = null; toast("That needed more than read-only, so it started a session."); leaveOmni(); setOmniMode("switch"); refresh(); return; }
+      askState = { q: text, text: r.text, sessionId: r.session_id, busy: false, error: null };
+    } catch (e) { askState = { q: text, text: null, sessionId: resume || null, busy: false, error: e.message }; }
+    renderOmni();
+  }
+  async function continueAsk() {
+    if (!askState || !askState.sessionId) return;
+    try { const r = await api("/api/ask/continue", "POST", { session_id: askState.sessionId }); askState = null; await new Promise((res) => { refresh(); setTimeout(res, 700); }); setOmniMode("switch"); openSession(r.session_id); leaveOmni(); } catch (e) { toast(e.message); }
+  }
+  function renderAsk(list) {
+    const box = document.createElement("div"); box.className = "omniAnswer";
+    if (!askState) { box.style.color = "var(--dim)"; box.textContent = "Ask something quick. Answers are read-only and use a fast model; ⌘⏎ carries one on in a real session."; list.appendChild(box); return; }
+    const q = document.createElement("div"); q.className = "q"; q.textContent = "› " + askState.q; box.appendChild(q);
+    const a = document.createElement("div");
+    a.textContent = askState.busy ? "Thinking…" : (askState.error ? askState.error : askState.text);
+    if (askState.busy || askState.error) a.style.color = "var(--dim)";
+    box.appendChild(a);
+    if (!askState.busy && askState.sessionId) { const h = document.createElement("div"); h.className = "hint"; h.textContent = "Type a follow-up and ⏎, ⌘⏎ to continue in a session, Esc to start over."; box.appendChild(h); }
+    list.appendChild(box);
   }
   function renderOmni() {
     const list = $("omniList"); list.textContent = "";
     omniItems = buildOmniItems();
     if (omniIndex >= omniItems.length) omniIndex = Math.max(0, omniItems.length - 1);
+    if (omniMode === "ask") { renderAsk(list); list.classList.add("show"); return; }
     if (omniMode === "task") {
       const e = document.createElement("div"); e.className = "omniEmpty";
       e.textContent = omniQuery() ? 'Add "' + omniQuery() + '" to the board' : "Type a title for the task.";
       list.appendChild(e);
+    } else if (omniMode === "review" && (reviewLoading || reviewError) && !omniItems.length) {
+      const e = document.createElement("div"); e.className = "omniEmpty"; e.textContent = reviewError || "Loading pull requests…"; list.appendChild(e);
     } else if (!omniItems.length) {
-      const e = document.createElement("div"); e.className = "omniEmpty"; e.textContent = "Nothing matches."; list.appendChild(e);
+      const e = document.createElement("div"); e.className = "omniEmpty"; e.textContent = omniMode === "review" ? "No pull requests here." : "Nothing matches."; list.appendChild(e);
     }
     omniItems.forEach((it, i) => {
       const row = document.createElement("div"); row.className = "omniItem" + (i === omniIndex ? " sel" : "");
@@ -986,6 +1039,7 @@
   }
   function runOmni() {
     if (omniMode === "task") return addTask(false, false);
+    if (omniMode === "ask") return runAsk();
     const it = omniItems[omniIndex]; if (!it) return;
     closeOmni(); $("omni").value = ""; setOmniMode("switch");
     it.run(); leaveOmni();
@@ -998,21 +1052,24 @@
   $("omni").addEventListener("blur", () => closeOmni());
   $("omni").addEventListener("input", () => {
     const v = $("omni").value;
-    if (omniMode === "switch" && v.length === 1 && (v === "+" || v === "#")) { setOmniMode(v === "+" ? "new" : "task"); return; }
+    if (omniMode === "switch" && v.length === 1 && (v === "+" || v === "#" || v === "?" || v === "!")) { setOmniMode({ "+": "new", "#": "task", "?": "ask", "!": "review" }[v]); return; }
     omniIndex = 0; renderOmni();
   });
   $("omni").addEventListener("keydown", (e) => {
     if (e.key === "Tab") { e.preventDefault(); const i = MODES.indexOf(omniMode); setOmniMode(MODES[(i + (e.shiftKey ? MODES.length - 1 : 1)) % MODES.length]); return; }
     if (e.key === "ArrowDown") { e.preventDefault(); omniIndex = Math.min(omniItems.length - 1, omniIndex + 1); renderOmni(); return; }
     if (e.key === "ArrowUp") { e.preventDefault(); omniIndex = Math.max(0, omniIndex - 1); renderOmni(); return; }
+    if (e.key === "Enter" && omniMode === "ask" && e.metaKey) { e.preventDefault(); continueAsk(); return; }
+    if (e.key === "Enter" && omniMode === "review" && e.metaKey) { e.preventDefault(); const it = omniItems[omniIndex]; if (it && it.pr) openLink(it.pr.url); return; }
     if (e.key === "Enter") { e.preventDefault(); if (omniMode === "task" && e.metaKey && e.shiftKey) addTask(false, true); else if (omniMode === "task" && e.metaKey) addTask(true, false); else runOmni(); return; }
     if (e.key === "d" && e.metaKey && omniMode === "switch") {
       e.preventDefault();
       const it = omniItems[omniIndex]; if (it && it.taskId != null) { closeOmni(); doDone(it.taskId, it.title); }
       return;
     }
+    if (e.key === "Backspace" && e.metaKey && omniMode === "review") { e.preventDefault(); const it = omniItems[omniIndex]; if (it && it.pr) ignoreReview(it.pr); return; }
     if (e.key === "Backspace" && !$("omni").value && omniMode !== "switch") { e.preventDefault(); setOmniMode("switch"); return; }
-    if (e.key === "Escape") { e.preventDefault(); if ($("omni").value) { $("omni").value = ""; renderOmni(); } else leaveOmni(); }
+    if (e.key === "Escape") { e.preventDefault(); if ($("omni").value) { $("omni").value = ""; renderOmni(); } else if (omniMode === "ask" && askState) { askState = null; renderOmni(); } else leaveOmni(); }
   });
   for (const b of document.querySelectorAll(".omniMode")) b.addEventListener("mousedown", (e) => { e.preventDefault(); setOmniMode(b.dataset.mode); $("omni").focus(); });
   window.addEventListener("keydown", (e) => {

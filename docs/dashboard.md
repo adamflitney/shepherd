@@ -449,7 +449,19 @@ tech, not from Electron"). The spikes above were run to settle it.
      and title) for starting a session.
    - **After Enter on a session or a new session**, focus goes straight into the terminal; the bar never takes focus back
      by itself (a session arriving or attaching used to be able to; `focusTerm` now refuses while the bar has focus).
-   - **Not in the first version:** **Ask** (a one-off `claude -p` answered inline, ⌘Enter to continue it as a session)
+   - **Ask and Review (built 2026-10-30, uncommitted; not tried by hand in the live window).** Two more modes, `?` and `!`
+     as prefixes, Tab cycles to them. The app's `claude -p` runner, `gh` fetcher and PR worktrees reach the server as
+     `OmnibarServices` closures (`ShepherdWebKit/OmnibarAPI.swift`); endpoints `POST /api/ask`, `POST /api/ask/continue`,
+     `GET /api/reviews`, `POST /api/reviews/start|ignore|restore`. **Ask:** Enter asks (read-only, Haiku, as in the panel),
+     the answer shows under the bar, a follow-up Enter continues the same inline conversation, Esc starts over, ⌘Enter
+     carries it on in a real session in the default folder (`--resume`); a request that needs more than read-only starts a
+     session itself. **Review:** the same three views as the panel (`@` yours, `%` ignored, otherwise waiting on you),
+     Enter starts the review session (worktree, cloning first if needed) and goes to it, ⌘Enter opens the PR on GitHub,
+     ⌘Backspace ignores or restores. **Still to do: remove the native panel** (and its hotkey, `onRunInlinePrompt` and the
+     Review and Ask tabs) once these have been used for a while. Rejected: a separate Review view in the dashboard
+     (the omnibar list is enough for a queue this size). Open: PR rows do not show whether a review session already
+     exists, so starting twice makes two sessions.
+   - **Was not in the first version:** **Ask** (a one-off `claude -p` answered inline, ⌘Enter to continue it as a session)
      and **Review** (the PR list, ignore and restore, start a review session). Both are native code today
      (`ClaudeCLIRunner`, `GitHubReviewFetcher`, `PRWorktree`), so each needs a server endpoint, passed in as a closure the
      way session spawning is. Until they exist the panel stays on its own hotkey (hyper+w) for exactly those two.
