@@ -61,6 +61,7 @@ MainActor.assumeIsolated {
             registry: registry,
             launcher: HolderLauncher(registry: registry, holderExecutable: holderExecutable),
             crookPath: FileManager.default.isExecutableFile(atPath: crook) ? crook : nil,
+            webPort: ProcessInfo.processInfo.environment["SHEPHERD_WEB_PORT"].flatMap(Int.init) ?? ShepherdConfig.load().web.port,
             remoteControlNames: ShepherdConfig.load().backend.remoteControlNames ?? true,
             prSync: TaskPRSync())
         Task { await holderBackend.startListening() }

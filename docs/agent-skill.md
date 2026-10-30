@@ -1,12 +1,25 @@
 # Making sessions aware of Shepherd (exploration, 2026-10-30)
 
-**Status: explored, nothing built.** The question: Herdr ships a skill that lets agents inspect and drive other panes.
+**Status (2026-10-30): built, installed, uncommitted. `session prompt` and `wait` not yet tried against a live second session.** Explored first; the build follows the proposal below with the deviations listed under "As built". The question: Herdr ships a skill that lets agents inspect and drive other panes.
 Can Shepherd give its sessions the same, so an agent can search sessions and tasks, update tasks, and send messages to
 other sessions?
 
 **Answer: yes, and most of the plumbing exists.** The missing piece is a client for the web server's API that an agent
 can run from its shell, plus the text that tells it when to. The proposal is to grow `crook` into that client and have it
 print its own skill, the way `herdr --skill` does.
+
+## As built
+
+- `crook sessions`, `session read|prompt|wait`, `tasks search` and `crook --skill` (`Sources/crook/main.swift`; the decisions and the
+  skill text are in `ShepherdTasks/AgentCLI.swift`, tested). The SessionStart context carries one pointer line to
+  `crook --skill`. Sessions get `SHEPHERD_WEB_PORT` in their environment; `crook` falls back to `web.port` in
+  `~/.config/shepherd/config.json`, then 8787, so sessions started before this still work after they restart `crook`.
+- **Deviations from the proposal.** `tasks search` reads the task files itself (same matching as the server's search), so it
+  works with the app closed. `prompt` is allowed to any live session, not only the same task family: that is what was asked
+  for, and the safety rules (refuse self, refuse blocked, refuse sessions that cannot take input, mark the sender, log the
+  message on the target task) stand in for the restriction. Narrowing it later is a one-line change in `promptRefusal`.
+  `prompt --wait` waits up to 8 seconds for the target to start working, then until it settles (default 120 s; exit 2 on
+  timeout).
 
 ## Prior art
 

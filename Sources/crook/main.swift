@@ -23,6 +23,14 @@ crook task <command>
   context <id>                   (the text a SessionStart hook injects)
 crook hook session-start         (reads the hook JSON on stdin)
 
+Other sessions (needs Shepherd running; see `crook --skill`):
+  sessions [--task <id>] [--state <state>] [--json]
+  session read <#task|id>
+  session prompt <#task|id> <text> [--wait] [--timeout <seconds>]
+  session wait <#task|id> [--until idle|done|blocked] [--timeout <seconds>]
+  tasks search <words> [--json]
+  --skill                        (prints the skill agents read)
+
 """
 
 func fail(_ message: String) -> Never {
@@ -71,7 +79,7 @@ struct Options {
 
 func parse(_ args: [String]) -> Options {
     var o = Options()
-    let valued: Set<String> = ["objective", "project", "branch", "session", "status", "parent"]
+    let valued: Set<String> = ["objective", "project", "branch", "session", "status", "parent", "task", "state", "until", "timeout"]
     var i = 0
     while i < args.count {
         let a = args[i]
@@ -103,9 +111,129 @@ func runHook(_ name: String?, store: TaskStore) {
     out(output + "\n")
 }
 
+// MARK: other sessions, through the local server
+
+let environment = ProcessInfo.processInfo.environment
+
+func serverPort() -> Int {
+    let config = try? Data(contentsOf: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/shepherd/config.json"))
+    return AgentCLI.port(env: environment, configJSON: config)
+}
+
+func call(_ method: String, _ path: String, body: [String: Any]? = nil) -> Data {
+    let port = serverPort()
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)
+    request.httpMethod = method
+    request.timeoutInterval = 20
+    if let body {
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    }
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var result: (Data?, URLResponse?, Error?) = (nil, nil, nil)
+    URLSession.shared.dataTask(with: request) { result = ($0, $1, $2); done.signal() }.resume()
+    done.wait()
+    guard let data = result.0, let http = result.1 as? HTTPURLResponse else {
+        fail("can't reach Shepherd on port \(port) (is the app running?). Task commands such as `crook task show` still work without it.")
+    }
+    guard (200..<300).contains(http.statusCode) else {
+        let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+        fail(message ?? "Shepherd answered \(http.statusCode)")
+    }
+    return data
+}
+
+func liveSessions() -> [AgentSession] {
+    (try? JSONDecoder().decode([AgentSession].self, from: call("GET", "/api/sessions"))) ?? []
+}
+
+func target(_ reference: String?, _ sessions: [AgentSession]) -> AgentSession {
+    guard let reference else { fail("which session? give an id prefix or #<task>") }
+    switch AgentCLI.resolve(reference, in: sessions) {
+    case .success(let s): return s
+    case .failure(let e): fail(e.description)
+    }
+}
+
+/// Polls until `done` holds for the session, or the timeout passes (exit 2).
+func waitFor(_ id: String, timeout: Double, _ done: (AgentSession) -> Bool) -> AgentSession {
+    let deadline = Date().addingTimeInterval(timeout)
+    while true {
+        if let s = liveSessions().first(where: { $0.id == id }) {
+            if done(s) { return s }
+        } else { fail("that session has ended") }
+        if Date() >= deadline { FileHandle.standardError.write(Data("crook: timed out\n".utf8)); exit(2) }
+        Thread.sleep(forTimeInterval: 1)
+    }
+}
+
+func report(_ s: AgentSession) { out(AgentCLI.describe(s) + "\n") }
+
+func runSessions(_ positionals: [String], _ opts: Options, store: TaskStore) {
+    let timeout = opts.values["timeout"].flatMap(Double.init) ?? 120
+    switch positionals.first {
+    case "sessions":
+        var list = liveSessions()
+        if let t = opts.values["task"].flatMap(Int.init) { list = list.filter { $0.taskID == t } }
+        if let st = opts.values["state"] { list = list.filter { $0.state == st } }
+        if opts.flags.contains("json") {
+            printJSON(list.map { ["id": $0.id, "title": $0.title, "state": $0.state, "task": $0.taskID as Any, "folder": $0.folder as Any, "summary": $0.summary as Any] })
+        } else { out(list.isEmpty ? "No live sessions.\n" : list.map { AgentCLI.describe($0) + "\n" }.joined()) }
+    case "tasks":
+        guard positionals.dropFirst().first == "search" else { fail("tasks search <words>") }
+        let query = positionals.dropFirst(2).joined(separator: " ")
+        if query.isEmpty { fail("search needs words") }
+        let hits = store.list().compactMap { t in t.search(query).map { (t, $0) } }
+            .sorted { ($0.1.titleMatch ? 1 : 0, $0.0.updated ?? "") > ($1.1.titleMatch ? 1 : 0, $1.0.updated ?? "") }.prefix(30)
+        if opts.flags.contains("json") {
+            printJSON(hits.map { ["id": $0.0.id, "title": $0.0.title, "status": $0.0.status.rawValue, "found": $0.1.field] as [String: Any] })
+        } else { out(hits.isEmpty ? "No tasks match.\n" : hits.map { "\(summary($0.0))  [in \($0.1.field)]\n" }.joined()) }
+    case "session":
+        let sub = positionals.dropFirst().first
+        let all = liveSessions()
+        let me = environment["SHEPHERD_SESSION_ID"]
+        switch sub {
+        case "read":
+            let s = target(positionals.dropFirst(2).first, all)
+            let text = (try? JSONSerialization.jsonObject(with: call("GET", "/api/sessions/\(s.id)/peek")) as? [String: Any])?["text"] as? String
+            out((text ?? "") + "\n")
+        case "prompt":
+            let s = target(positionals.dropFirst(2).first, all)
+            let text = positionals.dropFirst(3).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty { fail("prompt needs text") }
+            if let why = AgentCLI.promptRefusal(target: s, callerSessionID: me) { fail(why) }
+            let crook = environment["SHEPHERD_CROOK"] ?? "crook"
+            let myTask = environment["SHEPHERD_TASK_ID"].flatMap(Int.init)
+            _ = call("POST", "/api/sessions/\(s.id)/prompt", body: ["text": AgentCLI.framedPrompt(text, fromSession: me, fromTask: myTask, crook: crook)])
+            if let task = s.taskID {
+                _ = try? store.update(task) { $0.appendLog("Message from \(myTask.map { "task #\($0)" } ?? "another session") via crook: " + String(text.replacingOccurrences(of: "\n", with: " ").prefix(120))) }
+            }
+            if opts.flags.contains("wait") {
+                _ = waitFor(s.id, timeout: 8) { $0.state == "working" || ($0.state == "blocked") }
+                report(waitFor(s.id, timeout: timeout) { $0.isSettled })
+            } else { out("sent to \(s.id.prefix(8))\n") }
+        case "wait":
+            let s = target(positionals.dropFirst(2).first, all)
+            let until = opts.values["until"] ?? "settled"
+            report(waitFor(s.id, timeout: timeout) {
+                switch until {
+                case "blocked": return $0.state == "blocked"
+                case "done": return $0.state == "done"
+                case "idle": return $0.state == "idle" || $0.state == "done"
+                default: return $0.isSettled
+                }
+            })
+        default: fail("session read|prompt|wait <#task|id>")
+        }
+    default: break
+    }
+}
+
 func main() {
     let store = TaskStore()
     var opts = parse(Array(CommandLine.arguments.dropFirst()))
+    if opts.flags.contains("skill") { return out(AgentCLI.skill(crook: environment["SHEPHERD_CROOK"].map { $0.contains(" ") ? "'\($0)'" : $0 } ?? "crook") + "\n") }
+    if let first = opts.positionals.first, ["sessions", "session", "tasks"].contains(first) { return runSessions(opts.positionals, opts, store: store) }
     if opts.positionals.first == "hook" { return runHook(opts.positionals.dropFirst().first, store: store) }
     if opts.positionals.first == "task" { opts.positionals.removeFirst() }
     guard let cmd = opts.positionals.first, !opts.flags.contains("help") else { return out(usage) }

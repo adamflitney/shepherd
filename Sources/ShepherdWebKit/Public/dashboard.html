@@ -1070,9 +1070,16 @@
   }
   // Leaves the bar for whatever it started: the terminal, unless the board is what is showing.
   function leaveOmni() { $("omni").blur(); closeOmni(); setTimeout(focusTerm, 60); }
-  function focusOmni() { $("omni").focus(); $("omni").select(); setOmniMode(omniMode, true); }
+  // The first focus, when the app starts, leaves the list closed until you type or press an arrow; later summons show it.
+  let quietFirstFocus = true;
+  function focusOmni() {
+    const quiet = quietFirstFocus;
+    $("omni").focus(); $("omni").select(); quietFirstFocus = false;
+    setOmniMode(omniMode, true);
+    if (quiet) closeOmni();
+  }
 
-  $("omni").addEventListener("focus", () => { if (omniMode === "switch") loadTasks(); renderOmni(); });
+  $("omni").addEventListener("focus", () => { if (omniMode === "switch") loadTasks(); if (!quietFirstFocus) renderOmni(); });
   $("omni").addEventListener("blur", () => closeOmni());
   $("omni").addEventListener("input", () => {
     const v = $("omni").value;

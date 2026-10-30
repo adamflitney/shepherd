@@ -393,6 +393,7 @@ public func taskContext(_ t: TaskFile, parent: TaskFile? = nil, children: [TaskF
     if let workspace {
         head.append("Workspace for scripts and files that belong to no repo: \(workspace) (keep them there so the task can be picked up later).")
     }
+    head.append("Other Shepherd sessions and tasks can be searched, read and messaged with `\(crook) sessions`, `\(crook) tasks search <words>` and `\(crook) session read|prompt|wait`. Run `\(crook) --skill` before using them, and only when the user asks or this task needs another session's findings.")
     head.append("Record findings and decisions worth keeping with `\(crook) task note \(t.id) <text>`, and keep a short summary of where the work stands, enough for a fresh session to take over, with `\(crook) task handoff \(t.id) <text>` (replaces the last one).")
     var out = head.joined(separator: "\n")
     if let handoff = t.handoff { out += "\n\n## Handoff\n" + handoff }

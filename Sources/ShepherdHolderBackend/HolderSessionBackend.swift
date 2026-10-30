@@ -32,6 +32,7 @@ public actor HolderSessionBackend: SessionBackend {
     private let home: URL
     private let claudeCommand: String
     private let crookPath: String?
+    private let webPort: Int?
     private let loginShell: String?
     private let remoteControlNames: Bool
     private let pace: Pace
@@ -57,6 +58,7 @@ public actor HolderSessionBackend: SessionBackend {
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         claudeCommand: String = ClaudeLocator.find(),
         crookPath: String? = nil,
+        webPort: Int? = nil,
         loginShell: String? = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
         remoteControlNames: Bool = false,
         prSync: TaskPRSync? = nil,
@@ -64,7 +66,7 @@ public actor HolderSessionBackend: SessionBackend {
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.registry = registry; self.launcher = launcher; self.taskStore = taskStore; self.hookStates = hookStates
-        self.seen = seen; self.home = home; self.claudeCommand = claudeCommand; self.crookPath = crookPath
+        self.seen = seen; self.home = home; self.claudeCommand = claudeCommand; self.crookPath = crookPath; self.webPort = webPort
         self.loginShell = loginShell; self.remoteControlNames = remoteControlNames; self.pace = pace; self.now = now
         self.prSync = prSync
         self.lastSeen = seen.load()
@@ -140,6 +142,7 @@ public actor HolderSessionBackend: SessionBackend {
 
         var env = ["SHEPHERD_SESSION_ID": sessionID]
         if let crookPath { env["SHEPHERD_CROOK"] = crookPath }
+        if let webPort { env["SHEPHERD_WEB_PORT"] = String(webPort) }
         if let task { env["SHEPHERD_TASK_ID"] = String(task.id) }
         if let task {
             _ = try? taskStore.update(task.id) {
@@ -371,6 +374,7 @@ public actor HolderSessionBackend: SessionBackend {
     private func resume(_ record: SessionRecord) throws -> SessionRecord {
         var env: [String: String] = ["SHEPHERD_SESSION_ID": record.claudeSessionID ?? ""]
         if let crookPath { env["SHEPHERD_CROOK"] = crookPath }
+        if let webPort { env["SHEPHERD_WEB_PORT"] = String(webPort) }
         if let task = record.taskID { env["SHEPHERD_TASK_ID"] = String(task) }
         let extra = remoteControlNames ? ["--remote-control", record.title ?? "shepherd"] : []
         do {
