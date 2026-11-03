@@ -4,7 +4,8 @@
 
 - **Built:** task files and the store (`ShepherdTasks`), the `crook` CLI, the SessionStart context hook, linking a session to its task at start and resuming a task's conversation, and a **Tasks tab in the panel** (list, start/resume, new task from the typed text, mark done).
 - **Changed:** agents now run in plain **Ghostty tabs**, driven by AppleScript, instead of Herdr panes (see the README's *How agents run*). Shepherd's Swift app is the only process, so the "TUI board in a Herdr pane", the Herdr plugin, and the local socket API described below are **not being built**. The board becomes a kanban view in a native dashboard window with embedded terminals, and the panel's Tasks tab is a stopgap (see `docs/dashboard.md`). Live session state comes from Claude Code hooks, not Herdr.
-- **Built since (2026-10-16):** the kanban columns (Inbox / Ready / Needs you / In progress / Review / Done) as a view in the dashboard window, with cards, a drawer, drag to move, start or go to a task's session, and promoting an untracked session to a task. See `docs/dashboard.md`, step 5.
+- **Changed (2026-11-03):** the board's "Needs you" column was removed, since it was the only column that wasn't a task status. Active tasks and untracked sessions all sit in In progress, and the card's state chip shows blocked, finished, working, idle or no session. Rejected for now: colouring cards by state, urgency sorting, a "needs you" count, blocked-for-how-long, and a state filter.
+- **Built since (2026-10-16):** the kanban columns (Inbox / Ready / In progress / Review / Done) as a view in the dashboard window, with cards, a drawer, drag to move, start or go to a task's session, and promoting an untracked session to a task. See `docs/dashboard.md`, step 5.
 - **Not built yet:** PR badges from detection and the automatic move to Review when a PR is marked ready, worktree-per-task.
 
 The original design (2026-10-05) follows unchanged for reference.
@@ -152,12 +153,11 @@ sessions:
 |---|---|
 | Inbox | `status: inbox` |
 | Ready | `status: ready` (nothing has started it yet) |
-| Needs you | `status: active` and any linked session is blocked or failed, or finished and unseen |
-| In progress | `status: active` and the above doesn't apply (working, idle, or no live session; a badge says which) |
+| In progress | `status: active` (a badge says whether the session is working, blocked, finished, idle, or missing) |
 | Review | `status: review`, which is set by the agent or you, or automatically when the task's PR is marked ready |
 | Done | `status: done` (hidden by default, or shows only the last few) |
 
-**Untracked sessions.** A live session with no task appears as an untracked card in Needs you or In
+**Untracked sessions.** A live session with no task appears as an untracked card in In
 progress. One key promotes it to a task: shepherd creates the file with the session's title, project
 and id already filled in.
 
@@ -340,7 +340,7 @@ ideas move into shepherd rather than the other way round.
 - **Verify during the build: does resuming a conversation keep its session id?** If resuming can
   produce a new id, shepherd needs to carry the link over (see "Linking sessions to tasks").
 - **How a task with several sessions shows.** When one session is working and another blocked, the
-  card goes to Needs you (the worst state wins, the same rule as the menu bar icon). Does the card
+  card's state chip shows the worst state (the same rule as the menu bar icon). Does the card
   need to show each session?
 - **The phone view and tasks.** Does the phone view get a task list, or stay session-only?
 - **Where `done` tasks go.** They could stay in the folder forever, or move to `tasks/archive/`

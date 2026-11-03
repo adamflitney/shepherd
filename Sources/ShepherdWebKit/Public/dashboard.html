@@ -149,7 +149,6 @@
   #columns { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 12px 14px 14px; overflow-x: auto; }
   .col { flex: 1 1 160px; min-width: 160px; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 11px; }
   .col.over { border-color: var(--accent); background: #18202f; }
-  .col.needs { border-color: #ff8a5c55; }
   .colHead { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 6px; }
   .colHead h3 { margin: 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
   .colHead span { color: var(--dim); font-size: 12px; }
@@ -761,7 +760,7 @@
   // ---- board --------------------------------------------------------------------------------------
   const COLUMNS = [
     { id: "inbox", label: "Inbox", status: "inbox" }, { id: "ready", label: "Ready", status: "ready" },
-    { id: "needs", label: "Needs you", status: null }, { id: "progress", label: "In progress", status: "active" },
+    { id: "progress", label: "In progress", status: "active" },
     { id: "review", label: "Review", status: "review" }, { id: "done", label: "Done", status: "done" },
   ];
   const FLOW = ["inbox", "ready", "active", "review", "done"];
@@ -776,7 +775,7 @@
     if (t.status === "ready") return "ready";
     if (t.status === "review") return "review";
     if (t.status === "done") return "done";
-    return sessionsOf(t).some((x) => needsYou(stateOf(x))) ? "needs" : "progress";
+    return "progress";
   }
   function bestState(list) {
     for (const k of ["blocked", "interrupted", "done", "working", "idle", "unknown"]) { const f = list.find((x) => stateOf(x) === k); if (f) return { kind: k, session: f }; }
@@ -858,9 +857,9 @@
     const host = $("columns"); host.textContent = ""; cardKeys = [];
     const byCol = {}; for (const c of COLUMNS) byCol[c.id] = [];
     for (const t of tasks) byCol[columnOf(t)].push({ node: () => taskCard(t), key: "task:" + t.id });
-    for (const x of untracked()) byCol[needsYou(stateOf(x)) ? "needs" : "progress"].push({ node: () => untrackedCard(x), key: "session:" + x.id });
+    for (const x of untracked()) byCol.progress.push({ node: () => untrackedCard(x), key: "session:" + x.id });
     for (const c of COLUMNS) {
-      const col = document.createElement("div"); col.className = "col" + (c.id === "needs" ? " needs" : ""); col.dataset.col = c.id;
+      const col = document.createElement("div"); col.className = "col"; col.dataset.col = c.id;
       const head = document.createElement("div"); head.className = "colHead";
       const h = document.createElement("h3"); h.textContent = c.label; const n = document.createElement("span"); n.textContent = String(byCol[c.id].length);
       head.append(h, n); col.appendChild(head);
