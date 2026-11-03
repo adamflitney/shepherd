@@ -522,8 +522,10 @@ tech, not from Electron"). The spikes above were run to settle it.
      you or is working, or was used in the last 4 hours; Recent is under 7 days; Inactive is older and collapsed until
      clicked. Within a group, sessions sort by attention (blocked, interrupted, finished, working, idle) then recency, so
      anything needing you is on top; ⌘1-9 follow the displayed order. Recency is the session's `last_activity` (hook
-     time, new on `/api/sessions`). Not checked by hand in the live window. Not done: grouping by task update time for
-     sessions with no hook yet, configurable thresholds.
+     time, new on `/api/sessions`). Inside each group, sessions sharing a working folder are clustered under a small
+     folder label (clusters ordered by their most urgent session); the same folder in two groups shows separately in
+     each. Not checked by hand in the live window. Not done: grouping by task update time for sessions with no hook yet,
+     configurable thresholds.
    - **Finding and bringing back old tasks (built 2026-10-30, uncommitted).** In Switch mode, two or more characters also
      search every task, finished ones included, across title, objective, handoff, result, notes, plan and log (every word
      must appear, any case; `GET /api/tasks/search?q=`, title matches first, then newest, 30 at most). Hits that are not

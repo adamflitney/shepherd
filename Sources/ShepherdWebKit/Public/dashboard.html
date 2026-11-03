@@ -58,6 +58,7 @@
   .rowSub { color: var(--dim); font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rowSub.needs { color: var(--needs); }
   .groupHead { padding: 10px 10px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .dirHead { padding: 6px 10px 1px; font-size: 11px; color: var(--dim); opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .groupHead.toggle { cursor: pointer; }
   .pin { flex: 0 0 auto; font-size: 11px; margin-top: 2px; opacity: 0; cursor: pointer; filter: grayscale(1); }
   .row:hover .pin, .pin.on { opacity: .8; }
@@ -462,7 +463,14 @@
   function sidebarOrder() {
     const groups = [{ id: "pinned", label: "Pinned", items: [] }, { id: "active", label: "Active", items: [] }, { id: "recent", label: "Recent", items: [] }, { id: "inactive", label: "Inactive", items: [] }];
     sessions.forEach((s) => groups.find((g) => g.id === groupOf(s)).items.push(s));
-    groups.forEach((g) => g.items.sort((a, b) => (ATTENTION_RANK[stateOf(a)] ?? 9) - (ATTENTION_RANK[stateOf(b)] ?? 9) || (b.last_activity || 0) - (a.last_activity || 0)));
+    groups.forEach((g) => {
+      g.items.sort((a, b) => (ATTENTION_RANK[stateOf(a)] ?? 9) - (ATTENTION_RANK[stateOf(b)] ?? 9) || (b.last_activity || 0) - (a.last_activity || 0));
+      // Sessions sharing a folder sit together; a cluster sorts by its most urgent session, which the sort above puts first.
+      const byDir = new Map();
+      g.items.forEach((s) => { const d = s.working_directory || ""; if (!byDir.has(d)) byDir.set(d, []); byDir.get(d).push(s); });
+      g.clusters = [...byDir].map(([dir, items]) => ({ dir, items }));
+      g.items = g.clusters.flatMap((c) => c.items);
+    });
     return groups;
   }
   const displayed = () => sidebarOrder().flatMap((g) => (g.id === "inactive" && !openGroups.has("inactive") ? [] : g.items));
@@ -507,7 +515,11 @@
       if (g.id === "inactive") { head.classList.add("toggle"); head.addEventListener("click", () => { openGroups.has("inactive") ? openGroups.delete("inactive") : openGroups.add("inactive"); render(); }); }
       list.appendChild(head);
       if (collapsed) return;
-      g.items.forEach((s) => list.appendChild(sessionRow(s)));
+      g.clusters.forEach((c) => {
+        const sub = document.createElement("div"); sub.className = "dirHead"; sub.textContent = folder(c.dir) || "No folder"; sub.title = c.dir;
+        list.appendChild(sub);
+        c.items.forEach((s) => list.appendChild(sessionRow(s)));
+      });
     });
     renderHeader();
   }
