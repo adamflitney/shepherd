@@ -43,6 +43,7 @@ public actor HolderSessionBackend: SessionBackend {
     private var lastSeen: [String: Date]
     private var titleChecked: [String: Date] = [:]
     private var published: [String: Session] = [:]
+    private var activityCache: [String: (modified: Date, text: String?)] = [:]
     private var attentionSince: [String: (key: String, since: Date)] = [:]
     private var connection: ConnectionState = .idle
     private let hub = BackendEventHub()
@@ -312,8 +313,13 @@ public actor HolderSessionBackend: SessionBackend {
                 attention = ghosttyAttention(hook: hook, unseenFinish: unseen)
                 if hook == nil, r.startedWithPrompt == true, now().timeIntervalSince(r.startedAt) > ghosttyStartupGrace {
                     attention = folderTrustAttention()
+                } else if hook == nil, now().timeIntervalSince(r.startedAt) > Self.silentSessionIsIdleAfter {
+                    // No hook has ever reported for it (a resumed session, or its state file was cleared): "starting" is only
+                    // true for a moment, and sorts above idle sessions, so after that it is just idle.
+                    attention = AttentionState(kind: .idle)
                 }
             }
+            if attention.kind == .working { attention.activity = activity(for: r, sessionID: sid) }
             attention.since = since(for: sid, attention: attention, fallback: hook?.updatedAt ?? r.startedAt)
 
             var task = r.taskID.flatMap { taskStore.get($0) } ?? taskStore.findBySession(sid) ?? adoptIntoTask(r, sessionID: sid)
@@ -330,6 +336,16 @@ public actor HolderSessionBackend: SessionBackend {
                 attention: attention, isFocused: false, group: group, lastActivityAt: hook?.updatedAt,
                 capabilities: interrupted ? [.focus, .close] : [.focus, .prompt, .close])
         }.sorted { ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast) }
+    }
+
+    /// What a working session is doing, from the tail of its transcript; re-read only when the file has changed.
+    private func activity(for r: SessionRecord, sessionID: String) -> String? {
+        let url = TranscriptPeek.transcriptURL(workingDirectory: r.cwd, sessionID: sessionID, home: home)
+        guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { return nil }
+        if let cached = activityCache[sessionID], cached.modified == modified { return cached.text }
+        let text = TranscriptPeek.currentActivity(at: url)
+        activityCache[sessionID] = (modified, text)
+        return text
     }
 
     /// The hook state for a session: the file named after its id, or (after `/clear` changed Claude's own id) the
@@ -356,6 +372,8 @@ public actor HolderSessionBackend: SessionBackend {
     }
 
     // MARK: - helpers
+
+    static let silentSessionIsIdleAfter: TimeInterval = 60
 
     static let defaultTaskPrompt = "Start on the task described in your session context."
     static let pickUpPrompt = "This is a new session picking the task up from an earlier one. Read the handoff, notes and plan in your session context, look in the task's workspace for scripts and files, then tell me where things stand and what you would do next."

@@ -121,6 +121,16 @@ public struct TaskFile: Sendable {
         touch(now: now)
         return true
     }
+    public var pinned: Bool {
+        if case .int(let n)? = doc.get("pinned") { return n > 0 }
+        return false
+    }
+
+    public mutating func setPinned(_ pinned: Bool, now: Date = Date()) {
+        doc.set("pinned", pinned ? .int(1) : nil)
+        touch(now: now)
+    }
+
     public var status: TaskStatus { str("status").flatMap(TaskStatus.init(rawValue:)) ?? .inbox }
     public var sessions: [String] {
         if case .list(let l)? = doc.get("sessions") { return l }

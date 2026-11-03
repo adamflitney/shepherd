@@ -409,7 +409,7 @@ tech, not from Electron"). The spikes above were run to settle it.
      the original table: an interrupted session needs you to resume it), otherwise In progress. A live session with no
      task shows as a dashed card in the same two columns with **Make a task**, which creates the task from the session's
      title and folder, links it and marks it active.
-   - **Cards:** number and title, the objective (two lines), plan progress (a bar and n/m), the best state of the task's
+   - **Cards:** number and title, the objective (two lines), plan progress (a segmented bar, one segment per step, and n/m), a one-line "what it's doing" (a working session's latest activity, read from the tail of its transcript so it lags a little and needs no per-tool hook; otherwise the first unchecked plan step), the best state of the task's
      live sessions or "No live session", the folder, a PR badge when the task has one (set by hand or by a later PR
      step; nothing detects PRs yet).
    - **Moving:** drag between Inbox, Ready, In progress, Review and Done (Needs you is computed, so it takes no drops);
@@ -516,6 +516,14 @@ tech, not from Electron"). The spikes above were run to settle it.
      Handoff, Notes and the workspace path. Not checked by hand in the live window. Not done: opening the workspace
      folder from the drawer, a size cap on notes beyond the context budget, an automatic handoff when the agent never
      writes one.
+   - **Sidebar grouped by recent use (built 2026-11-03, uncommitted).** The sidebar (same in the Sessions and Board views)
+     groups sessions as Pinned, Active, Recent and Inactive. Pinned is the task's `pinned: 1` frontmatter field
+     (`POST /api/tasks/<id>/pin {pinned}`, a pin on each row that has a task). Otherwise Active is a session that needs
+     you or is working, or was used in the last 4 hours; Recent is under 7 days; Inactive is older and collapsed until
+     clicked. Within a group, sessions sort by attention (blocked, interrupted, finished, working, idle) then recency, so
+     anything needing you is on top; ⌘1-9 follow the displayed order. Recency is the session's `last_activity` (hook
+     time, new on `/api/sessions`). Not checked by hand in the live window. Not done: grouping by task update time for
+     sessions with no hook yet, configurable thresholds.
    - **Finding and bringing back old tasks (built 2026-10-30, uncommitted).** In Switch mode, two or more characters also
      search every task, finished ones included, across title, objective, handoff, result, notes, plan and log (every word
      must appear, any case; `GET /api/tasks/search?q=`, title matches first, then newest, 30 at most). Hits that are not
@@ -531,6 +539,16 @@ tech, not from Electron"). The spikes above were run to settle it.
      instead of making a second. Done now says when the task (or an open subtask) has a PR not recorded as merged or
      closed (`TaskFile.hasOpenPR`, `pr_open`; the PR sync now also logs "PR closed") and that Done leaves the PR as it is;
      it warns, it does not block.
+   - **Silent sessions (2026-10-30, uncommitted).** A live session no hook has ever reported for showed "Starting" forever and
+     sorted above idle ones (`unknown` ranks between working and idle). After 60 seconds with no hook state it is now idle
+     (the folder-trust check for sessions started with a prompt, at 8 seconds, still comes first). Cause of the silence for the
+     session that showed it (a resumed #6, no file in `~/.shepherd/state`) is not known: its status will read idle even when
+     it is working until a hook fires for it.
+   - **Shortcut reminder (2026-10-30, uncommitted).** ⌘/ (or the small ⌘/ button at the right of the bar) opens a modal listing the
+     main shortcuts by area (anywhere, the bar's modes, Switch, Task and Ask, Review, Board, in a session); Esc or ⌘/ closes
+     it. The list is the `KEYS` table in `dashboard.html`, so it has to be edited by hand when a shortcut changes. `#keys` as
+     the page's hash opens it on load, for a snapshot. Rejected: `?` as the key (it is the Ask prefix and a character in the
+     terminal).
    - **Rejected:** a separate project/epic entity (one more concept; a task that grows into a parent is more natural);
      labels only (no roll-up of progress or state); a global parent session across tasks (it accumulates unrelated
      context; the task file is the durable state); agents splitting work and spawning sessions unasked (cost multiplies and

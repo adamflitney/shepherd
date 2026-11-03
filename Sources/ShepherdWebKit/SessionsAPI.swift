@@ -1,5 +1,6 @@
 import Foundation
 import ShepherdCore
+import ShepherdGhostty
 import ShepherdUI
 
 /// Wire DTOs, kept separate from the domain model - same precedent as
@@ -12,6 +13,7 @@ private struct SessionWire: Encodable {
     let attentionKind: String
     let blocker: String?
     let summary: String?
+    let activity: String?
     let options: [String]?
     let optionsAllowMultiple: Bool
     let workingDirectory: String?
@@ -19,17 +21,19 @@ private struct SessionWire: Encodable {
     let canPrompt: Bool
     let canRespond: Bool
     let taskID: Int?
+    let lastActivity: Double?
 
     enum CodingKeys: String, CodingKey {
         case id, title, agent
         case attentionKind = "attention_kind"
-        case blocker, summary, options
+        case blocker, summary, activity, options
         case optionsAllowMultiple = "options_allow_multiple"
         case workingDirectory = "working_directory"
         case isFocused = "is_focused"
         case canPrompt = "can_prompt"
         case canRespond = "can_respond"
         case taskID = "task_id"
+        case lastActivity = "last_activity"
     }
 }
 
@@ -41,13 +45,15 @@ private func wire(_ session: Session) -> SessionWire {
         attentionKind: session.attention.kind.rawValue,
         blocker: session.attention.blocker?.rawValue,
         summary: session.attention.summary,
+        activity: session.attention.activity,
         options: session.attention.options,
         optionsAllowMultiple: session.attention.optionsAllowMultiple,
         workingDirectory: session.workingDirectory?.path,
         isFocused: session.isFocused,
         canPrompt: session.capabilities.contains(.prompt),
         canRespond: session.attention.blocker != nil,
-        taskID: session.group.flatMap { $0.id.hasPrefix("task-") ? Int($0.id.dropFirst(5)) : nil }
+        taskID: session.group.flatMap { $0.id.hasPrefix("task-") ? Int($0.id.dropFirst(5)) : nil },
+        lastActivity: session.lastActivityAt?.timeIntervalSince1970
     )
 }
 
@@ -66,6 +72,7 @@ private struct CreatedWire: Encodable { let id: String }
 struct SessionsAPI {
     let backend: any SessionBackend
     var config: @Sendable () -> ShepherdConfig = { ShepherdConfig.load() }
+    var home = FileManager.default.homeDirectoryForCurrentUser
 
     func handle(_ request: HTTPServer.Request) async -> HTTPServer.Response {
         let parts = pathComponents(request.path)
@@ -105,6 +112,13 @@ struct SessionsAPI {
                     let body = try JSONDecoder().decode(RespondBody.self, from: request.body)
                     try await backend.respond(id, keys: body.keys)
                     return .json(Data("{}".utf8))
+                case ("GET", "chat"):
+                    let snapshot = try await backend.snapshot()
+                    guard let cwd = snapshot.sessions.first(where: { $0.id == id })?.workingDirectory?.path else {
+                        return .json(try JSONEncoder().encode(ErrorWire(error: "unknown session")), status: 404)
+                    }
+                    let url = TranscriptPeek.transcriptURL(workingDirectory: cwd, sessionID: id.rawValue, home: home)
+                    return .json(try JSONEncoder().encode(TranscriptChat.read(at: url, after: request.query["after"].flatMap(UInt64.init))))
                 case ("GET", "peek"):
                     let text = try await backend.peek(id)
                     return .json(try JSONEncoder().encode(PeekWire(text: text)))

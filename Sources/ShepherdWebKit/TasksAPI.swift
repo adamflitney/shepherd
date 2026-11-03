@@ -29,12 +29,15 @@ private struct TaskWire: Encodable {
     let status: String
     let progressDone: Int
     let progressTotal: Int
+    let planSteps: [Bool]
+    let nextStep: String?
     let sessionIDs: [String]
     let branch: String?
     let pr: String?
     let updated: String?
     var finishing = false
     var prOpen = false
+    var pinned = false
     let parentID: Int?
     var subtasksDone = 0
     var subtasksTotal = 0
@@ -49,7 +52,7 @@ private struct TaskWire: Encodable {
     var workspace: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, objective, status, branch, pr, updated, plan, log, finishing, result, children, handoff, notes, workspace
+        case id, title, objective, status, branch, pr, updated, pinned, plan, log, finishing, result, children, handoff, notes, workspace
         case parentID = "parent_id"
         case prOpen = "pr_open"
         case subtasksDone = "subtasks_done"
@@ -58,6 +61,8 @@ private struct TaskWire: Encodable {
         case projectPath = "project_path"
         case progressDone = "progress_done"
         case progressTotal = "progress_total"
+        case planSteps = "plan_steps"
+        case nextStep = "next_step"
         case sessionIDs = "session_ids"
     }
 }
@@ -66,12 +71,13 @@ private func wire(_ task: TaskFile, detail: Bool = false, workspace: URL? = nil,
     let progress = task.progress
     var out = TaskWire(
         id: task.id, title: task.title, objective: task.objective, projectPath: task.projectPath, status: task.status.rawValue,
-        progressDone: progress.done, progressTotal: progress.total, sessionIDs: task.sessions, branch: task.branch, pr: task.pr,
+        progressDone: progress.done, progressTotal: progress.total, planSteps: task.plan.map(\.done), nextStep: task.plan.first { !$0.done }?.text, sessionIDs: task.sessions, branch: task.branch, pr: task.pr,
         updated: task.updated, parentID: task.parent)
     out.subtasksTotal = children.count
     out.subtasksDone = children.filter { $0.status == .done }.count
     out.finishing = finishing
     out.prOpen = task.hasOpenPR
+    out.pinned = task.pinned
     out.result = task.result
     if detail {
         out.plan = task.plan.map { PlanStepWire(text: $0.text, done: $0.done) }
@@ -85,6 +91,7 @@ private func wire(_ task: TaskFile, detail: Bool = false, workspace: URL? = nil,
     return out
 }
 
+private struct PinBody: Decodable { let pinned: Bool }
 private struct ErrorWire: Encodable { let error: String }
 private struct SearchHitWire: Encodable {
     let id: Int
@@ -156,6 +163,7 @@ struct TasksAPI {
                 if request.method == "GET", parts.count == 3 { return try await detail(id) }
                 if request.method == "POST", parts.count == 4, parts[3] == "status" { return try setStatus(id, request) }
                 if request.method == "POST", parts.count == 4, parts[3] == "start" { return try await start(id) }
+                if request.method == "POST", parts.count == 4, parts[3] == "pin" { return try pin(id, request) }
                 if request.method == "POST", parts.count == 4, parts[3] == "edit" { return try edit(id, request) }
                 if request.method == "POST", parts.count == 4, parts[3] == "delete" { return try await delete(id) }
                 if request.method == "POST", parts.count == 4, parts[3] == "done" { return try await finish(id, immediately: request.query["now"] == "1", includeChildren: request.query["children"] == "1") }
@@ -226,6 +234,13 @@ struct TasksAPI {
         guard let status = TaskStatus(rawValue: body.status) else { return fail("unknown status", 400) }
         guard store().get(id) != nil else { return fail("no task \(id)", 404) }
         let task = try store().update(id) { $0.setStatus(status) }
+        return .json(try JSONEncoder().encode(wire(task)))
+    }
+
+    private func pin(_ id: Int, _ request: HTTPServer.Request) throws -> HTTPServer.Response {
+        let body = try JSONDecoder().decode(PinBody.self, from: request.body)
+        guard store().get(id) != nil else { return fail("no task \(id)", 404) }
+        let task = try store().update(id) { $0.setPinned(body.pinned) }
         return .json(try JSONEncoder().encode(wire(task)))
     }
 

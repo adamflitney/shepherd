@@ -263,6 +263,16 @@ struct HolderSessionBackendTests {
         #expect(rig.waitForScreen(id.rawValue, containing: "picking the task up"))
     }
 
+    @Test func aSessionWithNoHookStateIsStartingOnlyBrieflyAndThenIdle() async throws {
+        let rig = try Rig(); defer { rig.teardown() }
+        let backend = rig.backend()
+        let id = try await backend.createSession(request())
+        #expect(try await backend.snapshot().sessions.first?.attention.kind == .unknown)
+        rig.clock.advance(120)
+        #expect(try await backend.snapshot().sessions.first?.attention.kind == .idle)
+        _ = id
+    }
+
     @Test func aTaskResumesAConversationFromTheFolderItRanInAndNotesNewSessions() async throws {
         let rig = try Rig(); defer { rig.teardown() }
         let task = try rig.tasks.create(NewTask(title: "Across repos", projectPath: "/tmp"))

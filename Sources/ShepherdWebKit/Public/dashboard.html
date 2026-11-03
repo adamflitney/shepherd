@@ -57,6 +57,11 @@
   .rowTitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
   .rowSub { color: var(--dim); font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rowSub.needs { color: var(--needs); }
+  .groupHead { padding: 10px 10px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .groupHead.toggle { cursor: pointer; }
+  .pin { flex: 0 0 auto; font-size: 11px; margin-top: 2px; opacity: 0; cursor: pointer; filter: grayscale(1); }
+  .row:hover .pin, .pin.on { opacity: .8; }
+  .pin.on { filter: none; }
   .key { flex: 0 0 auto; color: var(--dim); font-size: 11px; margin-top: 2px; opacity: .7; }
   #empty { color: var(--dim); padding: 18px 14px; line-height: 1.5; }
   #conn { padding: 8px 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; display: flex; align-items: center; gap: 7px; }
@@ -78,6 +83,29 @@
   #stage { flex: 1; min-height: 0; position: relative; }
   #termWrap { position: absolute; inset: 0; padding: 8px 6px 4px 10px; }
   #term { width: 100%; height: 100%; }
+  #stage.chatOn #termWrap { visibility: hidden !important; }
+  #chatWrap { position: absolute; inset: 0; display: none; flex-direction: column; background: var(--bg); }
+  #stage.chatOn #chatWrap { display: flex; }
+  #chatLog { flex: 1; overflow-y: auto; padding: 18px 0 8px; }
+  #chatLog > * { max-width: 760px; margin: 0 auto 12px; padding: 0 20px; }
+  .msg { line-height: 1.55; white-space: pre-wrap; word-break: break-word; font-size: 14px; }
+  .msg.user { background: var(--raised); border-radius: 10px; padding: 8px 12px; width: fit-content; max-width: 600px; margin-left: auto; margin-right: max(20px, calc((100% - 760px) / 2 + 20px)); }
+  .msg code { background: var(--panel); border-radius: 4px; padding: 1px 5px; font: 12.5px ui-monospace, Menlo, monospace; }
+  .msg pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 8px 0; white-space: pre; }
+  .msg pre code { background: none; padding: 0; }
+  .tool { font-size: 12px; color: var(--dim); }
+  .tool > summary { cursor: pointer; list-style: none; display: flex; gap: 8px; align-items: baseline; }
+  .tool > summary::-webkit-details-marker { display: none; }
+  .tool .tname { color: var(--accent); font-weight: 600; white-space: nowrap; }
+  .tool .tsum { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tool pre { margin: 6px 0 0; padding: 8px 10px; background: var(--panel); border-radius: 6px; max-height: 240px; overflow: auto; white-space: pre-wrap; font: 11.5px ui-monospace, Menlo, monospace; }
+  .chatImg { max-width: min(520px, 100%); border-radius: 8px; border: 1px solid var(--line); display: block; }
+  #chatStatus { max-width: 760px; margin: 0 auto; padding: 0 20px 6px; width: 100%; box-sizing: border-box; color: var(--dim); font-size: 12px; min-height: 18px; }
+  #chatStatus.blocked { color: var(--needs); }
+  #chatBar { border-top: 1px solid var(--line); padding: 10px 20px 14px; }
+  #chatBar > div { max-width: 760px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
+  #chatInput { flex: 1; resize: none; min-height: 38px; max-height: 160px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; font: 14px -apple-system, system-ui, sans-serif; }
+  #chatInput:focus { outline: none; border-color: var(--accent); }
   #placeholder { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; color: var(--dim); line-height: 1.6; padding: 24px; }
   #placeholder.show { display: flex; }
   #placeholder .btn { margin-top: 10px; }
@@ -139,6 +167,10 @@
   .chipSm .dot { margin: 0; width: 7px; height: 7px; }
   .bar { width: 46px; height: 4px; border-radius: 2px; background: var(--bg); overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--accent); }
+  .segBar { display: flex; gap: 2px; width: 70px; height: 4px; }
+  .segBar i { flex: 1; border-radius: 1px; background: var(--bg); }
+  .segBar i.done { background: var(--accent); }
+  .cardDoing { color: var(--dim); font-size: 12px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cardActions { display: flex; gap: 6px; margin-top: 8px; }
   .cardActions .btn { padding: 2px 9px; font-size: 12px; }
   a.pr { color: var(--accent); text-decoration: none; }
@@ -158,6 +190,19 @@
   #drawerButtons select { background: var(--raised); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; }
   .sessLink { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; }
   .sessLink:hover { color: var(--accent); }
+  #keysBtn { background: var(--raised); border: 1px solid var(--line); border-radius: 7px; color: var(--dim); padding: 4px 8px; cursor: pointer; font: inherit; font-size: 11px; }
+  #keysBtn:hover { color: var(--fg); border-color: var(--accent); }
+  #keysBack { display: none; position: fixed; inset: 0; background: #0009; z-index: 30; align-items: flex-start; justify-content: center; padding-top: 8vh; }
+  #keysBack.show { display: flex; }
+  #keys { width: min(860px, 92vw); max-height: 84vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px 20px; box-shadow: 0 12px 40px #0008; }
+  #keys h2 { margin: 0 0 4px; font-size: 15px; }
+  #keys .sub { color: var(--dim); font-size: 12px; margin-bottom: 12px; }
+  #keysGrid { columns: 2 340px; column-gap: 28px; }
+  .keySec { break-inside: avoid; margin-bottom: 16px; }
+  .keySec h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .keyRow { display: flex; gap: 12px; align-items: baseline; padding: 3px 0; }
+  .keyRow kbd { flex: 0 0 auto; min-width: 74px; font: inherit; font-size: 12px; color: var(--fg); background: var(--raised); border: 1px solid var(--line); border-radius: 5px; padding: 1px 7px; text-align: center; white-space: nowrap; }
+  .keyRow span { color: var(--dim); }
   #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #3a1d14; color: #ffd9cc; border: 1px solid #ff8a5c66; padding: 8px 14px; border-radius: 9px; font-size: 12px; display: none; z-index: 40; max-width: 70vw; }
   #toast.show { display: block; }
 </style>
@@ -167,6 +212,7 @@
   <div id="omniModes"><button class="omniMode on" data-mode="switch" title="Find a session or task">Switch</button><button class="omniMode" data-mode="new" title="New session (+)">New</button><button class="omniMode" data-mode="task" title="Capture a task (#)">Task</button><button class="omniMode" data-mode="ask" title="Ask Claude a quick question (?)">Ask</button><button class="omniMode" data-mode="review" title="Pull requests to review (!)">Review</button></div>
   <input id="omni" autocomplete="off" spellcheck="false">
   <span id="omniHint"></span>
+  <button id="keysBtn" title="Keyboard shortcuts (⌘/)">⌘/</button>
   <div id="omniList"></div>
 </div>
 <div id="app">
@@ -180,6 +226,7 @@
       <span id="title">Shepherd</span><span id="chip" hidden></span>
       <span id="spacer"></span>
       <span id="meta"></span>
+      <button id="viewBtn" class="btn" hidden title="Switch between the terminal and a chat view of this session (⌘E)">Chat</button>
       <button id="resumeBtn" class="btn primary" hidden>Resume</button>
       <button id="doneBtn" class="btn primary" hidden title="Finish this task: its session writes a result, then ends">Done</button>
       <button id="closeBtn" class="btn" hidden title="End this session but keep the task open">End session</button>
@@ -187,6 +234,11 @@
     <div id="stage">
       <div id="banner">Disconnected, reconnecting…</div>
       <div id="termWrap"><div id="term"></div></div>
+      <div id="chatWrap">
+        <div id="chatLog"></div>
+        <div id="chatStatus"></div>
+        <div id="chatBar"><div><textarea id="chatInput" rows="1" placeholder="Message Claude (Enter to send, Shift+Enter for a new line)"></textarea><button id="chatSend" class="btn primary">Send</button></div></div>
+      </div>
       <div id="placeholder"><div id="placeholderText"></div></div>
     </div>
 
@@ -207,6 +259,7 @@
 </div>
 <div id="toast"></div>
 <div id="viewBack"><div id="viewBox"><h2><span id="viewTitle"></span><button class="btn" id="viewClose">Close (Esc)</button></h2><pre id="viewText"></pre></div></div>
+<div id="keysBack"><div id="keys"><h2>Keyboard shortcuts</h2><div class="sub">⌘/ or Esc to close</div><div id="keysGrid"></div></div></div>
 <div id="sheetBack">
   <div id="sheet">
     <h2>New Claude session</h2>
@@ -236,6 +289,7 @@
   let attachedHolder = null;    // holder id this page is attached to
   let ws = null, alive = false, lastRx = 0, hbTimer = null, retryTimer = null, retries = 0, myId = null, driver = null;
   let pendingSelectHolder = null;
+  let chatOn = false, chatFor = null, chatOffset = null, chatTimer = null, chatBusy = false;
   const holderOf = (sid) => holders.find((h) => h.claudeSessionID === sid && h.liveness === "live");
   const interruptedOf = (sid) => holders.find((h) => h.claudeSessionID === sid && h.liveness === "interrupted");
   const sessionById = (sid) => sessions.find((s) => s.id === sid);
@@ -259,7 +313,7 @@
 
   function proposed() { try { const d = fit.proposeDimensions(); return d && d.cols > 1 ? { cols: d.cols, rows: d.rows } : { cols: 100, rows: 30 }; } catch { return { cols: 100, rows: 30 }; } }
   let view = "sessions";
-  function focusTerm() { if (document.activeElement && document.activeElement.id === "omni") return; if (view === "sessions" && !$("sheetBack").classList.contains("show") && document.hasFocus()) term.focus(); }
+  function focusTerm() { if (chatOn) return; if (document.activeElement && document.activeElement.id === "omni") return; if (view === "sessions" && !$("sheetBack").classList.contains("show") && document.hasFocus()) term.focus(); }
   function sendCtl(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
   function sendBytes(str) { if (ws && ws.readyState === 1 && attachedHolder) ws.send(enc.encode(str)); }
   window.__send = sendBytes;   // the native host types dropped file paths through this
@@ -272,7 +326,7 @@
     // handler for keydown and for the keypress after it, so both are swallowed or the keypress still submits.
     if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) { if (e.type === "keydown") sendBytes("\x1b\r"); return false; }
     // our own shortcuts must not also be typed into the agent
-    if (e.metaKey && !e.ctrlKey && !e.altKey && (/^[1-9]$/.test(e.key) || e.key === "n" || e.key === "b" || e.key === "k")) return false;
+    if (e.metaKey && !e.ctrlKey && !e.altKey && (/^[1-9]$/.test(e.key) || e.key === "n" || e.key === "b" || e.key === "k" || e.key === "/")) return false;
     return true;
   });
   // A full-screen program that tracks the mouse scrolls itself, so the wheel has to reach it as mouse events. xterm sends
@@ -393,6 +447,51 @@
       default: return "Starting";
     }
   }
+  // Sidebar groups: pinned first, then by how recently a session was used. Within a group, sessions that need you come first.
+  const ACTIVE_WITHIN = 4 * 3600, RECENT_WITHIN = 7 * 86400;
+  const ATTENTION_RANK = { blocked: 0, interrupted: 1, done: 2, working: 3, idle: 4, unknown: 5 };
+  const openGroups = new Set();
+  const taskOf = (s) => s.task_id != null ? tasks.find((t) => t.id === s.task_id) : null;
+  function groupOf(s) {
+    const t = taskOf(s);
+    if (t && t.pinned) return "pinned";
+    const kind = stateOf(s);
+    const age = s.last_activity ? Date.now() / 1000 - s.last_activity : Infinity;
+    if (needsYou(kind) || kind === "working" || age < ACTIVE_WITHIN) return "active";
+    return age < RECENT_WITHIN ? "recent" : "inactive";
+  }
+  function sidebarOrder() {
+    const groups = [{ id: "pinned", label: "Pinned", items: [] }, { id: "active", label: "Active", items: [] }, { id: "recent", label: "Recent", items: [] }, { id: "inactive", label: "Inactive", items: [] }];
+    sessions.forEach((s) => groups.find((g) => g.id === groupOf(s)).items.push(s));
+    groups.forEach((g) => g.items.sort((a, b) => (ATTENTION_RANK[stateOf(a)] ?? 9) - (ATTENTION_RANK[stateOf(b)] ?? 9) || (b.last_activity || 0) - (a.last_activity || 0)));
+    return groups;
+  }
+  const displayed = () => sidebarOrder().flatMap((g) => (g.id === "inactive" && !openGroups.has("inactive") ? [] : g.items));
+  async function togglePin(s) {
+    const t = taskOf(s); if (!t) return;
+    try { await api("/api/tasks/" + t.id + "/pin", "POST", { pinned: !t.pinned }); await loadTasks(); render(); } catch (e) { toast(e.message); }
+  }
+  function sessionRow(s) {
+    const kind = stateOf(s);
+    const row = document.createElement("div"); row.className = "row" + (s.id === selected ? " sel" : "");
+    const dot = document.createElement("span"); dot.className = "dot " + kind;
+    const text = document.createElement("div"); text.className = "rowText";
+    const t = document.createElement("div"); t.className = "rowTitle"; t.textContent = s.title;
+    const sub = document.createElement("div"); sub.className = "rowSub" + (kind === "blocked" ? " needs" : "");
+    sub.textContent = kind === "blocked" ? labelOf(kind, s) + (s.summary ? ": " + s.summary : "") : (s.summary && kind !== "working" ? s.summary : labelOf(kind, s));
+    text.append(t, sub);
+    row.append(dot, text);
+    const task = taskOf(s);
+    if (task) {
+      const pin = document.createElement("span"); pin.className = "pin" + (task.pinned ? " on" : ""); pin.textContent = "📌"; pin.title = task.pinned ? "Unpin" : "Pin";
+      pin.addEventListener("click", (e) => { e.stopPropagation(); togglePin(s); });
+      row.appendChild(pin);
+    }
+    const idx = displayed().indexOf(s);
+    if (idx >= 0 && idx < 9) { const k = document.createElement("span"); k.className = "key"; k.textContent = "⌘" + (idx + 1); row.appendChild(k); }
+    row.addEventListener("click", () => select(s.id, { announce: true }));
+    return row;
+  }
   function render() {
     const list = $("list");
     list.textContent = "";
@@ -401,19 +500,15 @@
       e.textContent = "No sessions yet. Start one with + New, or start a task from the panel.";
       list.appendChild(e);
     }
-    sessions.forEach((s, i) => {
-      const kind = stateOf(s);
-      const row = document.createElement("div"); row.className = "row" + (s.id === selected ? " sel" : "");
-      const dot = document.createElement("span"); dot.className = "dot " + kind;
-      const text = document.createElement("div"); text.className = "rowText";
-      const t = document.createElement("div"); t.className = "rowTitle"; t.textContent = s.title;
-      const sub = document.createElement("div"); sub.className = "rowSub" + (kind === "blocked" ? " needs" : "");
-      sub.textContent = kind === "blocked" ? labelOf(kind, s) + (s.summary ? ": " + s.summary : "") : (s.summary && kind !== "working" ? s.summary : labelOf(kind, s));
-      text.append(t, sub);
-      row.append(dot, text);
-      if (i < 9) { const k = document.createElement("span"); k.className = "key"; k.textContent = "⌘" + (i + 1); row.appendChild(k); }
-      row.addEventListener("click", () => select(s.id, { announce: true }));
-      list.appendChild(row);
+    sidebarOrder().forEach((g) => {
+      if (!g.items.length) return;
+      const collapsed = g.id === "inactive" && !openGroups.has("inactive");
+      const head = document.createElement("div"); head.className = "groupHead";
+      head.textContent = g.label + " · " + g.items.length + (g.id === "inactive" ? (collapsed ? "  ▸" : "  ▾") : "");
+      if (g.id === "inactive") { head.classList.add("toggle"); head.addEventListener("click", () => { openGroups.has("inactive") ? openGroups.delete("inactive") : openGroups.add("inactive"); render(); }); }
+      list.appendChild(head);
+      if (collapsed) return;
+      g.items.forEach((s) => list.appendChild(sessionRow(s)));
     });
     renderHeader();
   }
@@ -421,7 +516,7 @@
     const s = selected && sessionById(selected);
     const chip = $("chip");
     if (!s) {
-      $("title").textContent = "Shepherd"; chip.hidden = true; $("resumeBtn").hidden = true; $("closeBtn").hidden = true; $("doneBtn").hidden = true;
+      $("title").textContent = "Shepherd"; $("viewBtn").hidden = true; chatStop(); chip.hidden = true; $("resumeBtn").hidden = true; $("closeBtn").hidden = true; $("doneBtn").hidden = true;
       showPlaceholder(sessions.length ? "Pick a session." : "No sessions yet.\nStart one with + New.");
       return;
     }
@@ -432,10 +527,83 @@
     $("doneBtn").hidden = s.task_id == null;
     const live = !!holderOf(s.id);
     $("resumeBtn").hidden = live || kind !== "interrupted";
+    $("viewBtn").hidden = !live;
+    syncChat(s, kind);
     if (live) { hidePlaceholder(); }
     else if (kind === "interrupted") { showPlaceholder("This session was interrupted (the Mac restarted or its holder stopped).\nResume continues the same conversation."); }
     else { showPlaceholder("Connecting…"); }
   }
+  // ---- chat view: a read layer over the session's transcript; the terminal stays attached underneath ----
+  const chatModes = (() => { try { return JSON.parse(localStorage.getItem("shepherd.chatModes") || "{}"); } catch { return {}; } })();
+  const saveChatModes = () => { try { localStorage.setItem("shepherd.chatModes", JSON.stringify(chatModes)); } catch {} };
+  const esc = (t) => t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  function md(text) {
+    const parts = text.split(/```[^\n]*\n?/);
+    return parts.map((p, i) => i % 2 ? "<pre><code>" + esc(p.replace(/\n$/, "")) + "</code></pre>"
+      : esc(p).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")).join("");
+  }
+  function chatStop() { clearInterval(chatTimer); chatTimer = null; $("stage").classList.remove("chatOn"); chatOn = false; chatFor = null; chatOffset = null; $("chatLog").textContent = ""; }
+  function syncChat(s, kind) {
+    const want = !!chatModes[s.id] && !!holderOf(s.id);
+    $("viewBtn").textContent = want ? "Terminal" : "Chat";
+    if (chatFor !== s.id) { chatStop(); chatFor = s.id; }
+    if (want && !chatOn) {
+      chatOn = true; $("stage").classList.add("chatOn"); chatPoll(); chatTimer = setInterval(chatPoll, 1000);
+      setTimeout(() => $("chatInput").focus(), 0);
+    } else if (!want && chatOn) { const f = chatFor; chatStop(); chatFor = f; focusTerm(); }
+    const st = $("chatStatus");
+    const blocked = kind === "blocked";
+    st.className = blocked ? "blocked" : "";
+    st.textContent = blocked ? "Claude is waiting on an answer. Switch to Terminal to respond." : kind === "working" ? (s.activity || "Working…") : "";
+  }
+  async function chatPoll() {
+    if (chatBusy || !chatOn || !chatFor) return;
+    chatBusy = true;
+    const sid = chatFor;
+    try {
+      const r = await fetch("/api/sessions/" + encodeURIComponent(sid) + "/chat" + (chatOffset == null ? "" : "?after=" + chatOffset));
+      if (!r.ok || sid !== chatFor) return;
+      const page = await r.json();
+      chatOffset = page.offset;
+      if (page.items.length) chatAppend(page.items);
+    } catch {} finally { chatBusy = false; }
+  }
+  function chatAppend(items) {
+    const log = $("chatLog");
+    const atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+    for (const it of items) {
+      if (it.kind === "text") {
+        const d = document.createElement("div"); d.className = "msg " + it.role; d.innerHTML = md(it.text); log.appendChild(d);
+      } else if (it.kind === "tool") {
+        const d = document.createElement("details"); d.className = "tool"; d.dataset.use = it.toolUseID || "";
+        d.innerHTML = "<summary><span class='tname'></span><span class='tsum'></span></summary>";
+        d.querySelector(".tname").textContent = it.tool; d.querySelector(".tsum").textContent = it.text || ""; log.appendChild(d);
+      } else if (it.kind === "result") {
+        const d = it.toolUseID && [...log.querySelectorAll("details.tool")].reverse().find((x) => x.dataset.use === it.toolUseID);
+        if (d && it.text) { const pre = document.createElement("pre"); pre.textContent = it.text; d.appendChild(pre); }
+      } else if (it.kind === "image") {
+        const img = document.createElement("img"); img.className = "chatImg"; img.src = "data:" + it.mediaType + ";base64," + it.data; log.appendChild(img);
+      }
+    }
+    if (atEnd) log.scrollTop = log.scrollHeight;
+  }
+  function toggleView() {
+    if (!selected || !holderOf(selected)) return;
+    chatModes[selected] = !chatModes[selected]; saveChatModes();
+    const s = sessionById(selected); if (s) { syncChat(s, stateOf(s)); }
+  }
+  function chatSend() {
+    const el = $("chatInput"), text = el.value.trim();
+    if (!text || !selected) return;
+    el.value = ""; el.style.height = "";
+    fetch("/api/sessions/" + encodeURIComponent(selected) + "/prompt", { method: "POST", body: JSON.stringify({ text }) }).then(() => setTimeout(chatPoll, 400)).catch(() => {});
+  }
+  $("viewBtn").addEventListener("click", toggleView);
+  $("chatSend").addEventListener("click", chatSend);
+  $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend(); } });
+  $("chatInput").addEventListener("input", (e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(160, e.target.scrollHeight) + "px"; });
+  window.addEventListener("keydown", (e) => { if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === "e") { e.preventDefault(); e.stopPropagation(); toggleView(); } }, true);
+
   function showPlaceholder(text) { $("placeholderText").textContent = text; $("placeholderText").style.whiteSpace = "pre-line"; $("placeholder").classList.add("show"); $("termWrap").style.visibility = "hidden"; }
   function hidePlaceholder() { $("placeholder").classList.remove("show"); $("termWrap").style.visibility = "visible"; focusTerm(); }
 
@@ -471,7 +639,7 @@
     setTimeout(() => sendCtl({ type: "resize", cols: d.cols, rows: d.rows }), 50);
     renderHeader();
   }
-  function selectByIndex(n) { const s = sessions[n]; if (s) select(s.id, { announce: true }); }
+  function selectByIndex(n) { const s = displayed()[n]; if (s) select(s.id, { announce: true }); }
 
   $("resumeBtn").addEventListener("click", () => {
     if (!selected) return;
@@ -510,6 +678,38 @@
     sendCtl(msg);
   });
   $("sheet").addEventListener("keydown", (e) => { if (e.key === "Enter") $("sheetStart").click(); if (e.key === "Escape") closeSheet(); });
+
+  // ---- shortcut reminder --------------------------------------------------------------------------
+  const KEYS = [
+    ["Anywhere", [["Hyper+D", "Bring up the dashboard with the bar ready (configurable as hotkey.dashboard)"], ["⌘K", "Go to the bar"], ["⌘B", "Switch between Sessions and Board"], ["⌘1 – ⌘9", "Jump to the nth session"], ["⌘N", "New session (folder and title)"], ["⌘W", "Hide the window (sessions keep running)"], ["⌘/", "This list"]]],
+    ["The bar: modes", [["+", "New: start a session in a folder"], ["#", "Task: title, then a folder, then it starts"], ["?", "Ask: a quick read-only question"], ["!", "Review: pull requests"], ["Tab", "Next mode (Shift+Tab goes back)"], ["⌫", "On an empty bar, back to Switch"], ["Esc", "Clear, then leave the bar"]]],
+    ["Switch (default)", [["type", "Find a session, a task, or any old task by what it holds"], ["⏎", "Go to it, or resume the task"], ["⌘⏎", "Pick a task up fresh from its notes"], ["⌘D", "Mark the task done"]]],
+    ["Task and Ask", [["⏎", "Task: choose a folder and start. Ask: send, then follow up"], ["⌘⏎", "Task: just add to the Inbox. Ask: continue in a real session"], ["⌘⇧⏎", "Task: add a subtask to the one in view"]]],
+    ["Review", [["⏎", "Open the PR on GitHub"], ["⌘⏎", "Review it in a session (or go to the open one)"], ["⌘⌫", "Ignore it, or restore it"], ["@  %", "Start with @ for your own PRs, % for ignored ones"]]],
+    ["Board", [["← → ↑ ↓", "Move between cards"], ["Space", "Open or close the details drawer"], ["⏎", "Start, resume or go to its session"], ["[  ]", "Move the card back or forward a column"], ["S  D  E", "Add a subtask, mark done, edit"], ["Esc", "Close the drawer"]]],
+    ["In a session", [["⇧⏎", "New line in the message"], ["⌥ drag", "Select text (then ⌘C)"], ["⌘V", "Paste; an image pastes as an image"], ["drop", "Drop a file to type its path"]]],
+  ];
+  function buildKeys() {
+    const grid = $("keysGrid"); if (grid.childNodes.length) return;
+    for (const [name, rows] of KEYS) {
+      const sec = document.createElement("div"); sec.className = "keySec";
+      const h = document.createElement("h3"); h.textContent = name; sec.appendChild(h);
+      for (const [k, what] of rows) { const r = document.createElement("div"); r.className = "keyRow"; const kb = document.createElement("kbd"); kb.textContent = k; const sp = document.createElement("span"); sp.textContent = what; r.append(kb, sp); sec.appendChild(r); }
+      grid.appendChild(sec);
+    }
+  }
+  function toggleKeys(on) {
+    const open = on === undefined ? !$("keysBack").classList.contains("show") : on;
+    if (open) { buildKeys(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
+    $("keysBack").classList.toggle("show", open);
+    if (!open) setTimeout(focusTerm, 60);
+  }
+  $("keysBtn").addEventListener("mousedown", (e) => { e.preventDefault(); toggleKeys(); });
+  $("keysBack").addEventListener("mousedown", (e) => { if (e.target === $("keysBack")) toggleKeys(false); });
+  window.addEventListener("keydown", (e) => {
+    if (e.metaKey && !e.ctrlKey && !e.altKey && e.key === "/") { e.preventDefault(); e.stopPropagation(); toggleKeys(); return; }
+    if (e.key === "Escape" && $("keysBack").classList.contains("show")) { e.preventDefault(); e.stopPropagation(); toggleKeys(false); }
+  }, true);
 
   // ---- keyboard -----------------------------------------------------------------------------------
   window.addEventListener("keydown", (e) => {
@@ -586,7 +786,8 @@
 
   async function loadTasks() {
     try { tasks = await api("/api/tasks"); } catch { return; }
-    renderBoard();
+    render();
+    if (view === "board") renderBoard();
     if (drawerId != null) loadDrawer(drawerId, true);
   }
 
@@ -613,12 +814,14 @@
       const n = document.createElement("span"); n.textContent = t.subtasks_done + "/" + t.subtasks_total + " subtasks";
       meta.append(bar, n);
     } else if (t.progress_total > 0) {
-      const bar = document.createElement("span"); bar.className = "bar";
-      const i = document.createElement("i"); i.style.width = Math.round(100 * t.progress_done / t.progress_total) + "%"; bar.appendChild(i);
+      const bar = document.createElement("span"); bar.className = "segBar";
+      for (const d of t.plan_steps || []) { const i = document.createElement("i"); if (d) i.className = "done"; bar.appendChild(i); }
       const n = document.createElement("span"); n.textContent = t.progress_done + "/" + t.progress_total;
       meta.append(bar, n);
     }
     const live = bestState(sessionsOf(t));
+    const doing = live && live.kind === "working" && live.session.activity ? live.session.activity : (t.status === "active" ? t.next_step : null);
+    if (doing) { const d = document.createElement("div"); d.className = "cardDoing"; d.textContent = doing; d.title = doing; el.appendChild(d); }
     if (t.finishing) meta.appendChild(chip("working", "Wrapping up…"));
     else if (live) meta.appendChild(chip(live.kind, stateText(live.kind)));
     else if (t.status === "active") meta.appendChild(chip("idle", "No live session"));
@@ -905,7 +1108,7 @@
     }
   }, true);
 
-  setInterval(() => { if (view === "board") loadTasks(); }, 3000);
+  setInterval(loadTasks, 3000);
 
   // ---- omnibar ------------------------------------------------------------------------------------
   const MODES = ["switch", "new", "task", "ask", "review"];
@@ -1143,6 +1346,7 @@
   })(performance.now());
 
   if (location.hash === "#board") setView("board");
+  if (location.hash === "#keys") toggleKeys(true);
   watchEvents();
   connect();
   refresh();

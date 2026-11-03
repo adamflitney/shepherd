@@ -223,6 +223,18 @@ struct TaskStoreTests {
         #expect(text.contains("sessions: [s1]"))
     }
 
+    @Test func pinningSurvivesAReloadAndUnpinningRemovesTheField() throws {
+        let store = makeStore()
+        let t = try store.create(NewTask(title: "a"), now: now)
+        #expect(store.get(t.id)?.pinned == false)
+        try store.update(t.id, now: now) { $0.setPinned(true) }
+        #expect(store.get(t.id)?.pinned == true)
+        try store.update(t.id, now: now) { $0.setPinned(false) }
+        #expect(store.get(t.id)?.pinned == false)
+        let text = try String(contentsOf: store.directory.appendingPathComponent("0001-a.md"), encoding: .utf8)
+        #expect(!text.contains("pinned"))
+    }
+
     @Test func findsTasksByLinkedSessionId() throws {
         let store = makeStore()
         try store.create(NewTask(title: "a"), now: now)

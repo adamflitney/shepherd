@@ -27,6 +27,8 @@ public struct AttentionState: Hashable, Sendable {
     public var blocker: Blocker?
     public var progress: TaskProgress?
     public var summary: String?
+    /// A plain-English line for what a working session is doing right now, read from its transcript.
+    public var activity: String?
     /// Labeled choices for a `needsAnswer` blocker whose source was a
     /// structured question (Claude Code's `AskUserQuestion` tool), in the
     /// same order Claude Code numbers them - a client can offer real
@@ -45,6 +47,7 @@ public struct AttentionState: Hashable, Sendable {
         blocker: Blocker? = nil,
         progress: TaskProgress? = nil,
         summary: String? = nil,
+        activity: String? = nil,
         options: [String]? = nil,
         optionsAllowMultiple: Bool = false,
         since: Date? = nil
@@ -53,6 +56,7 @@ public struct AttentionState: Hashable, Sendable {
         self.blocker = blocker
         self.progress = progress
         self.summary = summary
+        self.activity = activity
         self.options = options
         self.optionsAllowMultiple = optionsAllowMultiple
         self.since = since
